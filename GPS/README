@@ -1,0 +1,4 @@
+dotnet add package Microsoft.Windows.SDK.Contracts
+dotnet add package Microsoft.Web.WebView2
+dotnet add package Microsoft.Windows.SDK.Contracts
+# Cài full package
