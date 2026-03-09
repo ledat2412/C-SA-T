@@ -15,78 +15,132 @@ public class OsmMapPage : ContentPage
     {
         Title = "OpenStreetMap (Leaflet)";
 
-        _status = new Label { Text = "Chưa lấy vị trí", FontSize = 14 };
+        _status = new Label
+        {
+            Text = "Chưa lấy vị trí",
+            FontSize = 14
+        };
 
-        var btnLocate = new Button { Text = "📍 Lấy GPS & đưa lên bản đồ" };
+        var btnLocate = new Button
+        {
+            Text = "📍 Lấy GPS & đưa lên bản đồ"
+        };
         btnLocate.Clicked += async (_, __) => await LocateAndUpdateAsync();
 
-        var btnHcm = new Button { Text = "🏙️ Về HCM (demo)" };
+        var btnHcm = new Button
+        {
+            Text = "🏙️ Về HCM (demo)"
+        };
         btnHcm.Clicked += async (_, __) => await SetMarkerAsync(10.7769, 106.7009, "TP.HCM");
 
         _web = new WebView
         {
-            Source = new HtmlWebViewSource { Html = BuildLeafletHtml() },
+            Source = new HtmlWebViewSource
+            {
+                Html = BuildLeafletHtml()
+            },
             HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Fill
         };
 
-        Content = new VerticalStackLayout
+        var grid = new Grid
         {
             Padding = 12,
-            Spacing = 10,
-            Children = { _status, btnLocate, btnHcm, _web }
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
+            }
         };
+
+        grid.Add(_status);
+        Grid.SetRow(_status, 0);
+
+        grid.Add(btnLocate);
+        Grid.SetRow(btnLocate, 1);
+
+        grid.Add(btnHcm);
+        Grid.SetRow(btnHcm, 2);
+
+        grid.Add(_web);
+        Grid.SetRow(_web, 3);
+
+        Content = grid;
     }
 
     private static string BuildLeafletHtml()
     {
-        // Leaflet từ CDN (không cần key). Cần mạng để tải tile OSM + leaflet.
         return @"
 <!doctype html>
 <html>
 <head>
   <meta charset='utf-8' />
   <meta name='viewport' content='width=device-width, initial-scale=1.0' />
-  <link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-        integrity='sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=' crossorigin=''/>
-  <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        integrity='sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=' crossorigin=''></script>
+
+  <link rel='stylesheet'
+        href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' />
+
+  <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+
   <style>
-    html, body { height:100%; margin:0; }
-    #map { height:100vh; width:100%; }
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
   </style>
 </head>
 <body>
-<div id='map'></div>
+  <div id='map'></div>
 
-<script>
-  // Default: TP.HCM
-  var map = L.map('map').setView([10.7769, 106.7009], 13);
+  <script>
+    var map = L.map('map').setView([10.7769, 106.7009], 13);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
 
-  var marker = null;
+    var marker = null;
 
-  function setMarker(lat, lon, label) {
-    if (marker) {
-      marker.setLatLng([lat, lon]);
-      if (label) marker.bindPopup(label);
-    } else {
-      marker = L.marker([lat, lon]).addTo(map);
-      if (label) marker.bindPopup(label).openPopup();
+    function setMarker(lat, lon, label) {
+      if (marker) {
+        marker.setLatLng([lat, lon]);
+        if (label) {
+          marker.bindPopup(label).openPopup();
+        }
+      } else {
+        marker = L.marker([lat, lon]).addTo(map);
+        if (label) {
+          marker.bindPopup(label).openPopup();
+        }
+      }
+
+      map.setView([lat, lon], 16);
+
+      setTimeout(function () {
+        map.invalidateSize();
+      }, 200);
+
+      return true;
     }
-    map.setView([lat, lon], 16);
-    return true;
-  }
 
-  function panTo(lat, lon, zoom) {
-    map.setView([lat, lon], zoom || map.getZoom());
-    return true;
-  }
-</script>
+    function panTo(lat, lon, zoom) {
+      map.setView([lat, lon], zoom || map.getZoom());
+
+      setTimeout(function () {
+        map.invalidateSize();
+      }, 200);
+
+      return true;
+    }
+
+    setTimeout(function () {
+      map.invalidateSize();
+    }, 300);
+  </script>
 </body>
 </html>";
     }
@@ -97,6 +151,7 @@ public class OsmMapPage : ContentPage
         {
             _status.Text = "Đang xin quyền vị trí...";
             var permission = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+
             if (permission != PermissionStatus.Granted)
             {
                 _status.Text = "❌ Không có quyền vị trí.";
@@ -113,7 +168,7 @@ public class OsmMapPage : ContentPage
                 return;
             }
 
-            _status.Text = $"✅ {loc.Latitude:F6}, {loc.Longitude:F6} (±{loc.Accuracy}m)";
+            _status.Text = $"✅ {loc.Latitude:F6}, {loc.Longitude:F6} (±{loc.Accuracy?.ToString("F0") ?? "?"}m)";
             await SetMarkerAsync(loc.Latitude, loc.Longitude, "Vị trí hiện tại");
         }
         catch (FeatureNotEnabledException)
@@ -132,12 +187,10 @@ public class OsmMapPage : ContentPage
 
     private async Task SetMarkerAsync(double lat, double lon, string label)
     {
-        // Ensure dot decimal for JS
-        var latStr = lat.ToString("F6", CultureInfo.InvariantCulture);
-        var lonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
-        label = label.Replace("'", "\\'");
+        string latStr = lat.ToString("F6", CultureInfo.InvariantCulture);
+        string lonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
+        string safeLabel = (label ?? string.Empty).Replace("'", "\\'");
 
-        // Gọi function JS trong trang
-        await _web.EvaluateJavaScriptAsync($"setMarker({latStr}, {lonStr}, '{label}');");
+        await _web.EvaluateJavaScriptAsync($"setMarker({latStr}, {lonStr}, '{safeLabel}');");
     }
 }
