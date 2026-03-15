@@ -3,7 +3,8 @@ using System.Text;
 using System.Threading.Tasks;
 
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.ApplicationModel;
+using Permissions = Microsoft.Maui.ApplicationModel.Permissions;
+using PermissionStatus = Microsoft.Maui.ApplicationModel.PermissionStatus;
 
 using Microsoft.Maui.Maps;
 using Microsoft.Maui.Controls.Maps;

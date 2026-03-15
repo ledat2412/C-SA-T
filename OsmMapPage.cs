@@ -1,19 +1,24 @@
-﻿using System;
-using System.Globalization;
+using System;
 using System.Threading.Tasks;
-using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Controls.Maps;
+using Microsoft.Maui.Devices.Sensors;
+using Microsoft.Maui.Maps;
+using Permissions = Microsoft.Maui.ApplicationModel.Permissions;
+using PermissionStatus = Microsoft.Maui.ApplicationModel.PermissionStatus;
 
 namespace MauiApp1;
 
-public class OsmMapPage : ContentPage
+public partial class OsmMapPage : ContentPage
 {
-    private readonly WebView _web;
+    private readonly Microsoft.Maui.Controls.Maps.Map _map;
     private readonly Label _status;
 
     public OsmMapPage()
     {
-        Title = "OpenStreetMap (Leaflet)";
+        Title = "Google Map";
+
+        var defaultCenter = new Location(10.7769, 106.7009); // TP.HCM
 
         _status = new Label
         {
@@ -31,17 +36,26 @@ public class OsmMapPage : ContentPage
         {
             Text = "🏙️ Về HCM (demo)"
         };
-        btnHcm.Clicked += async (_, __) => await SetMarkerAsync(10.7769, 106.7009, "TP.HCM");
-
-        _web = new WebView
+        btnHcm.Clicked += (_, __) =>
         {
-            Source = new HtmlWebViewSource
-            {
-                Html = BuildLeafletHtml()
-            },
-            HorizontalOptions = LayoutOptions.Fill,
-            VerticalOptions = LayoutOptions.Fill
+            ShowLocation(defaultCenter, "TP.HCM", "Demo vị trí trung tâm TP.HCM");
         };
+
+        _map = new Microsoft.Maui.Controls.Maps.Map(
+            MapSpan.FromCenterAndRadius(defaultCenter, Distance.FromKilometers(2)))
+        {
+            IsShowingUser = false,
+            VerticalOptions = LayoutOptions.Fill,
+            HorizontalOptions = LayoutOptions.Fill
+        };
+
+        _map.Pins.Add(new Pin
+        {
+            Label = "TP.HCM",
+            Address = "Demo",
+            Type = PinType.Place,
+            Location = defaultCenter
+        });
 
         var grid = new Grid
         {
@@ -55,94 +69,17 @@ public class OsmMapPage : ContentPage
             }
         };
 
-        grid.Add(_status);
         Grid.SetRow(_status, 0);
-
-        grid.Add(btnLocate);
         Grid.SetRow(btnLocate, 1);
-
-        grid.Add(btnHcm);
         Grid.SetRow(btnHcm, 2);
+        Grid.SetRow(_map, 3);
 
-        grid.Add(_web);
-        Grid.SetRow(_web, 3);
+        grid.Children.Add(_status);
+        grid.Children.Add(btnLocate);
+        grid.Children.Add(btnHcm);
+        grid.Children.Add(_map);
 
         Content = grid;
-    }
-
-    private static string BuildLeafletHtml()
-    {
-        return @"
-<!doctype html>
-<html>
-<head>
-  <meta charset='utf-8' />
-  <meta name='viewport' content='width=device-width, initial-scale=1.0' />
-
-  <link rel='stylesheet'
-        href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' />
-
-  <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
-
-  <style>
-    html, body, #map {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-  </style>
-</head>
-<body>
-  <div id='map'></div>
-
-  <script>
-    var map = L.map('map').setView([10.7769, 106.7009], 13);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    var marker = null;
-
-    function setMarker(lat, lon, label) {
-      if (marker) {
-        marker.setLatLng([lat, lon]);
-        if (label) {
-          marker.bindPopup(label).openPopup();
-        }
-      } else {
-        marker = L.marker([lat, lon]).addTo(map);
-        if (label) {
-          marker.bindPopup(label).openPopup();
-        }
-      }
-
-      map.setView([lat, lon], 16);
-
-      setTimeout(function () {
-        map.invalidateSize();
-      }, 200);
-
-      return true;
-    }
-
-    function panTo(lat, lon, zoom) {
-      map.setView([lat, lon], zoom || map.getZoom());
-
-      setTimeout(function () {
-        map.invalidateSize();
-      }, 200);
-
-      return true;
-    }
-
-    setTimeout(function () {
-      map.invalidateSize();
-    }, 300);
-  </script>
-</body>
-</html>";
     }
 
     private async Task LocateAndUpdateAsync()
@@ -159,17 +96,24 @@ public class OsmMapPage : ContentPage
             }
 
             _status.Text = "Đang lấy GPS...";
-            var request = new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(10));
-            var loc = await Geolocation.GetLocationAsync(request);
 
-            if (loc is null)
+            var location = await Geolocation.Default.GetLastKnownLocationAsync();
+            location ??= await Geolocation.Default.GetLocationAsync(
+                new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(10)));
+
+            if (location is null)
             {
-                _status.Text = "⚠️ Không lấy được vị trí (null).";
+                _status.Text = "⚠️ Không lấy được vị trí hiện tại.";
                 return;
             }
 
-            _status.Text = $"✅ {loc.Latitude:F6}, {loc.Longitude:F6} (±{loc.Accuracy?.ToString("F0") ?? "?"}m)";
-            await SetMarkerAsync(loc.Latitude, loc.Longitude, "Vị trí hiện tại");
+            var myLocation = new Location(location.Latitude, location.Longitude);
+            var accuracy = location.Accuracy?.ToString("F0") ?? "?";
+
+            ShowLocation(
+                myLocation,
+                "Vị trí hiện tại",
+                $"✅ {location.Latitude:F6}, {location.Longitude:F6} (±{accuracy}m)");
         }
         catch (FeatureNotEnabledException)
         {
@@ -185,12 +129,18 @@ public class OsmMapPage : ContentPage
         }
     }
 
-    private async Task SetMarkerAsync(double lat, double lon, string label)
+    private void ShowLocation(Location location, string pinLabel, string statusText)
     {
-        string latStr = lat.ToString("F6", CultureInfo.InvariantCulture);
-        string lonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
-        string safeLabel = (label ?? string.Empty).Replace("'", "\\'");
+        _map.Pins.Clear();
+        _map.Pins.Add(new Pin
+        {
+            Label = pinLabel,
+            Type = PinType.Place,
+            Location = location
+        });
 
-        await _web.EvaluateJavaScriptAsync($"setMarker({latStr}, {lonStr}, '{safeLabel}');");
+        _map.IsShowingUser = pinLabel == "Vị trí hiện tại";
+        _map.MoveToRegion(MapSpan.FromCenterAndRadius(location, Distance.FromMeters(400)));
+        _status.Text = statusText;
     }
 }

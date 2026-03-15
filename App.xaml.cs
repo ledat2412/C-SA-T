@@ -1,12 +1,13 @@
-﻿namespace MauiApp1;
+﻿using Microsoft.Maui.Controls;
+
+namespace MauiApp1;
 
 public partial class App : Application
 {
     public App()
     {
         InitializeComponent();
-    }
 
-    protected override Window CreateWindow(IActivationState? activationState)
-        => new Window(new NavigationPage(new OsmMapPage()));
+        MainPage = new NavigationPage(new LoginPage());
+    }
 }
