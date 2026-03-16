@@ -1,4 +1,4 @@
-<api type="debug" assembly-name="Microsoft.Maui.Maps" mvid="c7ccd607cfc143e9b653b53816ecc1de">
+<api type="debug" assembly-name="Microsoft.Maui.Maps" mvid="cd9255954f304fa3b224e8713da8e413">
   <java-to-managed>
     <entry java-name="crc64a5df8ade113ad624/MapCallbackHandler" managed-name="Microsoft.Maui.Maps.Handlers.MapCallbackHandler, Microsoft.Maui.Maps" managed-type-token-id="33554455" />
   </java-to-managed>
