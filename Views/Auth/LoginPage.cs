@@ -1,4 +1,4 @@
-﻿using MauiApp1.Views.Maps;
+﻿using MauiApp1.Services;
 using MauiApp1.Views.Maps;
 using Microsoft.Maui.Controls;
 using System;
@@ -7,12 +7,16 @@ namespace MauiApp1.Views.Auth;
 
 public class LoginPage : ContentPage
 {
+    private readonly MySqlService _mySqlService;
+
     readonly Entry _usernameEntry;
     readonly Entry _passwordEntry;
     readonly Label _statusLabel;
 
-    public LoginPage()
+    public LoginPage(MySqlService mySqlService)
     {
+        _mySqlService = mySqlService;
+
         Title = "Login";
 
         var title = new Label
@@ -66,22 +70,37 @@ public class LoginPage : ContentPage
 
     private async void OnLoginClicked(object? sender, EventArgs e)
     {
-        string username = _usernameEntry.Text?.Trim() ?? "";
-        string password = _passwordEntry.Text?.Trim() ?? "";
+        try
+        {
+            string username = _usernameEntry.Text?.Trim() ?? "";
+            string password = _passwordEntry.Text?.Trim() ?? "";
 
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-        {
-            _statusLabel.Text = "Vui lòng nhập đầy đủ tài khoản và mật khẩu";
-            return;
-        }
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                _statusLabel.Text = "Vui lòng nhập đầy đủ tài khoản và mật khẩu";
+                return;
+            }
 
-        if (username == "admin" && password == "123")
-        {
-            await Navigation.PushAsync(new OsmMapPage());
+            _statusLabel.Text = "Đang kiểm tra đăng nhập...";
+
+            bool isValid = await _mySqlService.LoginAsync(username, password);
+
+            if (isValid)
+            {
+                _statusLabel.Text = "Đăng nhập thành công";
+                await DisplayAlert("Thông báo", "Đăng nhập thành công", "OK");
+                await Navigation.PushAsync(new OsmMapPage());
+            }
+            else
+            {
+                _statusLabel.Text = "Sai tài khoản hoặc mật khẩu";
+                await DisplayAlert("Thông báo", "Sai tài khoản hoặc mật khẩu", "OK");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            _statusLabel.Text = "Sai tài khoản hoặc mật khẩu";
+            _statusLabel.Text = "Lỗi kết nối database";
+            await DisplayAlert("Lỗi", ex.ToString(), "OK");
         }
     }
 }

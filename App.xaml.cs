@@ -1,13 +1,12 @@
 ﻿using MauiApp1.Views.Auth;
-using Microsoft.Maui.Controls;
 
 namespace MauiApp1;
 
 public partial class App : Application
 {
-    public App()
+    public App(LoginPage loginPage)
     {
         InitializeComponent();
-        MainPage = new NavigationPage(new LoginPage());
+        MainPage = new NavigationPage(loginPage);
     }
 }

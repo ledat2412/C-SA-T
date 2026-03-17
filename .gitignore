@@ -4,3 +4,4 @@ obj/
 *.user
 *.suo
 Secret.props
+Secret/
