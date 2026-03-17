@@ -1,2 +1,1 @@
 database: gianhang
-password:
