@@ -43,6 +43,11 @@ public class LoginPage : ContentPage
             Text = "Đăng nhập"
         };
 
+        var registerButton = new Button
+        {
+            Text = "Đăng ký"
+        };
+
         _statusLabel = new Label
         {
             Text = "",
@@ -51,6 +56,7 @@ public class LoginPage : ContentPage
         };
 
         loginButton.Clicked += OnLoginClicked;
+        registerButton.Clicked += OnRegisterClicked;
 
         Content = new VerticalStackLayout
         {
@@ -63,6 +69,7 @@ public class LoginPage : ContentPage
                 _usernameEntry,
                 _passwordEntry,
                 loginButton,
+                registerButton,
                 _statusLabel
             }
         };
@@ -88,7 +95,6 @@ public class LoginPage : ContentPage
             if (isValid)
             {
                 _statusLabel.Text = "Đăng nhập thành công";
-                await DisplayAlert("Thông báo", "Đăng nhập thành công", "OK");
                 await Navigation.PushAsync(new OsmMapPage());
             }
             else
@@ -102,5 +108,10 @@ public class LoginPage : ContentPage
             _statusLabel.Text = "Lỗi kết nối database";
             await DisplayAlert("Lỗi", ex.ToString(), "OK");
         }
+    }
+
+    private async void OnRegisterClicked(object? sender, EventArgs e)
+    {
+        await Navigation.PushAsync(new RegisterPage(_mySqlService));
     }
 }
