@@ -1,45 +1,47 @@
 # 📁 Cấu trúc project MauiApp1
 
+```
 MauiApp1/
-├── Main/                              # Thành phần khởi động và cấu hình ứng dụng
-│   ├── App.xaml.cs                    # Khởi tạo App, thiết lập trang gốc
-│   └── MauiProgram.cs                 # Cấu hình MAUI builder, fonts, services
+├── Main/
+│   ├── App.xaml.cs
+│   └── MauiProgram.cs
 │
-├── Models/                            # Các model dữ liệu dùng chung
-│   ├── PoiItem.cs                     # Model điểm POI (tên, tọa độ, ảnh...)
-│   ├── SheetState.cs                  # Trạng thái bottom sheet
-│   └── TaiKhoan.cs                    # Model tài khoản người dùng
+├── Models/
+│   ├── PoiItem.cs
+│   ├── SheetState.cs
+│   └── TaiKhoan.cs
 │
-├── Platforms/                         # Mã đặc thù theo từng nền tảng
-│   ├── Android/                       # Cấu hình Android
-│   ├── iOS/                           # Cấu hình iOS
-│   ├── Windows/                       # Cấu hình Windows
-│   └── MacCatalyst/                   # Cấu hình Mac
+├── Platforms/
+│   ├── Android/
+│   ├── iOS/
+│   ├── Windows/
+│   └── MacCatalyst/
 │
-├── Properties/                        # Thuộc tính build / launch
-│   └── launchSettings.json            # Cấu hình debug
+├── Properties/
+│   └── launchSettings.json
 │
-├── Resources/                         # Tài nguyên giao diện
-│   ├── Fonts/                         # Font chữ
-│   ├── Images/                        # Ảnh, icon, banner
-│   ├── AppIcon/                       # Icon app
-│   ├── Splash/                        # Splash screen
-│   ├── Raw/                           # File tĩnh khác
-│   └── Styles/                        # Theme, màu sắc
+├── Resources/
+│   ├── Fonts/
+│   ├── Images/
+│   ├── AppIcon/
+│   ├── Splash/
+│   ├── Raw/
+│   └── Styles/
 │
-├── Services/                          # Tầng xử lý dữ liệu
-│   └── MysqlServices.cs               # Kết nối MySQL, login
+├── Services/
+│   └── MysqlServices.cs
 │
-├── Views/                             # Tầng giao diện
-│   ├── Auth/                          # Xác thực
-│   │   ├── LoginPage.cs               # Đăng nhập
-│   │   └── RegisterPage.cs            # Đăng ký
+├── Views/
+│   ├── Auth/
+│   │   ├── LoginPage.cs
+│   │   └── RegisterPage.cs
 │   │
-│   └── Maps/                          # Bản đồ / GPS / POI
-│       ├── GpsPage.cs                 # Demo GPS
-│       ├── MapGpsPage.cs              # Map + GPS
-│       ├── OsmMapPage.cs              # Map cơ bản
-│       └── PoiMapPage.cs              # Map chính + khám phá
+│   └── Maps/
+│       ├── GpsPage.cs
+│       ├── MapGpsPage.cs
+│       ├── OsmMapPage.cs
+│       └── PoiMapPage.cs
 │
-├── .gitignore                         # Bỏ qua file khi push
-└── MauiApp1.csproj                    # File project chính
+├── .gitignore
+└── MauiApp1.csproj
+```
