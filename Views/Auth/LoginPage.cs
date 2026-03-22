@@ -1,51 +1,48 @@
-﻿using MauiApp1.Services;
-using MauiApp1.Views.Maps;
+﻿using System;
 using Microsoft.Maui.Controls;
-using System;
+using MauiApp1.Services;
+using MauiApp1.Views.Maps;
 
 namespace MauiApp1.Views.Auth;
 
 public class LoginPage : ContentPage
 {
-    private readonly MySqlService _mySqlService;
+    private Entry _usernameEntry;
+    private Entry _passwordEntry;
+    private Label _statusLabel;
 
-    readonly Entry _usernameEntry;
-    readonly Entry _passwordEntry;
-    readonly Label _statusLabel;
+    private readonly MySqlService _db = new MySqlService();
 
-    public LoginPage(MySqlService mySqlService)
+    public LoginPage()
     {
-        _mySqlService = mySqlService;
-
-        Title = "Login";
-
-        var title = new Label
-        {
-            Text = "Đăng nhập",
-            FontSize = 28,
-            HorizontalOptions = LayoutOptions.Center,
-            FontAttributes = FontAttributes.Bold
-        };
+        Title = "Đăng nhập";
 
         _usernameEntry = new Entry
         {
-            Placeholder = "Nhập username"
+            Placeholder = "Tên đăng nhập"
         };
 
         _passwordEntry = new Entry
         {
-            Placeholder = "Nhập password",
+            Placeholder = "Mật khẩu",
             IsPassword = true
         };
 
         var loginButton = new Button
         {
-            Text = "Đăng nhập"
+            Text = "Đăng nhập",
+            BackgroundColor = Colors.Blue,
+            TextColor = Colors.White
         };
+        loginButton.Clicked += OnLoginClicked;
 
         var registerButton = new Button
         {
             Text = "Đăng ký"
+        };
+        registerButton.Clicked += async (_, __) =>
+        {
+            await DisplayAlert("Thông báo", "Chưa làm chức năng đăng ký", "OK");
         };
 
         _statusLabel = new Label
@@ -55,17 +52,19 @@ public class LoginPage : ContentPage
             HorizontalOptions = LayoutOptions.Center
         };
 
-        loginButton.Clicked += OnLoginClicked;
-        registerButton.Clicked += OnRegisterClicked;
-
         Content = new VerticalStackLayout
         {
-            Padding = 24,
-            Spacing = 16,
+            Padding = 30,
+            Spacing = 15,
             VerticalOptions = LayoutOptions.Center,
             Children =
             {
-                title,
+                new Label
+                {
+                    Text = "LOGIN",
+                    FontSize = 24,
+                    HorizontalOptions = LayoutOptions.Center
+                },
                 _usernameEntry,
                 _passwordEntry,
                 loginButton,
@@ -75,43 +74,39 @@ public class LoginPage : ContentPage
         };
     }
 
-    private async void OnLoginClicked(object? sender, EventArgs e)
+    private async void OnLoginClicked(object sender, EventArgs e)
     {
+        string username = _usernameEntry.Text?.Trim();
+        string password = _passwordEntry.Text?.Trim();
+
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+        {
+            _statusLabel.Text = "Vui lòng nhập đầy đủ thông tin";
+            return;
+        }
+
+        _statusLabel.Text = "Đang đăng nhập...";
+
         try
         {
-            string username = _usernameEntry.Text?.Trim() ?? "";
-            string password = _passwordEntry.Text?.Trim() ?? "";
-
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-            {
-                _statusLabel.Text = "Vui lòng nhập đầy đủ tài khoản và mật khẩu";
-                return;
-            }
-
-            _statusLabel.Text = "Đang kiểm tra đăng nhập...";
-
-            bool isValid = await _mySqlService.LoginAsync(username, password);
+            bool isValid = await _db.LoginAsync(username, password);
 
             if (isValid)
             {
                 _statusLabel.Text = "Đăng nhập thành công";
-                await Navigation.PushAsync(new OsmMapPage());
+
+                // 👉 chuyển sang trang chính (map)
+                await Navigation.PushAsync(new PoiMapPage());
             }
             else
             {
                 _statusLabel.Text = "Sai tài khoản hoặc mật khẩu";
-                await DisplayAlert("Thông báo", "Sai tài khoản hoặc mật khẩu", "OK");
             }
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = "Lỗi kết nối database";
-            await DisplayAlert("Lỗi", ex.ToString(), "OK");
+            _statusLabel.Text = "Lỗi kết nối DB";
+            await DisplayAlert("Error", ex.Message, "OK");
         }
-    }
-
-    private async void OnRegisterClicked(object? sender, EventArgs e)
-    {
-        await Navigation.PushAsync(new RegisterPage(_mySqlService));
     }
 }
