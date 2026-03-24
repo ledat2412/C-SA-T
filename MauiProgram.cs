@@ -1,5 +1,7 @@
 ﻿using MauiApp1.Services;
+using MauiApp1.Views;
 using MauiApp1.Views.Auth;
+using MauiApp1.Views.Maps;
 using Microsoft.Extensions.Logging;
 
 namespace MauiApp1;
@@ -18,8 +20,17 @@ public static class MauiProgram
             });
 
         builder.Services.AddSingleton<MySqlService>();
+
+        builder.Services.AddSingleton<TaiKhoanService>();
+        builder.Services.AddSingleton<GianHangService>();
+        builder.Services.AddSingleton<MonAnService>();
+        builder.Services.AddSingleton<HinhAnhChiNhanhService>();
+        builder.Services.AddSingleton<PoiService>();
+
         builder.Services.AddSingleton<LoginPage>();
-        builder.Services.AddSingleton<App>();
+        builder.Services.AddTransient<GianHangPage>();
+        builder.Services.AddTransient<MonAnPage>();
+        builder.Services.AddTransient<PoiMapPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

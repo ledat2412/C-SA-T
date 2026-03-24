@@ -1,4 +1,6 @@
-﻿using Microsoft.Maui.Controls.Maps;
+﻿using MauiApp1.Models;
+using MauiApp1.Services;
+using Microsoft.Maui.Controls.Maps;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Maps;
 using Map = Microsoft.Maui.Controls.Maps.Map;
@@ -7,6 +9,7 @@ namespace MauiApp1.Views.Maps;
 
 public class PoiMapPage : ContentPage
 {
+    readonly PoiService _poiService;
     readonly Map _map;
 
     readonly Grid _bottomSheet;
@@ -16,12 +19,12 @@ public class PoiMapPage : ContentPage
     readonly Label _titleLabel;
     readonly Label _subtitleLabel;
 
-    readonly List<PoiItem> _pois;
+    readonly List<PoiItem> _pois = new();
 
-    double _sheetHiddenY;   // Ẩn hoàn toàn, nằm dưới màn hình
-    double _sheetMiniY;     // Mốc thấp
-    double _sheetHalfY;     // Mốc giữa
-    double _sheetFullY;     // Mốc cao
+    double _sheetHiddenY;
+    double _sheetMiniY;
+    double _sheetHalfY;
+    double _sheetFullY;
 
     double _currentSheetY;
     double _panStartSheetY;
@@ -30,12 +33,12 @@ public class PoiMapPage : ContentPage
     bool _isAnimating;
     bool _isExploreVisible;
 
-    public PoiMapPage()
+    public PoiMapPage(PoiService poiService)
     {
+        _poiService = poiService;
+
         Title = "Khám phá";
         BackgroundColor = Colors.White;
-
-        _pois = CreateDemoPois();
 
         _map = CreateMap();
 
@@ -60,9 +63,6 @@ public class PoiMapPage : ContentPage
             Padding = new Thickness(16, 0, 16, 24)
         };
 
-        foreach (var poi in _pois)
-            _poiList.Children.Add(CreatePoiCard(poi));
-
         _poiScroll = new ScrollView
         {
             Content = _poiList
@@ -72,10 +72,13 @@ public class PoiMapPage : ContentPage
 
         Content = BuildLayout();
 
-        Loaded += (_, __) => InitializeSheetPositions();
-        SizeChanged += (_, __) => InitializeSheetPositions();
+        Loaded += async (_, __) =>
+        {
+            InitializeSheetPositions();
+            await LoadRealPoisAsync();
+        };
 
-        AddPinsToMap();
+        SizeChanged += (_, __) => InitializeSheetPositions();
     }
 
     View BuildLayout()
@@ -101,19 +104,42 @@ public class PoiMapPage : ContentPage
         };
     }
 
-    void AddPinsToMap()
+    async Task LoadRealPoisAsync()
     {
-        _map.Pins.Clear();
-
-        foreach (var poi in _pois)
+        try
         {
-            _map.Pins.Add(new Pin
+            _pois.Clear();
+            _poiList.Children.Clear();
+            _map.Pins.Clear();
+
+            var data = await _poiService.GetAllPoisAsync();
+
+            foreach (var poi in data)
             {
-                Label = poi.Title,
-                Address = poi.Subtitle,
-                Type = PinType.Place,
-                Location = new Location(poi.Latitude, poi.Longitude)
-            });
+                _pois.Add(poi);
+                _poiList.Children.Add(CreatePoiCard(poi));
+
+                _map.Pins.Add(new Pin
+                {
+                    Label = poi.Title,
+                    Address = poi.Subtitle,
+                    Type = PinType.Place,
+                    Location = new Location(poi.Latitude, poi.Longitude)
+                });
+            }
+
+            if (_pois.Count > 0)
+            {
+                var first = _pois[0];
+                _map.MoveToRegion(
+                    MapSpan.FromCenterAndRadius(
+                        new Location(first.Latitude, first.Longitude),
+                        Distance.FromKilometers(1)));
+            }
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Lỗi", $"Không tải được dữ liệu POI từ DB.\n{ex.Message}", "OK");
         }
     }
 
@@ -211,7 +237,7 @@ public class PoiMapPage : ContentPage
             VerticalOptions = LayoutOptions.Fill,
             HorizontalOptions = LayoutOptions.Fill,
             Children = { panel },
-            IsVisible = false // ban đầu tắt hẳn
+            IsVisible = false
         };
     }
 
@@ -387,8 +413,6 @@ public class PoiMapPage : ContentPage
 
             case GestureStatus.Running:
                 var nextY = _panStartSheetY + e.TotalY;
-
-                // Chỉ cho kéo trong vùng đang hiển thị, không cho kéo tuột xuống để ẩn
                 nextY = Math.Max(_sheetFullY, Math.Min(_sheetMiniY, nextY));
 
                 _currentSheetY = nextY;
@@ -566,53 +590,5 @@ public class PoiMapPage : ContentPage
         _subtitleLabel.Text = poi.Subtitle;
 
         await Task.CompletedTask;
-    }
-
-    List<PoiItem> CreateDemoPois()
-    {
-        return new List<PoiItem>
-        {
-            new PoiItem
-            {
-                Title = "Bánh mì Minh Nhật",
-                Subtitle = "Bánh mì chảo, thịt nướng, pate nhà làm",
-                ImagePath = "food1.jpg",
-                Latitude = 10.762750,
-                Longitude = 106.659850
-            },
-            new PoiItem
-            {
-                Title = "Trà sữa Phố Ngọt",
-                Subtitle = "Hồng trà, trà sữa, topping tự chọn",
-                ImagePath = "food2.jpg",
-                Latitude = 10.763180,
-                Longitude = 106.660650
-            },
-            new PoiItem
-            {
-                Title = "Cơm tấm Sài Gòn",
-                Subtitle = "Sườn bì chả, món trưa bình dân",
-                ImagePath = "food3.jpg",
-                Latitude = 10.761980,
-                Longitude = 106.661050
-            },
-            new PoiItem
-            {
-                Title = "Bún bò Huế Mệ An",
-                Subtitle = "Chả cua, bò tái, nước dùng đậm vị",
-                ImagePath = "dotnet_bot.png",
-                Latitude = 10.762210,
-                Longitude = 106.658980
-            }
-        };
-    }
-
-    public class PoiItem
-    {
-        public string Title { get; set; } = string.Empty;
-        public string Subtitle { get; set; } = string.Empty;
-        public string ImagePath { get; set; } = string.Empty;
-        public double Latitude { get; set; }
-        public double Longitude { get; set; }
     }
 }

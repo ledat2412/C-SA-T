@@ -7,19 +7,23 @@ namespace MauiApp1.Views.Auth;
 
 public class LoginPage : ContentPage
 {
+    private readonly TaiKhoanService _taiKhoanService;
+    private readonly PoiMapPage _poiMapPage;
+
     private Entry _usernameEntry;
     private Entry _passwordEntry;
     private Label _statusLabel;
 
-    private readonly MySqlService _db = new MySqlService();
-
-    public LoginPage()
+    public LoginPage(TaiKhoanService taiKhoanService, PoiMapPage poiMapPage)
     {
+        _taiKhoanService = taiKhoanService;
+        _poiMapPage = poiMapPage;
+
         Title = "Đăng nhập";
 
         _usernameEntry = new Entry
         {
-            Placeholder = "Tên đăng nhập"
+            Placeholder = "Tên đăng nhập hoặc email"
         };
 
         _passwordEntry = new Entry
@@ -74,12 +78,12 @@ public class LoginPage : ContentPage
         };
     }
 
-    private async void OnLoginClicked(object sender, EventArgs e)
+    private async void OnLoginClicked(object? sender, EventArgs e)
     {
-        string username = _usernameEntry.Text?.Trim();
-        string password = _passwordEntry.Text?.Trim();
+        string username = _usernameEntry.Text?.Trim() ?? "";
+        string password = _passwordEntry.Text?.Trim() ?? "";
 
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
             _statusLabel.Text = "Vui lòng nhập đầy đủ thông tin";
             return;
@@ -89,14 +93,12 @@ public class LoginPage : ContentPage
 
         try
         {
-            bool isValid = await _db.LoginAsync(username, password);
+            bool isValid = await _taiKhoanService.LoginAsync(username, password);
 
             if (isValid)
             {
                 _statusLabel.Text = "Đăng nhập thành công";
-
-                // 👉 chuyển sang trang chính (map)
-                await Navigation.PushAsync(new PoiMapPage());
+                await Navigation.PushAsync(_poiMapPage);
             }
             else
             {
