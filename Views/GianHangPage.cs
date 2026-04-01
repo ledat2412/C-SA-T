@@ -1,8 +1,13 @@
+<<<<<<< HEAD
 using MauiApp1.Models;
 using MauiApp1.Services;
 using Microsoft.Maui.Controls.PlatformConfiguration;
 using Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific;
 using Microsoft.Maui.Controls.Shapes;
+=======
+﻿using MauiApp1.Models;
+using MauiApp1.Services;
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 using System.Collections.ObjectModel;
 using System.Globalization;
 
@@ -19,6 +24,7 @@ namespace MauiApp1.Views
             _gianHangService = gianHangService;
 
             Title = "Danh sách gian hàng";
+<<<<<<< HEAD
             BackgroundColor = Colors.White;
             this.On<iOS>().SetUseSafeArea(false);
 
@@ -29,12 +35,19 @@ namespace MauiApp1.Views
                 TextColor = Colors.White,
                 CornerRadius = 12,
                 Padding = new Thickness(14, 10)
+=======
+
+            var btnLoad = new Button
+            {
+                Text = "Tải dữ liệu gian hàng"
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
             };
             btnLoad.Clicked += OnLoadClicked;
 
             _collectionView = new CollectionView
             {
                 ItemsSource = _items,
+<<<<<<< HEAD
                 SelectionMode = SelectionMode.None,
                 ItemTemplate = new DataTemplate(() =>
                 {
@@ -137,6 +150,35 @@ namespace MauiApp1.Views
             };
 
             var pageBody = new VerticalStackLayout
+=======
+                ItemTemplate = new DataTemplate(() =>
+                {
+                    var diaChi = new Label { FontAttributes = FontAttributes.Bold };
+                    diaChi.SetBinding(Label.TextProperty, "DiaChi");
+
+                    var moTa = new Label();
+                    moTa.SetBinding(Label.TextProperty, "MoTaChiNhanh");
+
+                    var toaDo = new Label();
+                    toaDo.SetBinding(Label.TextProperty,
+                        new Binding(path: ".", converter: new GianHangToaDoConverter()));
+
+                    return new VerticalStackLayout
+                    {
+                        Padding = 12,
+                        Spacing = 4,
+                        Children =
+                        {
+                            diaChi,
+                            moTa,
+                            toaDo
+                        }
+                    };
+                })
+            };
+
+            Content = new VerticalStackLayout
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
             {
                 Padding = 20,
                 Spacing = 12,
@@ -146,6 +188,7 @@ namespace MauiApp1.Views
                     _collectionView
                 }
             };
+<<<<<<< HEAD
 
             var root = new Grid
             {
@@ -246,10 +289,13 @@ namespace MauiApp1.Views
                 VerticalOptions = LayoutOptions.End,
                 HorizontalOptions = LayoutOptions.Fill
             };
+=======
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
         }
 
         private async void OnLoadClicked(object? sender, EventArgs e)
         {
+<<<<<<< HEAD
             try
             {
                 _items.Clear();
@@ -268,6 +314,14 @@ namespace MauiApp1.Views
             {
                 await DisplayAlert("Lỗi", $"Không tải được dữ liệu: {ex.Message}", "OK");
             }
+=======
+            _items.Clear();
+
+            var data = await _gianHangService.GetAllAsync();
+
+            foreach (var item in data)
+                _items.Add(item);
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
         }
     }
 

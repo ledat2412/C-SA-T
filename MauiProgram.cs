@@ -35,7 +35,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<MonAnService>();
         builder.Services.AddSingleton<HinhAnhChiNhanhService>();
         builder.Services.AddSingleton<PoiService>();
+
         builder.Services.AddSingleton<GoogleServiceAccountJsonProvider>();
+
 
         builder.Services.AddSingleton<LoginPage>();
         builder.Services.AddTransient<GianHangPage>();

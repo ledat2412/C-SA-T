@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 using MauiApp1.Models;
+=======
+﻿using MauiApp1.Models;
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 
 namespace MauiApp1.Services
 {
@@ -49,6 +53,7 @@ namespace MauiApp1.Services
         private string NormalizeImagePath(string? dbPath)
         {
             if (string.IsNullOrWhiteSpace(dbPath))
+<<<<<<< HEAD
                 return "dotnet_bot.png";
 
             if (!dbPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
@@ -61,3 +66,20 @@ namespace MauiApp1.Services
         }
     }
 }
+=======
+                return "chucchich.jpg";
+
+            // Nếu DB lưu tên file có sẵn trong Resources/Images
+            // ví dụ: chucchich.jpg, mypham.jpg, tet.jpg
+            if (!dbPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !dbPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return dbPath;
+            }
+
+            // Nếu DB lưu URL đầy đủ
+            return dbPath;
+        }
+    }
+}
+>>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
