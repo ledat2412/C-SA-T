@@ -1,4 +1,7 @@
-﻿using Microsoft.Maui.Controls.Maps;
+﻿using MauiApp1.Models;
+using MauiApp1.Services;
+using MauiApp1.Views;
+using Microsoft.Maui.Controls.Maps;
 using Microsoft.Maui.Controls.PlatformConfiguration;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Maps;
@@ -15,7 +18,11 @@ namespace MauiApp1.Views.Maps;
 
 public class PoiMapPage : ContentPage
 {
-    readonly Map _map;
+    private readonly GianHangService _gianHangService;
+    private readonly PoiService _poiService;
+    private readonly MonAnService _monAnService;
+    private readonly Map _map;
+    private readonly View _footer;
 
     // Sheet khám phá
     private readonly Grid _bottomSheet;
@@ -25,12 +32,36 @@ public class PoiMapPage : ContentPage
     private readonly Label _titleLabel;
     private readonly Label _subtitleLabel;
 
-    readonly List<PoiItem> _pois;
+    // Sheet chi tiết
+    private readonly Grid _detailSheet;
+    private Image _detailImage = null!;
+    private Label _detailTitle = null!;
+    private Label _detailAddress = null!;
+    private Label _detailDescription = null!;
+    private Label _detailAudioLabel = null!;
 
-    double _sheetHiddenY;   // Ẩn hoàn toàn, nằm dưới màn hình
-    double _sheetMiniY;     // Mốc thấp
-    double _sheetHalfY;     // Mốc giữa
-    double _sheetFullY;     // Mốc cao
+    private readonly List<PoiItem> _pois = new();
+
+    // Vị trí sheet khám phá
+    private double _sheetHiddenY;
+    private double _sheetMiniY;
+    private double _sheetHalfY;
+    private double _sheetFullY;
+
+    private double _currentSheetY;
+    private double _panStartSheetY;
+    private double _lastPanTotalY;
+    private double _lastPanDeltaY;
+
+    private bool _isLayoutReady;
+    private bool _isAnimating;
+    private bool _isExploreVisible;
+
+    // Vị trí sheet chi tiết
+    private double _detailHiddenY;
+    private double _detailMiniY;
+    private double _detailHalfY;
+    private double _detailFullY;
 
     private double _detailCurrentY;
     private double _detailPanStartY;
@@ -42,12 +73,15 @@ public class PoiMapPage : ContentPage
     private bool _isOpeningFoodGallery;
     private GianHang? _currentDetailGianHang;
 
-    public PoiMapPage()
+    public PoiMapPage(PoiService poiService, GianHangService gianHangService, MonAnService monAnService)
     {
+        _poiService = poiService;
+        _gianHangService = gianHangService;
+        _monAnService = monAnService;
+
         Title = "Khám phá";
         BackgroundColor = Colors.White;
-
-        _pois = CreateDemoPois();
+        iOSPage.SetUseSafeArea(this.On<Microsoft.Maui.Controls.PlatformConfiguration.iOS>(), false);
 
         _map = CreateMap();
 
@@ -118,23 +152,56 @@ public class PoiMapPage : ContentPage
         };
     }
 
-    void AddPinsToMap()
+    private async Task LoadRealPoisAsync()
     {
-        _map.Pins.Clear();
-
-        foreach (var poi in _pois)
+        try
         {
-            _map.Pins.Add(new Pin
+            _pois.Clear();
+            _poiList.Children.Clear();
+            _map.Pins.Clear();
+
+            var data = await _poiService.GetAllPoisAsync();
+
+            foreach (var poi in data)
             {
-                Label = poi.Title,
-                Address = poi.Subtitle,
-                Type = PinType.Place,
-                Location = new Location(poi.Latitude, poi.Longitude)
-            });
+                _pois.Add(poi);
+                _poiList.Children.Add(CreatePoiCard(poi));
+
+                var pin = new StyledPin
+                {
+                    Label = poi.Title,
+                    Address = poi.Subtitle,
+                    Type = PinType.Place,
+                    Location = new Location(poi.Latitude, poi.Longitude),
+                    Rating = 4.9,
+                    ImagePath = poi.ImagePath
+                };
+
+                pin.MarkerClicked += async (_, e) =>
+                {
+                    e.HideInfoWindow = true;
+                    await OpenDetailAsync(poi);
+                };
+
+                _map.Pins.Add(pin);
+            }
+
+            if (_pois.Count > 0)
+            {
+                var first = _pois[0];
+                _map.MoveToRegion(
+                    MapSpan.FromCenterAndRadius(
+                        new Location(first.Latitude, first.Longitude),
+                        Distance.FromKilometers(1)));
+            }
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Lỗi", $"Không tải được dữ liệu POI từ DB.\n{ex.Message}", "OK");
         }
     }
 
-    Grid CreateBottomSheet()
+    private Grid CreateBottomSheet()
     {
         var dragBar = new Border
         {
@@ -228,11 +295,285 @@ public class PoiMapPage : ContentPage
             VerticalOptions = LayoutOptions.Fill,
             HorizontalOptions = LayoutOptions.Fill,
             Children = { panel },
-            IsVisible = false // ban đầu tắt hẳn
+            IsVisible = false
         };
     }
 
-    View BuildFooter()
+    private Grid CreateDetailSheet()
+    {
+        _detailImage = new Image
+        {
+            Source = "dotnet_bot.png",
+            Aspect = Aspect.AspectFill,
+            HeightRequest = 250
+        };
+
+        var imageHeader = new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 250,
+            StrokeShape = new RoundRectangle
+            {
+                CornerRadius = new CornerRadius(28, 28, 0, 0)
+            },
+            Content = _detailImage
+        };
+
+        _detailTitle = new Label
+        {
+            Text = "Tên gian hàng",
+            FontSize = 24,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.Black
+        };
+
+        _detailAddress = new Label
+        {
+            Text = "Địa chỉ",
+            FontSize = 14,
+            TextColor = Colors.Gray
+        };
+
+        _detailDescription = new Label
+        {
+            Text = "Mô tả gian hàng",
+            FontSize = 15,
+            TextColor = Colors.Black,
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        _detailAudioLabel = new Label
+        {
+            Text = "Audio: chưa có",
+            FontSize = 13,
+            TextColor = Colors.Gray
+        };
+
+        var closeButton = new Button
+        {
+            Text = "Đóng",
+            BackgroundColor = Color.FromArgb("#E85D04"),
+            TextColor = Colors.White,
+            CornerRadius = 12,
+            Padding = new Thickness(16, 10)
+        };
+        closeButton.Clicked += async (_, __) => await HideDetailSheetAsync();
+
+        var dragBar = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Color.FromArgb("#D4D4D8"),
+            StrokeShape = new RoundRectangle { CornerRadius = 999 },
+            HeightRequest = 5,
+            WidthRequest = 48,
+            HorizontalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 10, 0, 10)
+        };
+
+        var dragArea = new Grid
+        {
+            HeightRequest = 34,
+            Children = { dragBar }
+        };
+
+        var pan = new PanGestureRecognizer();
+        pan.PanUpdated += OnDetailPanUpdated;
+        dragArea.GestureRecognizers.Add(pan);
+
+        var infoCard = new Border
+        {
+            Stroke = Color.FromArgb("#EEEEEE"),
+            StrokeShape = new RoundRectangle { CornerRadius = 20 },
+            BackgroundColor = Colors.White,
+            Padding = 16,
+            Margin = new Thickness(16, -20, 16, 0),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 8,
+                Children =
+                {
+                    _detailTitle,
+                    _detailAddress,
+                    _detailDescription
+                }
+            }
+        };
+
+        var playButton = new Button
+        {
+            Text = "▶ Phát",
+            BackgroundColor = Color.FromArgb("#E85D04"),
+            TextColor = Colors.White,
+            CornerRadius = 12,
+            Padding = new Thickness(16, 10)
+        };
+
+        var progressSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Value = 0
+        };
+
+        var currentTimeLabel = new Label
+        {
+            Text = "00:00",
+            FontSize = 12,
+            TextColor = Colors.Gray
+        };
+
+        var durationLabel = new Label
+        {
+            Text = "00:00",
+            FontSize = 12,
+            TextColor = Colors.Gray,
+            HorizontalOptions = LayoutOptions.End
+        };
+
+        var timeGrid = new Grid
+        {
+            ColumnDefinitions =
+    {
+        new ColumnDefinition(GridLength.Star),
+        new ColumnDefinition(GridLength.Auto)
+    }
+        };
+
+        timeGrid.Children.Add(currentTimeLabel);
+        Grid.SetColumn(currentTimeLabel, 0);
+
+        timeGrid.Children.Add(durationLabel);
+        Grid.SetColumn(durationLabel, 1);
+
+        var audioCard = new Border
+        {
+            Stroke = Color.FromArgb("#EEEEEE"),
+            StrokeShape = new RoundRectangle { CornerRadius = 20 },
+            BackgroundColor = Colors.White,
+            Padding = 16,
+            Margin = new Thickness(16, 0, 16, 0),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 12,
+                Children =
+        {
+            new Label
+            {
+                Text = "Thuyết minh audio",
+                FontSize = 18,
+                FontAttributes = FontAttributes.Bold,
+                TextColor = Colors.Black
+            },
+            playButton,
+            progressSlider,
+            timeGrid
+        }
+            }
+        };
+
+        var foodTitle = new Label
+        {
+            Text = "Một số hình ảnh món ăn",
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.Black,
+            Margin = new Thickness(16, 0, 16, 0)
+        };
+
+        var foodImages = new HorizontalStackLayout
+        {
+            Spacing = 12,
+            Padding = new Thickness(16, 0, 16, 0),
+            Children =
+            {
+                CreateDemoFoodImage(),
+                CreateDemoFoodImage(),
+                CreateDemoFoodImage()
+            }
+        };
+
+        var content = new ScrollView
+        {
+            Content = new VerticalStackLayout
+            {
+                Spacing = 14,
+                Padding = new Thickness(0, 0, 0, 96),
+                Children =
+                {
+                    imageHeader,
+                    infoCard,
+                    audioCard,
+                    foodTitle,
+                    foodImages,
+                    new VerticalStackLayout
+                    {
+                        Padding = new Thickness(16, 0, 16, 0),
+                        Children = { closeButton }
+                    }
+                }
+            }
+        };
+
+        var body = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Star }
+            }
+        };
+
+        body.Children.Add(dragArea);
+        body.Children.Add(content);
+        Grid.SetRow(content, 1);
+
+        var panel = new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Color.FromArgb("#FFF8F1"),
+            StrokeShape = new RoundRectangle
+            {
+                CornerRadius = new CornerRadius(28, 28, 0, 0)
+            },
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.14f,
+                Radius = 18,
+                Offset = new Point(0, -4)
+            },
+            Content = body,
+            VerticalOptions = LayoutOptions.Fill,
+            HorizontalOptions = LayoutOptions.Fill
+        };
+
+        return new Grid
+        {
+            VerticalOptions = LayoutOptions.Fill,
+            HorizontalOptions = LayoutOptions.Fill,
+            Children = { panel },
+            IsVisible = false,
+            InputTransparent = false
+        };
+    }
+
+    private View CreateDemoFoodImage()
+    {
+        return new Border
+        {
+            Stroke = Color.FromArgb("#EEEEEE"),
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            HeightRequest = 100,
+            WidthRequest = 140,
+            Content = new Image
+            {
+                Source = "dotnet_bot.png",
+                Aspect = Aspect.AspectFill
+            }
+        };
+    }
+
+    private View BuildFooter()
     {
         View BuildFooterItem(string emoji, string text, bool active, Func<Task>? onTap = null)
         {
@@ -476,9 +817,7 @@ public class PoiMapPage : ContentPage
                 _lastPanTotalY = e.TotalY;
 
                 var nextY = _panStartSheetY + e.TotalY;
-
-                // Chỉ cho kéo trong vùng đang hiển thị, không cho kéo tuột xuống để ẩn
-                nextY = Math.Max(_sheetFullY, Math.Min(_sheetMiniY, nextY));
+                nextY = Math.Max(_sheetFullY, Math.Min(_sheetHiddenY, nextY));
 
                 _currentSheetY = nextY;
                 _bottomSheet.TranslationY = _currentSheetY;
@@ -854,51 +1193,34 @@ public class PoiMapPage : ContentPage
         await Task.CompletedTask;
     }
 
-    List<PoiItem> CreateDemoPois()
+    private string NormalizeImagePath(string? dbPath)
     {
-        return new List<PoiItem>
+        if (string.IsNullOrWhiteSpace(dbPath))
+            return "mypham.jpg";
+
+        dbPath = dbPath.Trim();
+
+        // Nếu là URL (http)
+        if (dbPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            dbPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            new PoiItem
-            {
-                Title = "Bánh mì Minh Nhật",
-                Subtitle = "Bánh mì chảo, thịt nướng, pate nhà làm",
-                ImagePath = "food1.jpg",
-                Latitude = 10.762750,
-                Longitude = 106.659850
-            },
-            new PoiItem
-            {
-                Title = "Trà sữa Phố Ngọt",
-                Subtitle = "Hồng trà, trà sữa, topping tự chọn",
-                ImagePath = "food2.jpg",
-                Latitude = 10.763180,
-                Longitude = 106.660650
-            },
-            new PoiItem
-            {
-                Title = "Cơm tấm Sài Gòn",
-                Subtitle = "Sườn bì chả, món trưa bình dân",
-                ImagePath = "food3.jpg",
-                Latitude = 10.761980,
-                Longitude = 106.661050
-            },
-            new PoiItem
-            {
-                Title = "Bún bò Huế Mệ An",
-                Subtitle = "Chả cua, bò tái, nước dùng đậm vị",
-                ImagePath = "dotnet_bot.png",
-                Latitude = 10.762210,
-                Longitude = 106.658980
-            }
-        };
+            return dbPath;
+        }
+
+        // Nếu DB lưu kiểu "/images/abc.jpg" → lấy tên file
+        if (dbPath.Contains("/"))
+        {
+            dbPath = Path.GetFileName(dbPath);
+        }
+
+        // Nếu DB lưu đường dẫn Windows
+        if (dbPath.Contains("\\"))
+        {
+            dbPath = Path.GetFileName(dbPath);
+        }
+
+        return dbPath;
     }
 
-    public class PoiItem
-    {
-        public string Title { get; set; } = string.Empty;
-        public string Subtitle { get; set; } = string.Empty;
-        public string ImagePath { get; set; } = string.Empty;
-        public double Latitude { get; set; }
-        public double Longitude { get; set; }
-    }
+
 }

@@ -9,11 +9,7 @@ namespace MauiApp1.Views.Auth;
 public class LoginPage : ContentPage
 {
     private readonly TaiKhoanService _taiKhoanService;
-<<<<<<< HEAD
     private readonly IServiceProvider _serviceProvider;
-=======
-    private readonly PoiMapPage _poiMapPage;
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 
     private Entry _usernameEntry;
     private Entry _passwordEntry;
@@ -21,17 +17,10 @@ public class LoginPage : ContentPage
     private Button _loginButton;
     private bool _isLoggingIn;
 
-<<<<<<< HEAD
     public LoginPage(TaiKhoanService taiKhoanService, IServiceProvider serviceProvider)
     {
         _taiKhoanService = taiKhoanService;
         _serviceProvider = serviceProvider;
-=======
-    public LoginPage(TaiKhoanService taiKhoanService, PoiMapPage poiMapPage)
-    {
-        _taiKhoanService = taiKhoanService;
-        _poiMapPage = poiMapPage;
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 
         Title = "Đăng nhập";
 
@@ -94,18 +83,12 @@ public class LoginPage : ContentPage
 
     private async void OnLoginClicked(object? sender, EventArgs e)
     {
-<<<<<<< HEAD
         if (_isLoggingIn)
             return;
 
         string username = _usernameEntry.Text?.Trim() ?? "";
         string password = _passwordEntry.Text?.Trim() ?? "";
 
-=======
-        string username = _usernameEntry.Text?.Trim() ?? "";
-        string password = _passwordEntry.Text?.Trim() ?? "";
-
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
             _statusLabel.Text = "Vui lòng nhập đầy đủ thông tin";
@@ -123,12 +106,8 @@ public class LoginPage : ContentPage
             if (isValid)
             {
                 _statusLabel.Text = "Đăng nhập thành công";
-<<<<<<< HEAD
                 var poiMapPage = _serviceProvider.GetRequiredService<PoiMapPage>();
                 await Navigation.PushAsync(poiMapPage);
-=======
-                await Navigation.PushAsync(_poiMapPage);
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
             }
             else
             {

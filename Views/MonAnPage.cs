@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 using MauiApp1.Models;
-=======
-﻿using MauiApp1.Models;
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 using MauiApp1.Services;
 using System.Collections.ObjectModel;
 
@@ -24,11 +20,7 @@ namespace MauiApp1.Views
 
             _entryChiNhanh = new Entry
             {
-<<<<<<< HEAD
                 Placeholder = "Nhập ID gian hàng"
-=======
-                Placeholder = "Nhập IDChiNhanh"
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
             };
 
             var btnLoad = new Button
@@ -84,11 +76,7 @@ namespace MauiApp1.Views
 
             if (!int.TryParse(_entryChiNhanh.Text, out int idChiNhanh))
             {
-<<<<<<< HEAD
                 await DisplayAlert("Lỗi", "ID gian hàng không hợp lệ", "OK");
-=======
-                await DisplayAlert("Lỗi", "IDChiNhanh không hợp lệ", "OK");
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
                 return;
             }
 
@@ -98,8 +86,4 @@ namespace MauiApp1.Views
                 _items.Add(item);
         }
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb

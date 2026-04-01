@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 using MySqlConnector;
-=======
-﻿using MySqlConnector;
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
 
 namespace MauiApp1.Services
 {
@@ -22,15 +18,9 @@ namespace MauiApp1.Services
                 using var conn = _db.GetConnection();
                 await conn.OpenAsync();
 
-<<<<<<< HEAD
                 const string sql = @"
                     SELECT COUNT(*)
                     FROM taiKhoan
-=======
-                string sql = @"
-                    SELECT COUNT(*)
-                    FROM taikhoan
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
                     WHERE (username = @dangNhap OR email = @dangNhap)
                       AND matKhau = @matKhau
                       AND tinhTrang = 'hoat_dong'";
@@ -49,8 +39,4 @@ namespace MauiApp1.Services
             }
         }
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 2e8f476d66d60fa26b4337d437e259a134102afb
