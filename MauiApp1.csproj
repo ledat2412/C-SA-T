@@ -45,6 +45,7 @@
 		<MauiFont Include="Resources\Fonts\*" />
 
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+		<MauiAsset Include="Secret\project-*.json" LogicalName="service-account.json" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -52,6 +53,7 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="Microsoft.Maui.Controls.Maps" Version="$(MauiVersion)" />
 		<PackageReference Include="MySqlConnector" Version="2.5.0" />
+		<PackageReference Include="Plugin.Maui.Audio" Version="4.0.0" />
 	</ItemGroup>
 
 	<ItemGroup>

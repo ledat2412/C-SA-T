@@ -1,36 +1,57 @@
-﻿using MySqlConnector;
+using MySqlConnector;
+using System.Data;
 
 namespace MauiApp1.Services
 {
     public class MySqlService
     {
         private readonly string _connectionString =
-            "Server=10.0.2.2;Port=3306;Database=gianhang;User ID=root;Password=;";
+            "Server=10.0.2.2;Port=3307;Database=gianhang1;User ID=root;Password=bill599199;";
+
+        public MySqlConnection GetConnection()
+        {
+            return new MySqlConnection(_connectionString);
+        }
 
         public async Task<bool> TestConnectionAsync()
         {
-            using var conn = new MySqlConnection(_connectionString);
-            await conn.OpenAsync();
-            return true;
+            try
+            {
+                using var conn = GetConnection();
+                await conn.OpenAsync();
+                return conn.State == ConnectionState.Open;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
-        public async Task<bool> LoginAsync(string username, string password)
+        public async Task<bool> LoginAsync(string usernameOrEmail, string password)
         {
-            using var conn = new MySqlConnection(_connectionString);
-            await conn.OpenAsync();
+            try
+            {
+                using var conn = GetConnection();
+                await conn.OpenAsync();
 
-            string sql = @"
-                SELECT COUNT(*)
-                FROM TaiKhoan
-                WHERE email = @username
-                  AND mat_khau = @password";
+                const string query = @"
+                    SELECT COUNT(*)
+                    FROM taiKhoan
+                    WHERE (username = @u OR email = @u)
+                      AND matKhau = @p
+                      AND tinhTrang = 'hoat_dong'";
 
-            using var cmd = new MySqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue("@username", username);
-            cmd.Parameters.AddWithValue("@password", password);
+                using var cmd = new MySqlCommand(query, conn);
+                cmd.Parameters.AddWithValue("@u", usernameOrEmail);
+                cmd.Parameters.AddWithValue("@p", password);
 
-            var result = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            return result > 0;
+                var result = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                return result > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

@@ -2,24 +2,31 @@
 using Microsoft.Maui.Controls;
 using MauiApp1.Services;
 using MauiApp1.Views.Maps;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MauiApp1.Views.Auth;
 
 public class LoginPage : ContentPage
 {
+    private readonly TaiKhoanService _taiKhoanService;
+    private readonly IServiceProvider _serviceProvider;
+
     private Entry _usernameEntry;
     private Entry _passwordEntry;
     private Label _statusLabel;
+    private Button _loginButton;
+    private bool _isLoggingIn;
 
-    private readonly MySqlService _db = new MySqlService();
-
-    public LoginPage()
+    public LoginPage(TaiKhoanService taiKhoanService, IServiceProvider serviceProvider)
     {
+        _taiKhoanService = taiKhoanService;
+        _serviceProvider = serviceProvider;
+
         Title = "Đăng nhập";
 
         _usernameEntry = new Entry
         {
-            Placeholder = "Tên đăng nhập"
+            Placeholder = "Tên đăng nhập hoặc email"
         };
 
         _passwordEntry = new Entry
@@ -28,13 +35,13 @@ public class LoginPage : ContentPage
             IsPassword = true
         };
 
-        var loginButton = new Button
+        _loginButton = new Button
         {
             Text = "Đăng nhập",
             BackgroundColor = Colors.Blue,
             TextColor = Colors.White
         };
-        loginButton.Clicked += OnLoginClicked;
+        _loginButton.Clicked += OnLoginClicked;
 
         var registerButton = new Button
         {
@@ -67,36 +74,40 @@ public class LoginPage : ContentPage
                 },
                 _usernameEntry,
                 _passwordEntry,
-                loginButton,
+                _loginButton,
                 registerButton,
                 _statusLabel
             }
         };
     }
 
-    private async void OnLoginClicked(object sender, EventArgs e)
+    private async void OnLoginClicked(object? sender, EventArgs e)
     {
-        string username = _usernameEntry.Text?.Trim();
-        string password = _passwordEntry.Text?.Trim();
+        if (_isLoggingIn)
+            return;
 
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+        string username = _usernameEntry.Text?.Trim() ?? "";
+        string password = _passwordEntry.Text?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
             _statusLabel.Text = "Vui lòng nhập đầy đủ thông tin";
             return;
         }
 
+        _isLoggingIn = true;
+        _loginButton.IsEnabled = false;
         _statusLabel.Text = "Đang đăng nhập...";
 
         try
         {
-            bool isValid = await _db.LoginAsync(username, password);
+            bool isValid = await _taiKhoanService.LoginAsync(username, password);
 
             if (isValid)
             {
                 _statusLabel.Text = "Đăng nhập thành công";
-
-                // 👉 chuyển sang trang chính (map)
-                await Navigation.PushAsync(new PoiMapPage());
+                var poiMapPage = _serviceProvider.GetRequiredService<PoiMapPage>();
+                await Navigation.PushAsync(poiMapPage);
             }
             else
             {
@@ -107,6 +118,11 @@ public class LoginPage : ContentPage
         {
             _statusLabel.Text = "Lỗi kết nối DB";
             await DisplayAlert("Error", ex.Message, "OK");
+        }
+        finally
+        {
+            _isLoggingIn = false;
+            _loginButton.IsEnabled = true;
         }
     }
 }

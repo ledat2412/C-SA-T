@@ -1,9 +1,14 @@
-﻿namespace MauiApp1;
+﻿using MauiApp1.Views;
 
-public partial class AppShell : Shell
+namespace MauiApp1
 {
-    public AppShell()
+    public partial class AppShell : Shell
     {
-        InitializeComponent();
+        public AppShell()
+        {
+            InitializeComponent();
+
+            Routing.RegisterRoute(nameof(GianHangDetailPage), typeof(GianHangDetailPage));
+        }
     }
 }

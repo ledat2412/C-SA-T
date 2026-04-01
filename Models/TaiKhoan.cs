@@ -1,6 +1,6 @@
 ﻿namespace MauiApp1.Models
 {
-    public class tai_khoan
+    public class TaiKhoan
     {
         public int IDTaiKhoan { get; set; }
         public string Email { get; set; }

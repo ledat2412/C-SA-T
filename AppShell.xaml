@@ -11,17 +11,5 @@
         <ShellContent
             Title="Main"
             ContentTemplate="{DataTemplate main:MainPage}" />
-
-        <ShellContent
-            Title="GPS"
-            ContentTemplate="{DataTemplate maps:GpsPage}" />
-
-        <ShellContent
-            Title="Map GPS"
-            ContentTemplate="{DataTemplate maps:MapGpsPage}" />
-
-        <ShellContent
-            Title="OSM Map"
-            ContentTemplate="{DataTemplate maps:OsmMapPage}" />
     </TabBar>
 </Shell>
