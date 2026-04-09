@@ -1,0 +1,74 @@
+﻿using Google.Apis.Auth.OAuth2;
+using Google.Cloud.TextToSpeech.V1;
+
+namespace VinhKhanh.Services
+{
+    public class GoogleTtsService
+    {
+        private readonly IWebHostEnvironment _env;
+
+        public GoogleTtsService(IWebHostEnvironment env)
+        {
+            _env = env;
+        }
+
+        private (string GoogleLanguageCode, string VoiceName) GetVoice(string languageCode)
+        {
+            return languageCode.ToLower() switch
+            {
+                "vi" => ("vi-VN", "vi-VN-Standard-A"),
+                "en" => ("en-US", "en-US-Standard-C"),
+                "ko" => ("ko-KR", "ko-KR-Standard-A"),
+                "ja" => ("ja-JP", "ja-JP-Standard-A"),
+                _ => ("vi-VN", "vi-VN-Standard-A")
+            };
+        }
+
+        public async Task<string> GenerateSpeechAsync(string text, string fileName, string languageCode = "vi")
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("Text không được rỗng.");
+
+            var jsonPath = Path.Combine(_env.ContentRootPath, "Credentials", "service-account.json");
+
+            if (!File.Exists(jsonPath))
+                throw new FileNotFoundException("Không tìm thấy file service-account.json", jsonPath);
+
+            var credential = GoogleCredential.FromFile(jsonPath);
+
+            var client = new TextToSpeechClientBuilder
+            {
+                Credential = credential
+            }.Build();
+
+            var (googleLanguageCode, voiceName) = GetVoice(languageCode);
+
+            var response = await client.SynthesizeSpeechAsync(
+                new SynthesisInput
+                {
+                    Text = text
+                },
+                new VoiceSelectionParams
+                {
+                    LanguageCode = googleLanguageCode,
+                    Name = voiceName
+                },
+                new AudioConfig
+                {
+                    AudioEncoding = AudioEncoding.Mp3
+                });
+
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var folder = Path.Combine(webRoot, "audio");
+
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            var fullPath = Path.Combine(folder, fileName);
+
+            await File.WriteAllBytesAsync(fullPath, response.AudioContent.ToByteArray());
+
+            return $"/audio/{fileName}";
+        }
+    }
+}

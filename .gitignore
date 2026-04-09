@@ -1,0 +1,22 @@
+# Shared ignores for all projects in this repository
+
+# Build output
+**/bin/
+**/obj/
+
+# IDE / user-local files
+**/.vs/
+**/*.user
+**/*.suo
+
+# Local secret props
+**/Secrets.props
+**/Secret.props
+
+# App secret folders
+**/Secret/*.json
+!**/Secret/*.example.json
+
+# Service account credentials
+**/Credentials/service-account.json
+**/bin/**/Credentials/service-account.json

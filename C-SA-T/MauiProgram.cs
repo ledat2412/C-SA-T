@@ -1,0 +1,88 @@
+﻿using MauiApp1.Services;
+using MauiApp1.Utils;
+using MauiApp1.Views;
+using MauiApp1.Views.Maps;
+using Microsoft.Extensions.Logging;
+using Plugin.Maui.Audio;
+#if ANDROID
+using MauiApp1.Platforms.Android.Maps;
+#endif
+
+namespace MauiApp1;
+
+public static class MauiProgram
+{
+    public static MauiApp CreateMauiApp()
+    {
+        var builder = MauiApp.CreateBuilder();
+        builder
+            .UseMauiApp<App>()
+            .UseMauiMaps()
+            .ConfigureFonts(fonts =>
+            {
+                fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+            });
+
+#if ANDROID
+        MapPinStyling.Configure();
+#endif
+
+        var baseUrl = BackendUrlResolver.GetBaseUrl();
+
+        builder.Services.AddSingleton<HttpClient>(sp =>
+        {
+            var handler = new HttpClientHandler();
+
+#if DEBUG
+            handler.ServerCertificateCustomValidationCallback =
+                (message, cert, chain, errors) => true;
+#endif
+
+            return new HttpClient(handler)
+            {
+                BaseAddress = new Uri(baseUrl)
+            };
+        });
+
+        builder.Services.AddSingleton(AudioManager.Current);
+
+        builder.Services.AddSingleton<SQLiteService>();
+        builder.Services.AddSingleton<ApiService>();
+        builder.Services.AddSingleton<AppDataCacheService>();
+        builder.Services.AddSingleton<GeofenceEngineService>();
+
+        builder.Services.AddSingleton<GianHangService>();
+        builder.Services.AddSingleton<MonAnService>();
+        builder.Services.AddSingleton<PoiService>();
+
+        builder.Services.AddSingleton<GoogleServiceAccountJsonProvider>();
+        builder.Services.AddSingleton<ImagePathHelper>();
+
+        builder.Services.AddTransient<GianHangPage>();
+        builder.Services.AddTransient<MonAnPage>();
+        builder.Services.AddTransient<PoiMapPage>();
+        builder.Services.AddTransient<HomePage>();
+
+#if DEBUG
+        builder.Logging.AddDebug();
+#endif
+
+        var app = builder.Build();
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                var imageHelper = app.Services.GetRequiredService<ImagePathHelper>();
+                await imageHelper.CopyImagesToResourcesAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MauiProgram] Error initializing images: {ex.Message}");
+            }
+        });
+
+        return app;
+    }
+}

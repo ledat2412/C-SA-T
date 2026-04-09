@@ -1,0 +1,11 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+Secrets.props
+Secret.props
+Secret/
+!Secret/
+Secret/*.json
+!Secret/*.example.json
