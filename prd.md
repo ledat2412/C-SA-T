@@ -67,7 +67,7 @@ Vinh Khánh Smart Tourism là nền tảng du lịch thông minh tích hợp ba 
 
 ### 2.3 Sơ đồ use case tổng thể
 
-![Sơ đồ use case tổng thể của hệ thống Vinh Khánh Smart Tourism](mermaid-diagram-2026-04-10-083040.png)
+![Sơ đồ use case tổng thể của hệ thống Vinh Khánh Smart Tourism](mermaid-diagram-2026-04-10-083728.png)
 
 ---
 
@@ -234,7 +234,12 @@ Vinh Khánh Smart Tourism là nền tảng du lịch thông minh tích hợp ba 
 
 ## 5. Trạng thái gian hàng (State Machine)
 
-![State machine trạng thái gian hàng](mermaid-diagram-2026-04-10-082357.png)
+```
+cho_duyet → hoat_dong (Admin duyệt)
+cho_duyet → tu_choi   (Admin từ chối)
+hoat_dong → tam_dung  (Owner hoặc Admin tạm dừng)
+tam_dung  → hoat_dong (Owner hoặc Admin kích hoạt lại)
+```
 
 Chỉ các gian hàng `hoat_dong` mới xuất hiện trong AppData trả về cho App.
 
@@ -244,31 +249,31 @@ Chỉ các gian hàng `hoat_dong` mới xuất hiện trong AppData trả về c
 
 ### 6.1 Đăng nhập và phân quyền
 
-![Sequence diagram đăng nhập và phân quyền](mermaid-diagram-2026-04-10-083452.png)
+![Sequence diagram đăng nhập và phân quyền](mermaid-diagram-2026-04-10-082357.png)
 
 ### 6.2 Geofence và audio guide tự động
 
-![Sequence diagram geofence và audio guide tự động](mermaid-diagram-2026-04-10-083510.png)
+![Sequence diagram geofence và audio guide tự động](mermaid-diagram-2026-04-10-083452.png)
 
 ### 6.3 Quét QR và kích hoạt phiên truy cập
 
-![Sequence diagram quét QR và kích hoạt phiên truy cập](mermaid-diagram-2026-04-10-083526.png)
+![Sequence diagram quét QR và kích hoạt phiên truy cập](mermaid-diagram-2026-04-10-083649.png)
 
 ### 6.4 Đồng bộ và cache offline
 
-![Sequence diagram đồng bộ dữ liệu và cache offline](mermaid-diagram-2026-04-10-083536.png)
+![Sequence diagram đồng bộ dữ liệu và cache offline](mermaid-diagram-2026-04-10-083526.png)
 
 ### 6.5 Chủ sở hữu quản lý gian hàng
 
-![Sequence diagram chủ sở hữu quản lý gian hàng](mermaid-diagram-2026-04-10-083649.png)
+![Sequence diagram chủ sở hữu quản lý gian hàng](mermaid-diagram-2026-04-10-083536.png)
 
 ### 6.6 Quản lý món ăn
 
-![Sequence diagram quản lý món ăn](mermaid-diagram-2026-04-10-083728.png)
+![Sequence diagram quản lý món ăn](mermaid-diagram-2026-04-10-083510.png)
 
 ### 6.7 Luồng tìm kiếm POI
 
-![Sequence diagram luồng tìm kiếm POI](prd-assets/mermaid/sequence_search_poi.png)
+![Sequence diagram luồng tìm kiếm POI](mermaid-diagram-2026-04-10-083040.png)
 
 ---
 
