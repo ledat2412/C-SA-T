@@ -1,0 +1,27 @@
+sequenceDiagram
+    autonumber
+    actor User as Du khách
+    participant App as MAUI App
+    participant QR as QR Scanner
+    participant AccessAPI as AccessController
+    participant SessionSvc as AccessSessionService
+    participant DB as MySQL
+
+    User->>App: Chọn quét QR tại POI
+    App->>QR: Mở camera và đọc mã
+    QR-->>App: deviceCode / maThietBi
+    App->>AccessAPI: POST /api/access/scan
+    AccessAPI->>SessionSvc: CreateFromQrAsync(request)
+    SessionSvc->>DB: Kiểm tra thiết bị + POI liên kết
+
+    alt QR hợp lệ
+        SessionSvc->>DB: Tạo phiên truy cập 30 phút
+        DB-->>SessionSvc: accessToken
+        SessionSvc-->>AccessAPI: Kết quả thành công
+        AccessAPI-->>App: accessToken + thông tin POI
+        App-->>User: Mở khóa nội dung POI trong session
+    else QR không hợp lệ / hết hạn
+        SessionSvc-->>AccessAPI: Kết quả thất bại
+        AccessAPI-->>App: 400 Bad Request
+        App-->>User: Thông báo quét QR thất bại
+    end

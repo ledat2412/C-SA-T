@@ -1,0 +1,29 @@
+flowchart LR
+    subgraph DG["Du khách"]
+        DG1["F01<br/>Bản đồ POI"]
+        DG2["F02<br/>Geofence + Audio guide"]
+        DG3["F03<br/>Đa ngôn ngữ"]
+        DG4["F04<br/>Quét QR tại POI"]
+        DG5["F05<br/>Offline mode"]
+        DG6["F06<br/>Tài khoản"]
+    end
+
+    subgraph CSH["Chủ sở hữu"]
+        CSH1["F07<br/>Đăng ký tài khoản"]
+        CSH2["F08<br/>Đăng ký gian hàng"]
+        CSH3["F09<br/>Quản lý gian hàng"]
+        CSH4["F10<br/>Quản lý món ăn"]
+        CSH5["F11<br/>Quản lý audio guide"]
+        CSH6["F12<br/>Gia hạn subscription"]
+    end
+
+    subgraph AD["Admin"]
+        AD1["F13<br/>Duyệt gian hàng"]
+        AD2["F14<br/>Quản lý gian hàng"]
+        AD3["F15<br/>Quản lý thiết bị QR"]
+        AD4["F16<br/>Tổng quan dashboard"]
+    end
+
+    KH["Actor<br/>Du khách"] --> DG
+    OWN["Actor<br/>Chủ sở hữu"] --> CSH
+    ADMIN["Actor<br/>Admin"] --> AD
