@@ -1,13 +1,14 @@
 ﻿using MauiApp1.Models;
 using MauiApp1.Services;
 using MauiApp1.Views;
+using MauiApp1.Controls;
 using Microsoft.Maui.Controls.Maps;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Maps;
 using Microsoft.Maui.Networking;
-using Plugin.Maui.Audio;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -36,9 +37,6 @@ public partial class PoiMapPage : ContentPage
     private const string DefaultLanguageCode = "vi";
 
     private Entry _searchEntry = null!;
-    private Button _refreshTopButton = null!;
-    private Button _myLocationButton = null!;
-    private Button _teleportButton = null!;
 
     // Sheet khám phá
     private readonly Grid _bottomSheet;
@@ -64,20 +62,15 @@ public partial class PoiMapPage : ContentPage
     private Label _currentTimeLabel = null!;
     private Label _durationLabel = null!;
 
-    private readonly IAudioManager _audioManager;
     private static HttpClient? _imageProbeHttpClient;
     private static HttpClient? _imageRenderHttpClient;
     private static readonly ConcurrentDictionary<string, byte[]> _imageBytesCache = new();
     private static readonly ConcurrentDictionary<string, byte[]> _audioBytesCache = new();
-    private IAudioPlayer? _player;
-    private MemoryStream? _audioStream;
-    private string? _loadedAudioUrl;
-    private System.Timers.Timer? _progressTimer;
     private bool _isDraggingSlider;
     private UserLocationPin? _userLocationPin;
-    private bool _geofenceInitialized;
 
     private readonly List<PoiItem> _pois = new();
+    private readonly List<PoiItem> _allPois = new();
     private readonly Dictionary<int, StyledPin> _pinsByPoiId = new();
     private CancellationTokenSource? _pinRefreshCts;
 
@@ -99,6 +92,8 @@ public partial class PoiMapPage : ContentPage
     private bool _isInitialLoadStarted;
     private bool _isInitialLoadCompleted;
     private bool _isLoadingPois;
+    private string _activeSearchQuery = string.Empty;
+    private int? _selectedPoiId;
 
     // Vị trí sheet chi tiết
     private double _detailHiddenY;
@@ -114,9 +109,11 @@ public partial class PoiMapPage : ContentPage
     private bool _isDetailVisible;
     private bool _isDetailAnimating;
     private bool _isOpeningFoodGallery;
+    private bool _isPlaybackStateSubscribed;
     private GianHang? _currentDetailGianHang;
     private readonly List<NgonNgu> _languages = new();
     private string _selectedLanguageCode = DefaultLanguageCode;
+    private bool _isLiveLocationSubscribed;
 
 #if ANDROID
     private GoogleMap? _androidGoogleMap;
@@ -134,7 +131,6 @@ public partial class PoiMapPage : ContentPage
         _monAnService = monAnService;
         _geofenceEngine = geofenceEngine;
         _sqliteService = sqliteService;
-        _audioManager = AudioManager.Current;
 
         Title = "";
         BackgroundColor = Colors.White;
@@ -173,7 +169,15 @@ public partial class PoiMapPage : ContentPage
 
         _bottomSheet = CreateBottomSheet();
         _detailSheet = CreateDetailSheet();
-        _footer = BuildFooter();
+        _footer = new AppBottomBar(
+            BottomBarTab.Explore,
+            onHomeTap: async () =>
+            {
+                var homePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<HomePage>();
+                if (homePage != null)
+                    await Navigation.PushAsync(homePage);
+            },
+            onExploreTap: ToggleSuggestionSheetAsync);
         _topBar = CreateTopBar();
 
         Content = BuildLayout();
@@ -200,6 +204,17 @@ public partial class PoiMapPage : ContentPage
 
         Appearing += async (_, __) =>
         {
+            if (!_isDetailVisible)
+                ClearSelectedPoiFocus();
+
+            if (!_isPlaybackStateSubscribed)
+            {
+                _geofenceEngine.PlaybackStateChanged += OnPlaybackStateChanged;
+                _isPlaybackStateSubscribed = true;
+            }
+
+            SyncDetailAudioUi(_geofenceEngine.PlaybackState);
+
             await EnsureExploreSheetVisibleAsync();
             await ShowCurrentLocationMarkerAsync(centerOnUser: false);
             await InitializeGeofenceAsync();
@@ -217,6 +232,7 @@ public partial class PoiMapPage : ContentPage
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_footer);
+        root.Children.Add(new AudioPlaybackBanner(_geofenceEngine));
 
         return root;
     }
@@ -234,16 +250,10 @@ public partial class PoiMapPage : ContentPage
             HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Center
         };
+        _searchEntry.TextChanged += OnSearchTextChanged;
+        _searchEntry.Completed += OnSearchCompleted;
 
-        var searchIcon = new Label
-        {
-            Text = "🔍",
-            FontSize = 18,
-            TextColor = Color.FromArgb("#6B7280"),
-            VerticalTextAlignment = TextAlignment.Center,
-            HorizontalTextAlignment = TextAlignment.Center,
-            WidthRequest = 28
-        };
+        var searchIcon = BuildSearchIcon();
 
         var searchGrid = new Grid
         {
@@ -265,110 +275,38 @@ public partial class PoiMapPage : ContentPage
 
         var searchBox = new Border
         {
-            StrokeThickness = 0,
+            StrokeThickness = 1,
+            Stroke = new SolidColorBrush(Color.FromArgb("#F3E8E2")),
             BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = 14 },
-            Padding = new Thickness(16, 8),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            Padding = new Thickness(16, 10),
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.12f,
-                Radius = 10,
-                Offset = new Point(0, 3)
+                Opacity = 0.10f,
+                Radius = 12,
+                Offset = new Point(0, 4)
             },
             Content = searchGrid,
-            HorizontalOptions = LayoutOptions.Fill,
+            WidthRequest = 320,
+            MaximumWidthRequest = 332,
+            HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center
         };
 
-        _refreshTopButton = new Button
-        {
-            Text = "⟳",
-            FontSize = 20,
-            BackgroundColor = Colors.White,
-            TextColor = Color.FromArgb("#0F766E"),
-            WidthRequest = 52,
-            HeightRequest = 52,
-            CornerRadius = 14,
-            Padding = 0,
-            Shadow = new Shadow
-            {
-                Brush = Brush.Black,
-                Opacity = 0.12f,
-                Radius = 10,
-                Offset = new Point(0, 3)
-            }
-        };
-        _refreshTopButton.Clicked += OnRefreshClicked;
-
-        _myLocationButton = new Button
-        {
-            Text = "◎",
-            FontSize = 20,
-            BackgroundColor = Colors.White,
-            TextColor = Color.FromArgb("#2563EB"),
-            WidthRequest = 52,
-            HeightRequest = 52,
-            CornerRadius = 14,
-            Padding = 0,
-            Shadow = new Shadow
-            {
-                Brush = Brush.Black,
-                Opacity = 0.12f,
-                Radius = 10,
-                Offset = new Point(0, 3)
-            }
-        };
-        _myLocationButton.Clicked += OnMyLocationClicked;
-
-        _teleportButton = new Button
-        {
-            Text = "TP",
-            FontSize = 14,
-            FontAttributes = FontAttributes.Bold,
-            BackgroundColor = Colors.White,
-            TextColor = Color.FromArgb("#7C3AED"),
-            WidthRequest = 52,
-            HeightRequest = 44,
-            CornerRadius = 12,
-            Padding = 0,
-            Shadow = new Shadow
-            {
-                Brush = Brush.Black,
-                Opacity = 0.12f,
-                Radius = 10,
-                Offset = new Point(0, 3)
-            }
-        };
-        _teleportButton.Clicked += OnTeleportClicked;
-
         var topBar = new Grid
         {
-            Padding = new Thickness(16, 10, 16, 0),
+            Padding = new Thickness(16, 6, 16, 0),
             ColumnDefinitions =
             {
-                new ColumnDefinition { Width = GridLength.Star },
-                new ColumnDefinition { Width = GridLength.Auto }
+                new ColumnDefinition { Width = GridLength.Star }
             },
-            ColumnSpacing = 10,
             VerticalOptions = LayoutOptions.Start,
             HorizontalOptions = LayoutOptions.Fill,
             ZIndex = 20
         };
 
         topBar.Children.Add(searchBox);
-        Grid.SetColumn(searchBox, 0);
-
-        var rightButtons = new VerticalStackLayout
-        {
-            Spacing = 8,
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.Start,
-            Children = { _refreshTopButton, _myLocationButton, _teleportButton }
-        };
-
-        topBar.Children.Add(rightButtons);
-        Grid.SetColumn(rightButtons, 1);
 
         return topBar;
     }
@@ -444,12 +382,21 @@ public partial class PoiMapPage : ContentPage
 
     private HashSet<int> GetVisiblePoiIds()
     {
+        if (_selectedPoiId is int selectedPoiId)
+        {
+            if (_pinsByPoiId.ContainsKey(selectedPoiId))
+                return new HashSet<int> { selectedPoiId };
+
+            _selectedPoiId = null;
+        }
+
         var result = new HashSet<int>();
+        var sourcePois = _allPois.Count > 0 ? _allPois : _pois;
         var region = _map.VisibleRegion;
 
         if (region is null)
         {
-            foreach (var poi in _pois.Take(40))
+            foreach (var poi in sourcePois.Take(40))
                 result.Add(poi.IDChiNhanh);
 
             return result;
@@ -461,7 +408,7 @@ public partial class PoiMapPage : ContentPage
         var lonRadius = region.LongitudeDegrees / 2d;
         const double overscanFactor = 1.35;
 
-        foreach (var poi in _pois)
+        foreach (var poi in sourcePois)
         {
             if (Math.Abs(poi.Latitude - centerLat) <= latRadius * overscanFactor &&
                 Math.Abs(poi.Longitude - centerLon) <= lonRadius * overscanFactor)
@@ -472,7 +419,7 @@ public partial class PoiMapPage : ContentPage
 
         if (result.Count == 0)
         {
-            foreach (var poi in _pois.Take(25))
+            foreach (var poi in sourcePois.Take(25))
                 result.Add(poi.IDChiNhanh);
         }
 
@@ -501,119 +448,6 @@ public partial class PoiMapPage : ContentPage
         }
     }
 
-    private async void OnRefreshClicked(object? sender, EventArgs e)
-    {
-        try
-        {
-            _refreshTopButton.IsEnabled = false;
-            _refreshTopButton.Text = "...";
-
-            if (!HasInternet())
-            {
-                await DisplayAlertAsync("Thông báo", "Không có mạng để tải lại dữ liệu.", "OK");
-                return;
-            }
-
-            await LoadRealPoisAsync();
-
-            if (_currentDetailGianHang != null)
-            {
-                var refreshed = await _gianHangService.GetByIdAsync(_currentDetailGianHang.IdGianHang, _selectedLanguageCode);
-                if (refreshed != null)
-                {
-                    _currentDetailGianHang = refreshed;
-                    SetDetailInfo(refreshed);
-
-                    _detailAudioLabel.Text = string.IsNullOrWhiteSpace(refreshed.AudioURL)
-                        ? "Audio: chưa có"
-                        : "Audio thuyết minh đã sẵn sàng";
-
-                    if (!string.IsNullOrWhiteSpace(refreshed.HinhAnhChinh) || !string.IsNullOrWhiteSpace(refreshed.HinhAnh))
-                    {
-                        _detailImage.Source = BuildImageSource(
-                            !string.IsNullOrWhiteSpace(refreshed.HinhAnhChinh)
-                                ? refreshed.HinhAnhChinh
-                                : refreshed.HinhAnh);
-                    }
-                }
-            }
-
-        }
-        catch (Exception ex)
-        {
-            await DisplayAlertAsync("Lỗi refresh", ex.Message, "OK");
-        }
-        finally
-        {
-            _refreshTopButton.IsEnabled = true;
-            _refreshTopButton.Text = "⟳";
-        }
-    }
-
-    private async void OnMyLocationClicked(object? sender, EventArgs e)
-    {
-        try
-        {
-            _myLocationButton.IsEnabled = false;
-            _myLocationButton.Text = "...";
-            await ShowCurrentLocationMarkerAsync(centerOnUser: true);
-        }
-        finally
-        {
-            _myLocationButton.IsEnabled = true;
-            _myLocationButton.Text = "◎";
-        }
-    }
-
-    private async void OnTeleportClicked(object? sender, EventArgs e)
-    {
-        try
-        {
-            _teleportButton.IsEnabled = false;
-
-            var latText = await DisplayPromptAsync(
-                "Teleport",
-                "Nhập latitude",
-                initialValue: "10.762622",
-                keyboard: Keyboard.Numeric);
-
-            if (string.IsNullOrWhiteSpace(latText))
-                return;
-
-            var lonText = await DisplayPromptAsync(
-                "Teleport",
-                "Nhập longitude",
-                initialValue: "106.660172",
-                keyboard: Keyboard.Numeric);
-
-            if (string.IsNullOrWhiteSpace(lonText))
-                return;
-
-            if (!double.TryParse(latText.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat) ||
-                !double.TryParse(lonText.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lon))
-            {
-                await DisplayAlertAsync("Teleport", "Tọa độ không hợp lệ.", "OK");
-                return;
-            }
-
-            var fakeLocation = new Location(lat, lon);
-            UpdateUserLocationPin(fakeLocation, centerOnUser: true);
-            _geofenceEngine.SetDebugLocation(lat, lon);
-            await InitializeGeofenceAsync();
-            await _geofenceEngine.EvaluateNowAsync();
-
-            System.Diagnostics.Debug.WriteLine($"[Teleport] Debug location set to lat={lat}, lon={lon}");
-        }
-        catch (Exception ex)
-        {
-            await DisplayAlertAsync("Teleport", ex.Message, "OK");
-        }
-        finally
-        {
-            _teleportButton.IsEnabled = true;
-        }
-    }
-
     private async Task LoadRealPoisAsync()
     {
         if (_isLoadingPois)
@@ -624,6 +458,7 @@ public partial class PoiMapPage : ContentPage
         try
         {
             _pois.Clear();
+            _allPois.Clear();
             _poiList.Children.Clear();
             _map.Pins.Clear();
             _pinsByPoiId.Clear();
@@ -636,8 +471,7 @@ public partial class PoiMapPage : ContentPage
             {
                 System.Diagnostics.Debug.WriteLine($"[PoiMapPage] POI: {poi.Title}, ImagePath: '{poi.ImagePath}'");
 
-                _pois.Add(poi);
-                _poiList.Children.Add(CreatePoiCard(poi));
+                _allPois.Add(poi);
                 var markerImagePath = await PrepareMarkerImagePathAsync(poi.ImagePath);
 
                 var pin = new StyledPin
@@ -662,6 +496,10 @@ public partial class PoiMapPage : ContentPage
                     await Task.Yield();
             }
 
+            ApplySmartSearch(
+                _searchEntry.Text,
+                revealResults: !string.IsNullOrWhiteSpace(_searchEntry.Text));
+
             if (_pois.Count > 0)
             {
                 var first = _pois[0];
@@ -684,6 +522,214 @@ public partial class PoiMapPage : ContentPage
             if (_isInitialLoadCompleted)
                 await ShowCurrentLocationMarkerAsync(centerOnUser: false);
         }
+    }
+
+    private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        ApplySmartSearch(
+            e.NewTextValue,
+            revealResults: !string.IsNullOrWhiteSpace(e.NewTextValue));
+    }
+
+    private void OnSearchCompleted(object? sender, EventArgs e)
+    {
+        ApplySmartSearch(_searchEntry.Text, revealResults: true);
+    }
+
+    private void ApplySmartSearch(string? rawQuery, bool revealResults, bool preserveSelectedPoi = false)
+    {
+        var normalizedQuery = NormalizeSearchText(rawQuery);
+        _activeSearchQuery = rawQuery?.Trim() ?? string.Empty;
+
+        if (!preserveSelectedPoi)
+        {
+            _selectedPoiId = null;
+        }
+        else if (_selectedPoiId.HasValue && !_allPois.Any(x => x.IDChiNhanh == _selectedPoiId.Value))
+        {
+            _selectedPoiId = null;
+        }
+
+        _poiList.Children.Clear();
+        _pois.Clear();
+
+        IEnumerable<PoiItem> results;
+
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            results = _allPois
+                .OrderBy(GetDistanceToUserMeters)
+                .ThenBy(x => x.Title)
+                .ToList();
+            ResetExploreHeader();
+            UpdateHeaderByState();
+        }
+        else
+        {
+            var terms = normalizedQuery
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            results = _allPois
+                .Select(poi => new
+                {
+                    Poi = poi,
+                    Score = ScorePoiSearchMatch(poi, normalizedQuery, terms),
+                    Distance = GetDistanceToUserMeters(poi)
+                })
+                .Where(x => x.Score > 0)
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.Distance)
+                .ThenBy(x => x.Poi.Title)
+                .Select(x => x.Poi)
+                .ToList();
+
+            _titleLabel.Text = "Tìm kiếm";
+            _subtitleLabel.Text = results.Any()
+                ? $"{results.Count()} kết quả cho \"{_activeSearchQuery}\""
+                : $"Không thấy kết quả cho \"{_activeSearchQuery}\"";
+        }
+
+        foreach (var poi in results)
+        {
+            _pois.Add(poi);
+            _poiList.Children.Add(CreatePoiCard(poi));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedQuery) && _pois.Count == 0)
+        {
+            _poiList.Children.Add(BuildEmptySearchState(_activeSearchQuery));
+        }
+
+        RefreshVisiblePins();
+
+        if (!string.IsNullOrWhiteSpace(normalizedQuery) && revealResults)
+        {
+            _ = EnsureSearchResultsVisibleAsync();
+        }
+    }
+
+    private View BuildEmptySearchState(string query)
+    {
+        return new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Color.FromArgb("#FFF6EF"),
+            StrokeShape = new RoundRectangle { CornerRadius = 22 },
+            Padding = new Thickness(16),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new Label
+                    {
+                        Text = "Không tìm thấy quán hoặc món phù hợp",
+                        FontSize = 16,
+                        FontAttributes = FontAttributes.Bold,
+                        TextColor = Color.FromArgb("#0F172A")
+                    },
+                    new Label
+                    {
+                        Text = $"Thử từ khóa khác cho \"{query}\" hoặc tìm theo tên món, tên quán, địa chỉ.",
+                        FontSize = 13,
+                        TextColor = Color.FromArgb("#64748B")
+                    }
+                }
+            }
+        };
+    }
+
+    private int ScorePoiSearchMatch(PoiItem poi, string normalizedQuery, string[] terms)
+    {
+        var title = NormalizeSearchText(poi.Title);
+        var address = NormalizeSearchText(poi.Address);
+        var description = NormalizeSearchText(poi.Description);
+        var searchText = NormalizeSearchText(poi.SearchText);
+        var menuNames = poi.MenuNames
+            .Select(NormalizeSearchText)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToArray();
+
+        var score = 0;
+
+        if (title.StartsWith(normalizedQuery, StringComparison.Ordinal))
+            score += 220;
+        else if (title.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 170;
+
+        if (menuNames.Any(x => x.StartsWith(normalizedQuery, StringComparison.Ordinal)))
+            score += 180;
+        else if (menuNames.Any(x => x.Contains(normalizedQuery, StringComparison.Ordinal)))
+            score += 140;
+
+        if (description.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 70;
+
+        if (address.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 55;
+
+        foreach (var term in terms)
+        {
+            if (title.StartsWith(term, StringComparison.Ordinal))
+                score += 45;
+            else if (title.Contains(term, StringComparison.Ordinal))
+                score += 28;
+
+            if (menuNames.Any(x => x.StartsWith(term, StringComparison.Ordinal)))
+                score += 34;
+            else if (menuNames.Any(x => x.Contains(term, StringComparison.Ordinal)))
+                score += 20;
+
+            if (description.Contains(term, StringComparison.Ordinal))
+                score += 10;
+
+            if (address.Contains(term, StringComparison.Ordinal))
+                score += 8;
+        }
+
+        if (terms.Length > 1 && terms.All(term => searchText.Contains(term, StringComparison.Ordinal)))
+            score += 42;
+
+        if (terms.All(term => title.Contains(term, StringComparison.Ordinal) || menuNames.Any(x => x.Contains(term, StringComparison.Ordinal))))
+            score += 25;
+
+        return score;
+    }
+
+    private double GetDistanceToUserMeters(PoiItem poi)
+    {
+        if (_userLocationPin?.Location is null)
+            return double.MaxValue;
+
+        return Location.CalculateDistance(
+            _userLocationPin.Location,
+            new Location(poi.Latitude, poi.Longitude),
+            DistanceUnits.Kilometers) * 1000d;
+    }
+
+    private static string NormalizeSearchText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var normalized = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
+                continue;
+
+            builder.Append(c switch
+            {
+                'đ' => 'd',
+                _ => c
+            });
+        }
+
+        return builder
+            .ToString()
+            .Normalize(NormalizationForm.FormC);
     }
 
     private Grid CreateBottomSheet()
@@ -1091,95 +1137,40 @@ public partial class PoiMapPage : ContentPage
         };
     }
 
-    private View BuildFooter()
+    private View BuildSearchIcon()
     {
-        View BuildFooterItem(string emoji, string text, bool active, Func<Task>? onTap = null)
+        return new Grid
         {
-            var iconWrap = new Border
+            WidthRequest = 22,
+            HeightRequest = 22,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
             {
-                StrokeThickness = 0,
-                BackgroundColor = active ? Color.FromArgb("#F4E3D7") : Colors.Transparent,
-                StrokeShape = new RoundRectangle { CornerRadius = 16 },
-                Padding = new Thickness(10, 6),
-                HorizontalOptions = LayoutOptions.Center,
-                Content = new Label
+                new Ellipse
                 {
-                    Text = emoji,
-                    FontSize = 20,
-                    HorizontalTextAlignment = TextAlignment.Center
+                    WidthRequest = 11,
+                    HeightRequest = 11,
+                    Stroke = new SolidColorBrush(Color.FromArgb("#94A3B8")),
+                    StrokeThickness = 1.8,
+                    HorizontalOptions = LayoutOptions.Start,
+                    VerticalOptions = LayoutOptions.Start,
+                    TranslationX = 4,
+                    TranslationY = 4
+                },
+                new Line
+                {
+                    X1 = 13.5,
+                    Y1 = 13.5,
+                    X2 = 18,
+                    Y2 = 18,
+                    Stroke = new SolidColorBrush(Color.FromArgb("#94A3B8")),
+                    StrokeThickness = 1.8
                 }
-            };
-
-            var label = new Label
-            {
-                Text = text,
-                FontSize = 12,
-                TextColor = active ? Color.FromArgb("#111111") : Color.FromArgb("#8A8A8A"),
-                HorizontalTextAlignment = TextAlignment.Center
-            };
-
-            var stack = new VerticalStackLayout
-            {
-                Spacing = 4,
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalOptions = LayoutOptions.Center,
-                Children = { iconWrap, label }
-            };
-
-            if (onTap is not null)
-            {
-                var tap = new TapGestureRecognizer();
-                tap.Tapped += async (_, __) => await onTap();
-                stack.GestureRecognizers.Add(tap);
             }
-
-            return stack;
-        }
-
-        var home = BuildFooterItem("🏠", "Trang chủ", false, async () =>
-        {
-            var homePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<HomePage>();
-            if (homePage != null)
-            {
-                await Navigation.PushAsync(homePage);
-            }
-        });
-
-        var explore = BuildFooterItem("🧭", "Khám phá", true, ToggleSuggestionSheetAsync);
-
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Star)
-            },
-            Padding = new Thickness(20, 12)
-        };
-
-        grid.Children.Add(home);
-
-        grid.Children.Add(explore);
-        Grid.SetColumn(explore, 1);
-
-        return new Border
-        {
-            StrokeThickness = 0,
-            BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(28, 28, 0, 0) },
-            Content = grid,
-            Shadow = new Shadow
-            {
-                Brush = Brush.Black,
-                Opacity = 0.14f,
-                Radius = 18,
-                Offset = new Point(0, 6)
-            },
-            Margin = new Thickness(0, 0, 0, 0),
-            VerticalOptions = LayoutOptions.End,
-            HorizontalOptions = LayoutOptions.Fill
         };
     }
+
 
     private async Task ToggleSuggestionSheetAsync()
     {
@@ -1259,6 +1250,7 @@ public partial class PoiMapPage : ContentPage
         await LoadLanguagesAsync(forceReload: true);
         RenderLanguageOptions();
         await ApplySelectedLanguageToCurrentDetailAsync();
+        SyncDetailAudioUi(_geofenceEngine.PlaybackState);
 
         _detailSheet.IsVisible = true;
         _detailSheet.TranslationY = _detailHiddenY;
@@ -1280,7 +1272,7 @@ public partial class PoiMapPage : ContentPage
 
         try
         {
-            StopAndDisposeAudio();
+            ResetAudioState();
 
             await _detailSheet.TranslateToAsync(0, _detailHiddenY, 180, Easing.CubicIn);
 
@@ -1288,6 +1280,7 @@ public partial class PoiMapPage : ContentPage
             _detailSheet.TranslationY = _detailHiddenY;
             _detailSheet.IsVisible = false;
             _isDetailVisible = false;
+            ClearSelectedPoiFocus();
 #if ANDROID
             UpdateAndroidMapPadding();
 #endif
@@ -1549,7 +1542,7 @@ public partial class PoiMapPage : ContentPage
             if (!isMenuLayerOpened)
                 return;
 
-            StopAndDisposeAudio();
+            ResetAudioState();
 
             _detailCurrentY = _detailHiddenY;
             _detailSheet.TranslationY = _detailHiddenY;
@@ -1557,6 +1550,7 @@ public partial class PoiMapPage : ContentPage
             _detailSheet.IsVisible = false;
             _detailSheet.InputTransparent = false;
             _isDetailVisible = false;
+            ClearSelectedPoiFocus();
             UpdateDetailPanelShape();
         }
         finally
@@ -1696,6 +1690,31 @@ public partial class PoiMapPage : ContentPage
         _shouldAutoOpenExplore = false;
     }
 
+    private async Task EnsureSearchResultsVisibleAsync()
+    {
+        if (!_isLayoutReady || _isAnimating)
+            return;
+
+        if (_isDetailVisible)
+        {
+            await HideDetailSheetAsync();
+        }
+
+        if (!_isExploreVisible)
+        {
+            _bottomSheet.IsVisible = true;
+            _bottomSheet.TranslationY = _sheetHiddenY;
+            _currentSheetY = _sheetHiddenY;
+            _isExploreVisible = true;
+        }
+
+        var targetY = _currentSheetY <= _sheetHalfY + 10
+            ? _currentSheetY
+            : _sheetHalfY;
+
+        await SnapSheetToAsync(targetY);
+    }
+
     private void SetDetailInfo(GianHang gianHang)
     {
         _detailTitle.Text = string.IsNullOrWhiteSpace(gianHang.Ten) ? "Tên gian hàng" : gianHang.Ten;
@@ -1726,12 +1745,18 @@ public partial class PoiMapPage : ContentPage
 
     private void ResetExploreHeader()
     {
+        if (!string.IsNullOrWhiteSpace(_activeSearchQuery))
+            return;
+
         _titleLabel.Text = "Khám phá";
         _subtitleLabel.Text = "Ẩm thực, đồ uống và các địa điểm gần bạn";
     }
 
     private void UpdateHeaderByState()
     {
+        if (!string.IsNullOrWhiteSpace(_activeSearchQuery))
+            return;
+
         if (!_isExploreVisible)
         {
             _subtitleLabel.Text = "Ẩm thực, đồ uống và các địa điểm gần bạn";
@@ -1754,6 +1779,8 @@ public partial class PoiMapPage : ContentPage
 
     private View CreatePoiCard(PoiItem poi)
     {
+        var searchHint = GetSearchHintForPoi(poi);
+
         var image = new Image
         {
             Source = BuildImageSource(poi.ImagePath),
@@ -1797,7 +1824,7 @@ public partial class PoiMapPage : ContentPage
             HorizontalOptions = LayoutOptions.Start,
             Content = new Label
             {
-                Text = "Xem chi tiết",
+                Text = searchHint,
                 FontSize = 11,
                 TextColor = Color.FromArgb("#9A3412")
             }
@@ -1840,6 +1867,31 @@ public partial class PoiMapPage : ContentPage
         return card;
     }
 
+    private string GetSearchHintForPoi(PoiItem poi)
+    {
+        if (string.IsNullOrWhiteSpace(_activeSearchQuery))
+            return "Xem chi tiết";
+
+        var normalizedQuery = NormalizeSearchText(_activeSearchQuery);
+        var title = NormalizeSearchText(poi.Title);
+
+        if (title.Contains(normalizedQuery, StringComparison.Ordinal))
+            return "Khớp tên quán";
+
+        var matchedFoods = poi.MenuNames
+            .Where(name => NormalizeSearchText(name).Contains(normalizedQuery, StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+
+        if (matchedFoods.Length > 0)
+            return $"Món hợp: {string.Join(", ", matchedFoods)}";
+
+        if (NormalizeSearchText(poi.Address).Contains(normalizedQuery, StringComparison.Ordinal))
+            return "Khớp địa chỉ";
+
+        return "Xem chi tiết";
+    }
+
     private async Task OpenDetailAsync(PoiItem poi)
     {
         try
@@ -1863,6 +1915,9 @@ public partial class PoiMapPage : ContentPage
 
     private async Task FocusPoiAsync(PoiItem poi)
     {
+        _selectedPoiId = poi.IDChiNhanh;
+        RefreshVisiblePins();
+
         var location = new Location(poi.Latitude, poi.Longitude);
         _map.MoveToRegion(MapSpan.FromCenterAndRadius(location, Distance.FromMeters(250)));
 
@@ -1872,14 +1927,33 @@ public partial class PoiMapPage : ContentPage
         await Task.CompletedTask;
     }
 
+    private void ClearSelectedPoiFocus()
+    {
+        if (!_selectedPoiId.HasValue)
+            return;
+
+        _selectedPoiId = null;
+        RefreshVisiblePins();
+    }
+
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         _pinRefreshCts?.Cancel();
         _pinRefreshCts?.Dispose();
         _pinRefreshCts = null;
-        StopAndDisposeAudio();
-        _ = _geofenceEngine.StopAsync();
+        ResetAudioState();
+        if (_isLiveLocationSubscribed)
+        {
+            _geofenceEngine.EnteredGeofence -= OnEnteredGeofence;
+            _geofenceEngine.LocationUpdated -= OnLiveLocationUpdated;
+            _isLiveLocationSubscribed = false;
+        }
+        if (_isPlaybackStateSubscribed)
+        {
+            _geofenceEngine.PlaybackStateChanged -= OnPlaybackStateChanged;
+            _isPlaybackStateSubscribed = false;
+        }
     }
 }
 

@@ -7,6 +7,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 {
     private readonly IAudioManager _audioManager;
     private readonly SemaphoreSlim _sync = new(1, 1);
+    private readonly SemaphoreSlim _playbackSync = new(1, 1);
 
     private readonly Dictionary<int, GeofenceTarget> _targets = new();
     private readonly HashSet<int> _insideTargetIds = new();
@@ -16,12 +17,24 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     private IAudioPlayer? _currentPlayer;
     private MemoryStream? _currentAudioStream;
     private Location? _debugLocationOverride;
+    private Location? _lastPublishedLocation;
+    private System.Timers.Timer? _playbackTimer;
+    private CancellationTokenSource? _pendingAutoPlayCts;
+    private AudioPlaybackRequest? _pendingRequest;
+    private string? _currentAudioUrl;
+    private int? _currentStoreId;
+    private string? _currentStoreTitle;
+    private string? _currentStoreImageUrl;
+    private AudioPlaybackStateSnapshot _playbackState = AudioPlaybackStateSnapshot.Hidden;
 
     public event EventHandler<GeofenceTriggeredEventArgs>? EnteredGeofence;
+    public event EventHandler<LocationUpdatedEventArgs>? LocationUpdated;
+    public event EventHandler<AudioPlaybackStateChangedEventArgs>? PlaybackStateChanged;
 
     public bool AutoPlayAudioWhenEntered { get; set; } = true;
     public double RadiusMeters { get; set; } = 10d;
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
+    public AudioPlaybackStateSnapshot PlaybackState => _playbackState;
 
     public GeofenceEngineService(IAudioManager audioManager)
     {
@@ -47,6 +60,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                     gianHang.Lat.Value,
                     gianHang.Lon.Value,
                     gianHang.AudioFullUrl,
+                    gianHang.HinhAnhFullUrl,
                     radiusMeters ?? RadiusMeters);
             }
         }
@@ -88,7 +102,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
             _loopCts.Dispose();
             _loopCts = null;
             _loopTask = null;
-            StopCurrentAudio();
+            await StopPlaybackAsync();
         }
     }
 
@@ -105,6 +119,116 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     public async Task EvaluateNowAsync(CancellationToken cancellationToken = default)
     {
         await EvaluateCurrentLocationAsync(cancellationToken);
+    }
+
+    public async Task TogglePlaybackAsync(AudioPlaybackRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!request.HasPlayableAudio)
+            return;
+
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            CancelPendingAutoPlayInternal();
+
+            if (IsCurrentRequest(request) && _currentPlayer is not null)
+            {
+                if (_currentPlayer.IsPlaying)
+                {
+                    _currentPlayer.Pause();
+                    StopPlaybackTimerInternal();
+                    PublishPlaybackState(CreateSnapshot(AudioPlaybackPhase.Paused));
+                    return;
+                }
+
+                _currentPlayer.Play();
+                StartPlaybackTimerInternal();
+                PublishPlaybackState(CreateSnapshot(AudioPlaybackPhase.Playing));
+                return;
+            }
+
+            await PlayNowInternalAsync(request, cancellationToken);
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    public async Task SeekAsync(double positionSeconds, CancellationToken cancellationToken = default)
+    {
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            if (_currentPlayer is null)
+                return;
+
+            _currentPlayer.Seek(Math.Max(0, positionSeconds));
+            PublishPlaybackState(CreateSnapshot(_currentPlayer.IsPlaying ? AudioPlaybackPhase.Playing : AudioPlaybackPhase.Paused));
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    public async Task StopPlaybackAsync(CancellationToken cancellationToken = default)
+    {
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            CancelPendingAutoPlayInternal();
+            StopCurrentAudioInternal();
+            ResetCurrentTrackInternal();
+            PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    public async Task ScheduleAutoPlayAsync(GeofenceTarget target, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(target.AudioUrl))
+            return;
+
+        var request = new AudioPlaybackRequest(
+            target.Id,
+            target.Name,
+            target.AudioUrl,
+            target.ImageUrl,
+            IsAutoTriggered: true);
+
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            if (IsCurrentRequest(request) || IsPendingRequest(request))
+                return;
+
+            CancelPendingAutoPlayInternal();
+
+            var pendingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _pendingAutoPlayCts = pendingCts;
+            _pendingRequest = request;
+
+            PublishPlaybackState(new AudioPlaybackStateSnapshot(
+                AudioPlaybackPhase.Pending,
+                request.StoreId,
+                request.Title,
+                "Sắp phát sau 3 giây",
+                request.AudioUrl,
+                request.ImageUrl,
+                0,
+                0,
+                request.IsAutoTriggered));
+
+            _ = Task.Run(() => CompletePendingAutoPlayAsync(request, pendingCts), pendingCts.Token);
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
     }
 
     private async Task RunLoopAsync(CancellationToken ct)
@@ -150,6 +274,8 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         if (location is null)
             return;
 
+        PublishLocationIfChanged(location);
+
         List<GeofenceTriggeredEventArgs> triggers = [];
 
         await _sync.WaitAsync(ct);
@@ -169,9 +295,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 if (isInside)
                 {
                     if (_insideTargetIds.Add(target.Id))
-                    {
                         triggers.Add(new GeofenceTriggeredEventArgs(target, distance));
-                    }
                 }
                 else
                 {
@@ -184,12 +308,104 @@ public sealed class GeofenceEngineService : IAsyncDisposable
             _sync.Release();
         }
 
-        foreach (var trigger in triggers)
-        {
+        if (triggers.Count == 0)
+            return;
+
+        foreach (var trigger in triggers.OrderBy(x => x.DistanceMeters))
             EnteredGeofence?.Invoke(this, trigger);
-            if (AutoPlayAudioWhenEntered)
-                await AutoPlayAudioAsync(trigger.Target.AudioUrl, ct);
+
+        if (!AutoPlayAudioWhenEntered)
+            return;
+
+        var nearestTrigger = triggers.OrderBy(x => x.DistanceMeters).First();
+        await ScheduleAutoPlayAsync(nearestTrigger.Target, ct);
+    }
+
+    private async Task CompletePendingAutoPlayAsync(AudioPlaybackRequest request, CancellationTokenSource pendingCts)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), pendingCts.Token);
+
+            await _playbackSync.WaitAsync(pendingCts.Token);
+            try
+            {
+                if (!ReferenceEquals(_pendingAutoPlayCts, pendingCts) || !IsPendingRequest(request))
+                    return;
+
+                _pendingAutoPlayCts = null;
+                _pendingRequest = null;
+                await PlayNowInternalAsync(request, pendingCts.Token);
+            }
+            finally
+            {
+                _playbackSync.Release();
+            }
         }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Pending auto-play error: {ex.Message}");
+        }
+        finally
+        {
+            pendingCts.Dispose();
+        }
+    }
+
+    private async Task PlayNowInternalAsync(AudioPlaybackRequest request, CancellationToken cancellationToken)
+    {
+        if (!request.HasPlayableAudio)
+            return;
+
+        try
+        {
+            CancelPendingAutoPlayInternal();
+            StopCurrentAudioInternal();
+
+            using var client = CreateAudioHttpClient();
+            var bytes = await client.GetByteArrayAsync(request.AudioUrl!, cancellationToken);
+            if (bytes.Length == 0)
+            {
+                PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+                return;
+            }
+
+            _currentAudioStream = new MemoryStream(bytes);
+            _currentPlayer = _audioManager.CreatePlayer(_currentAudioStream);
+            _currentAudioUrl = request.AudioUrl;
+            _currentStoreId = request.StoreId;
+            _currentStoreTitle = request.Title;
+            _currentStoreImageUrl = request.ImageUrl;
+
+            _currentPlayer.Play();
+            StartPlaybackTimerInternal();
+            PublishPlaybackState(CreateSnapshot(AudioPlaybackPhase.Playing));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Play error: {ex.Message}");
+            StopCurrentAudioInternal();
+            ResetCurrentTrackInternal();
+            PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+        }
+    }
+
+    private void PublishLocationIfChanged(Location location)
+    {
+        var shouldPublish = _lastPublishedLocation is null ||
+                            Location.CalculateDistance(
+                                _lastPublishedLocation,
+                                location,
+                                DistanceUnits.Kilometers) * 1000d >= 3d;
+
+        if (!shouldPublish)
+            return;
+
+        _lastPublishedLocation = location;
+        LocationUpdated?.Invoke(this, new LocationUpdatedEventArgs(location));
     }
 
     private static async Task<bool> EnsurePermissionAsync()
@@ -202,28 +418,6 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         return permission == PermissionStatus.Granted;
     }
 
-    private async Task AutoPlayAudioAsync(string? audioUrl, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(audioUrl))
-            return;
-
-        try
-        {
-            StopCurrentAudio();
-
-            using var client = CreateAudioHttpClient();
-            var bytes = await client.GetByteArrayAsync(audioUrl, ct);
-
-            _currentAudioStream = new MemoryStream(bytes);
-            _currentPlayer = _audioManager.CreatePlayer(_currentAudioStream);
-            _currentPlayer.Play();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Auto-play error: {ex.Message}");
-        }
-    }
-
     private static HttpClient CreateAudioHttpClient()
     {
         var handler = new HttpClientHandler();
@@ -233,12 +427,130 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 #endif
         return new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(10)
+            Timeout = TimeSpan.FromSeconds(12)
         };
     }
 
-    private void StopCurrentAudio()
+    private void StartPlaybackTimerInternal()
     {
+        StopPlaybackTimerInternal();
+
+        _playbackTimer = new System.Timers.Timer(500);
+        _playbackTimer.Elapsed += OnPlaybackTimerElapsed;
+        _playbackTimer.AutoReset = true;
+        _playbackTimer.Start();
+    }
+
+    private void StopPlaybackTimerInternal()
+    {
+        if (_playbackTimer is null)
+            return;
+
+        _playbackTimer.Elapsed -= OnPlaybackTimerElapsed;
+        _playbackTimer.Stop();
+        _playbackTimer.Dispose();
+        _playbackTimer = null;
+    }
+
+    private void OnPlaybackTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        if (!_playbackSync.Wait(0))
+            return;
+
+        try
+        {
+            if (_currentPlayer is null)
+                return;
+
+            if (!_currentPlayer.IsPlaying &&
+                _currentPlayer.Duration > 0 &&
+                _currentPlayer.CurrentPosition >= _currentPlayer.Duration)
+            {
+                StopCurrentAudioInternal();
+                ResetCurrentTrackInternal();
+                PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+                return;
+            }
+
+            PublishPlaybackState(CreateSnapshot(_currentPlayer.IsPlaying ? AudioPlaybackPhase.Playing : AudioPlaybackPhase.Paused));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Playback timer error: {ex.Message}");
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    private void PublishPlaybackState(AudioPlaybackStateSnapshot snapshot)
+    {
+        _playbackState = snapshot;
+
+        void Raise()
+        {
+            PlaybackStateChanged?.Invoke(this, new AudioPlaybackStateChangedEventArgs(snapshot));
+        }
+
+        if (MainThread.IsMainThread)
+            Raise();
+        else
+            MainThread.BeginInvokeOnMainThread(Raise);
+    }
+
+    private AudioPlaybackStateSnapshot CreateSnapshot(AudioPlaybackPhase phase)
+    {
+        var title = _currentStoreTitle ?? "Audio";
+        var position = _currentPlayer?.CurrentPosition ?? 0;
+        var duration = _currentPlayer?.Duration ?? 0;
+        var message = phase switch
+        {
+            AudioPlaybackPhase.Playing => "Đang phát",
+            AudioPlaybackPhase.Paused => "Đã tạm dừng",
+            _ => string.Empty
+        };
+
+        return new AudioPlaybackStateSnapshot(
+            phase,
+            _currentStoreId,
+            title,
+            message,
+            _currentAudioUrl,
+            _currentStoreImageUrl,
+            position,
+            duration,
+            false);
+    }
+
+    private bool IsCurrentRequest(AudioPlaybackRequest request)
+    {
+        return !string.IsNullOrWhiteSpace(_currentAudioUrl) &&
+               string.Equals(_currentAudioUrl, request.AudioUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsPendingRequest(AudioPlaybackRequest request)
+    {
+        return _pendingRequest is not null &&
+               string.Equals(_pendingRequest.AudioUrl, request.AudioUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void CancelPendingAutoPlayInternal()
+    {
+        _pendingRequest = null;
+
+        if (_pendingAutoPlayCts is null)
+            return;
+
+        _pendingAutoPlayCts.Cancel();
+        _pendingAutoPlayCts.Dispose();
+        _pendingAutoPlayCts = null;
+    }
+
+    private void StopCurrentAudioInternal()
+    {
+        StopPlaybackTimerInternal();
+
         try
         {
             _currentPlayer?.Stop();
@@ -253,10 +565,19 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         }
     }
 
+    private void ResetCurrentTrackInternal()
+    {
+        _currentAudioUrl = null;
+        _currentStoreId = null;
+        _currentStoreTitle = null;
+        _currentStoreImageUrl = null;
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync();
         _sync.Dispose();
+        _playbackSync.Dispose();
     }
 }
 
@@ -266,6 +587,71 @@ public sealed record GeofenceTarget(
     double Latitude,
     double Longitude,
     string? AudioUrl,
+    string? ImageUrl,
     double RadiusMeters);
+
+public sealed record AudioPlaybackRequest(
+    int? StoreId,
+    string Title,
+    string? AudioUrl,
+    string? ImageUrl,
+    bool IsAutoTriggered = false)
+{
+    public bool HasPlayableAudio => !string.IsNullOrWhiteSpace(AudioUrl);
+}
+
+public enum AudioPlaybackPhase
+{
+    Hidden,
+    Pending,
+    Playing,
+    Paused
+}
+
+public sealed record AudioPlaybackStateSnapshot(
+    AudioPlaybackPhase Phase,
+    int? StoreId,
+    string Title,
+    string Message,
+    string? AudioUrl,
+    string? ImageUrl,
+    double PositionSeconds,
+    double DurationSeconds,
+    bool IsAutoTriggered)
+{
+    public static AudioPlaybackStateSnapshot Hidden { get; } =
+        new(
+            AudioPlaybackPhase.Hidden,
+            null,
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            0,
+            0,
+            false);
+
+    public bool IsVisible => Phase != AudioPlaybackPhase.Hidden;
+}
+
+public sealed class AudioPlaybackStateChangedEventArgs : EventArgs
+{
+    public AudioPlaybackStateChangedEventArgs(AudioPlaybackStateSnapshot state)
+    {
+        State = state;
+    }
+
+    public AudioPlaybackStateSnapshot State { get; }
+}
+
+public sealed class LocationUpdatedEventArgs : EventArgs
+{
+    public LocationUpdatedEventArgs(Location location)
+    {
+        Location = location;
+    }
+
+    public Location Location { get; }
+}
 
 public sealed record GeofenceTriggeredEventArgs(GeofenceTarget Target, double DistanceMeters);

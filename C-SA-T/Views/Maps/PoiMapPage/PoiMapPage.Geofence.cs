@@ -44,17 +44,25 @@ public partial class PoiMapPage
 
     private void UpdateUserLocationPin(Location pinLocation, bool centerOnUser)
     {
+        var shouldRecreatePin = _userLocationPin is null;
+
+        if (_userLocationPin is not null)
+        {
+            _map.Pins.Remove(_userLocationPin);
+        }
+
         _userLocationPin ??= new UserLocationPin
         {
             Label = "Vị trí của tôi",
-            Address = "Bạn đang ở đây",
             Type = PinType.SavedPin
         };
 
+        _userLocationPin.Address = $"{pinLocation.Latitude:F6}, {pinLocation.Longitude:F6}";
         _userLocationPin.Location = pinLocation;
+        _map.Pins.Add(_userLocationPin);
 
-        if (!_map.Pins.Contains(_userLocationPin))
-            _map.Pins.Add(_userLocationPin);
+        System.Diagnostics.Debug.WriteLine(
+            $"[PoiMapPage] User location pin {(shouldRecreatePin ? "created" : "refreshed")} at {pinLocation.Latitude:F6}, {pinLocation.Longitude:F6}");
 
         if (centerOnUser)
             _map.MoveToRegion(MapSpan.FromCenterAndRadius(pinLocation, Distance.FromMeters(350)));
@@ -67,13 +75,16 @@ public partial class PoiMapPage
             var gianHangs = await _gianHangService.GetAllAsync(_selectedLanguageCode);
             await _geofenceEngine.UpdateTargetsAsync(gianHangs, radiusMeters: 10);
 
-            if (_geofenceInitialized)
-                return;
+            if (!_isLiveLocationSubscribed)
+            {
+                _geofenceEngine.EnteredGeofence += OnEnteredGeofence;
+                _geofenceEngine.LocationUpdated += OnLiveLocationUpdated;
+                _isLiveLocationSubscribed = true;
+            }
 
-            _geofenceEngine.EnteredGeofence += OnEnteredGeofence;
             _geofenceEngine.AutoPlayAudioWhenEntered = true;
             _geofenceEngine.PollInterval = TimeSpan.FromSeconds(3);
-            _geofenceInitialized = true;
+            await _geofenceEngine.EvaluateNowAsync();
         }
         catch (Exception ex)
         {
@@ -85,6 +96,22 @@ public partial class PoiMapPage
     {
         System.Diagnostics.Debug.WriteLine(
             $"[Geofence] Entered '{e.Target.Name}' at {e.DistanceMeters:F1}m (radius {e.Target.RadiusMeters:F0}m)");
+    }
+
+    private void OnLiveLocationUpdated(object? sender, LocationUpdatedEventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            UpdateUserLocationPin(e.Location, centerOnUser: false);
+
+            if (_allPois.Count == 0)
+                return;
+
+            ApplySmartSearch(
+                _searchEntry.Text,
+                revealResults: false,
+                preserveSelectedPoi: true);
+        });
     }
 
     private async Task DiagnosePoiImagesAsync()

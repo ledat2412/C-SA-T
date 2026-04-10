@@ -20,5 +20,7 @@ namespace MauiApp1.Models
         public string Address { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string? ImagePath { get; set; }
+        public string[] MenuNames { get; set; } = Array.Empty<string>();
+        public string SearchText { get; set; } = string.Empty;
     }
 }

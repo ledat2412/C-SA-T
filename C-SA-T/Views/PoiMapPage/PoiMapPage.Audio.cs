@@ -1,4 +1,6 @@
-﻿namespace MauiApp1.Views.Maps;
+using MauiApp1.Services;
+
+namespace MauiApp1.Views.Maps;
 
 public partial class PoiMapPage
 {
@@ -6,68 +8,15 @@ public partial class PoiMapPage
     {
         try
         {
-            if (_currentDetailGianHang == null)
-            {
-                await DisplayAlertAsync("Thông báo", "Chưa có gian hàng để phát audio.", "OK");
-                return;
-            }
-
-            var selectedAudioPath = ResolveAudioPathForSelectedLanguage(_currentDetailGianHang.AudioURL);
-            var audioUrl = BuildFullUrl(selectedAudioPath);
-            if (string.IsNullOrWhiteSpace(audioUrl))
+            var request = BuildCurrentDetailPlaybackRequest();
+            if (request is null)
             {
                 await DisplayAlertAsync("Thông báo", "Gian hàng này chưa có audio.", "OK");
                 return;
             }
 
-            System.Diagnostics.Debug.WriteLine(
-                $"[Audio] selectedLang={_selectedLanguageCode}, source={_currentDetailGianHang.AudioURL}, resolved={selectedAudioPath}, fullUrl={audioUrl}");
-
-            if (_player != null && string.Equals(_loadedAudioUrl, audioUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                if (_player.IsPlaying)
-                {
-                    _player.Pause();
-                    _playButton.Text = "▶ Phát nè";
-                    StopProgressTimer();
-                    return;
-                }
-
-                _player.Play();
-                _playButton.Text = "⏸ Tạm dừng";
-                StartProgressTimer();
-                return;
-            }
-
-            if (_player != null && !string.Equals(_loadedAudioUrl, audioUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                StopAndDisposeAudio();
-            }
-
-            var bytes = await GetAudioBytesAsync(audioUrl);
-            if (bytes is null || bytes.Length == 0)
-            {
-                await DisplayAlertAsync("Lỗi audio", "Không tải được audio từ mạng hoặc cache offline.", "OK");
-                return;
-            }
-
-            _audioStream?.Dispose();
-            _audioStream = new MemoryStream(bytes);
-
-            _player?.Dispose();
-            _player = _audioManager.CreatePlayer(_audioStream);
-            _loadedAudioUrl = audioUrl;
-
-            _progressSlider.Minimum = 0;
-            _progressSlider.Maximum = _player.Duration > 0 ? _player.Duration : 1;
-            _progressSlider.Value = 0;
-
-            _currentTimeLabel.Text = "00:00";
-            _durationLabel.Text = FormatTime(_player.Duration);
-
-            _player.Play();
-            _playButton.Text = "⏸ Tạm dừng";
-            StartProgressTimer();
+            await _geofenceEngine.TogglePlaybackAsync(request);
+            SyncDetailAudioUi(_geofenceEngine.PlaybackState);
         }
         catch (Exception ex)
         {
@@ -75,15 +24,12 @@ public partial class PoiMapPage
         }
     }
 
-    private void OnProgressDragCompleted(object? sender, EventArgs e)
+    private async void OnProgressDragCompleted(object? sender, EventArgs e)
     {
         try
         {
-            if (_player != null)
-            {
-                _player.Seek(_progressSlider.Value);
-                _currentTimeLabel.Text = FormatTime(_progressSlider.Value);
-            }
+            await _geofenceEngine.SeekAsync(_progressSlider.Value);
+            _currentTimeLabel.Text = FormatTime(_progressSlider.Value);
         }
         finally
         {
@@ -91,53 +37,86 @@ public partial class PoiMapPage
         }
     }
 
-    private void StartProgressTimer()
+    private void OnPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
     {
-        StopProgressTimer();
-
-        _progressTimer = new System.Timers.Timer(500);
-        _progressTimer.Elapsed += (_, __) =>
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                if (_player == null)
-                    return;
-
-                if (!_isDraggingSlider)
-                {
-                    var max = _player.Duration > 0 ? _player.Duration : 1;
-                    _progressSlider.Maximum = max;
-                    _progressSlider.Value = Math.Min(_player.CurrentPosition, max);
-                    _currentTimeLabel.Text = FormatTime(_player.CurrentPosition);
-                    _durationLabel.Text = FormatTime(_player.Duration);
-                }
-
-                if (!_player.IsPlaying && _player.Duration > 0 && _player.CurrentPosition >= _player.Duration)
-                {
-                    _playButton.Text = "▶ Phát nè";
-                    _progressSlider.Value = 0;
-                    _currentTimeLabel.Text = "00:00";
-                    StopProgressTimer();
-                }
-            });
-        };
-        _progressTimer.AutoReset = true;
-        _progressTimer.Start();
+        SyncDetailAudioUi(e.State);
     }
 
-    private void StopProgressTimer()
+    private void SyncDetailAudioUi(AudioPlaybackStateSnapshot state)
     {
-        if (_progressTimer != null)
+        if (!MainThread.IsMainThread)
         {
-            _progressTimer.Stop();
-            _progressTimer.Dispose();
-            _progressTimer = null;
+            MainThread.BeginInvokeOnMainThread(() => SyncDetailAudioUi(state));
+            return;
         }
+
+        if (_playButton is null || _progressSlider is null || _currentTimeLabel is null || _durationLabel is null)
+            return;
+
+        if (!MatchesCurrentDetailAudio(state))
+        {
+            ResetAudioUiOnly();
+            return;
+        }
+
+        _playButton.Text = state.Phase switch
+        {
+            AudioPlaybackPhase.Playing => "⏸ Tạm dừng",
+            AudioPlaybackPhase.Pending => "■ Chờ phát",
+            _ => "▶ Phát nè"
+        };
+
+        _progressSlider.Minimum = 0;
+        _progressSlider.Maximum = state.DurationSeconds > 0 ? state.DurationSeconds : 1;
+
+        if (!_isDraggingSlider)
+            _progressSlider.Value = Math.Min(state.PositionSeconds, _progressSlider.Maximum);
+
+        _currentTimeLabel.Text = FormatTime(state.PositionSeconds);
+        _durationLabel.Text = FormatTime(state.DurationSeconds);
+    }
+
+    private bool MatchesCurrentDetailAudio(AudioPlaybackStateSnapshot state)
+    {
+        var request = BuildCurrentDetailPlaybackRequest();
+        if (request is null || string.IsNullOrWhiteSpace(state.AudioUrl))
+            return false;
+
+        return string.Equals(request.AudioUrl, state.AudioUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private AudioPlaybackRequest? BuildCurrentDetailPlaybackRequest()
+    {
+        if (_currentDetailGianHang is null)
+            return null;
+
+        var selectedAudioPath = ResolveAudioPathForSelectedLanguage(_currentDetailGianHang.AudioURL);
+        var audioUrl = BuildFullUrl(selectedAudioPath);
+        if (string.IsNullOrWhiteSpace(audioUrl))
+            return null;
+
+        return new AudioPlaybackRequest(
+            _currentDetailGianHang.IdGianHang,
+            string.IsNullOrWhiteSpace(_detailTitle?.Text) ? _currentDetailGianHang.Ten : _detailTitle.Text,
+            audioUrl,
+            _currentDetailGianHang.HinhAnhFullUrl);
     }
 
     private void ResetAudioState()
     {
-        StopAndDisposeAudio();
+        ResetAudioUiOnly();
+        SyncDetailAudioUi(_geofenceEngine.PlaybackState);
+    }
+
+    private void StopAndDisposeAudio()
+    {
+        ResetAudioUiOnly();
+    }
+
+    private void ResetAudioUiOnly()
+    {
+        if (_playButton is null || _progressSlider is null || _currentTimeLabel is null || _durationLabel is null)
+            return;
 
         _playButton.Text = "▶ Phát nè";
         _progressSlider.Minimum = 0;
@@ -146,28 +125,6 @@ public partial class PoiMapPage
         _currentTimeLabel.Text = "00:00";
         _durationLabel.Text = "00:00";
         _isDraggingSlider = false;
-        _loadedAudioUrl = null;
-    }
-
-    private void StopAndDisposeAudio()
-    {
-        try
-        {
-            StopProgressTimer();
-
-            _player?.Stop();
-            _player?.Dispose();
-            _player = null;
-
-            _audioStream?.Dispose();
-            _audioStream = null;
-            _loadedAudioUrl = null;
-
-            _playButton.Text = "▶ Phát nè";
-        }
-        catch
-        {
-        }
     }
 
     private static string? BuildFullUrl(string? path)
@@ -190,7 +147,7 @@ public partial class PoiMapPage
 
 #if DEBUG
         handler.ServerCertificateCustomValidationCallback =
-            (message, cert, chain, errors) => true;
+            (_, _, _, _) => true;
 #endif
 
         return new HttpClient(handler);
@@ -206,5 +163,4 @@ public partial class PoiMapPage
             ? ts.ToString(@"hh\:mm\:ss")
             : ts.ToString(@"mm\:ss");
     }
-
 }

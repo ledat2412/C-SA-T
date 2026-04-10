@@ -1,39 +1,42 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
-using MauiApp1.Services;
+using MauiApp1.Controls;
 using MauiApp1.Models;
+using MauiApp1.Services;
 using MauiApp1.Utils;
 using MauiApp1.Views.Maps;
-using System.Collections.Concurrent;
 
 namespace MauiApp1.Views;
 
 public class HomePage : ContentPage
 {
-    private readonly Label _dateLabel;
     private readonly GianHangService _gianHangService;
+    private readonly GeofenceEngineService _geofenceEngine;
     private static HttpClient? _imageRenderHttpClient;
     private static readonly ConcurrentDictionary<string, byte[]> _imageBytesCache = new();
     private Location? _userLocation;
-    private VerticalStackLayout _nearbySection;
+    private readonly VerticalStackLayout _nearbySection;
+    private readonly Label _heroFollowLabel;
 
-    public HomePage(GianHangService gianHangService)
+    public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine)
     {
         _gianHangService = gianHangService;
+        _geofenceEngine = geofenceEngine;
 
-        Title = "";
-        BackgroundColor = Color.FromArgb("#F3F3F6");
+        Title = string.Empty;
+        BackgroundColor = Color.FromArgb("#FFF7F1");
 
-        // Ẩn navigation bar
-        Microsoft.Maui.Controls.NavigationPage.SetHasNavigationBar(this, false);
-
-        _dateLabel = new Label
-        {
-            FontSize = 12,
-            TextColor = Color.FromArgb("#8E8E93"),
-            CharacterSpacing = 1
-        };
+        NavigationPage.SetHasNavigationBar(this, false);
 
         _nearbySection = new VerticalStackLayout { Spacing = 12 };
+        _heroFollowLabel = new Label
+        {
+            Text = "\u0110ang theo d\u00F5i 0 \u0111i\u1EC3m",
+            FontSize = 12,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#D6E4FF")
+        };
 
         var root = new Grid
         {
@@ -41,53 +44,46 @@ public class HomePage : ContentPage
             {
                 new RowDefinition(GridLength.Star),
                 new RowDefinition(GridLength.Auto)
-            },
-            Padding = new Thickness(12, 12, 12, 0)
+            }
         };
 
         var scroll = new ScrollView
         {
             Content = new VerticalStackLayout
             {
-                Spacing = 22,
-                Padding = new Thickness(14, 10, 14, 20),
+                Spacing = 20,
+                Padding = new Thickness(16, 18, 16, 28),
                 Children =
                 {
-                    BuildTopRow(),
-                    BuildGreetingSection(),
-                    BuildSearchRow(),
-                    BuildExploreSection(),
-                    _nearbySection,
-                    BuildPromoCard()
+                    BuildMainHeader(),
+                    BuildHeroCard(),
+                    _nearbySection
                 }
             }
         };
 
-        var body = new Border
-        {
-            StrokeThickness = 0,
-            BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = 24 },
-            Content = scroll,
-            Margin = new Thickness(0, 0, 0, 0)
-        };
+        root.Children.Add(scroll);
 
-        root.Children.Add(body);
-
-        var footer = BuildFooter();
+        var footer = new AppBottomBar(
+            BottomBarTab.Home,
+            onExploreTap: async () =>
+            {
+                var poiMapPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PoiMapPage>();
+                if (poiMapPage != null)
+                {
+                    poiMapPage.RequestAutoOpenExplore();
+                    await Navigation.PushAsync(poiMapPage);
+                }
+            });
         root.Children.Add(footer);
         Grid.SetRow(footer, 1);
 
+        var audioBanner = new AudioPlaybackBanner(_geofenceEngine);
+        root.Children.Add(audioBanner);
+        Grid.SetRowSpan(audioBanner, 2);
+
         Content = root;
 
-        UpdateDateLabel();
-        Dispatcher.StartTimer(TimeSpan.FromMinutes(1), () =>
-        {
-            UpdateDateLabel();
-            return true;
-        });
-
-        // Load nearby restaurants when page is created
         Loaded += async (_, __) => await LoadNearbyRestaurants();
     }
 
@@ -95,28 +91,38 @@ public class HomePage : ContentPage
     {
         try
         {
-            // Get user's current location
             await GetUserLocation();
 
-            // Load restaurants from database
             var gianHangs = await _gianHangService.GetAllAsync();
+
+            _nearbySection.Children.Clear();
+            _nearbySection.Children.Add(BuildSectionHeader("\u0110i\u1EC3m n\u1ED5i b\u1EADt g\u1EA7n b\u1EA1n", "Xem t\u1EA5t c\u1EA3"));
 
             if (gianHangs == null || gianHangs.Count == 0)
             {
-                _nearbySection.Children.Clear();
-                _nearbySection.Children.Add(new Label { Text = "Không có quán ăn nào" });
+                _nearbySection.Children.Add(new Label
+                {
+                    Text = "Ch\u01B0a c\u00F3 d\u1EEF li\u1EC7u \u0111\u1ECBa \u0111i\u1EC3m",
+                    FontSize = 14,
+                    TextColor = Color.FromArgb("#64748B")
+                });
                 return;
             }
 
-            // Calculate distance and sort
             var restaurantsWithDistance = new List<(GianHang restaurant, double distance, string imagePath)>();
 
             foreach (var gh in gianHangs)
             {
-                if (gh.Lat == null || gh.Lon == null) continue;
+                if (gh.Lat == null || gh.Lon == null)
+                    continue;
 
                 var userLocation = _userLocation ?? new Location(10.762622, 106.660172);
-                double distance = CalculateDistance(userLocation.Latitude, userLocation.Longitude, gh.Lat.Value, gh.Lon.Value);
+                var distance = CalculateDistance(
+                    userLocation.Latitude,
+                    userLocation.Longitude,
+                    gh.Lat.Value,
+                    gh.Lon.Value);
+
                 var imagePath = !string.IsNullOrWhiteSpace(gh.HinhAnhChinh)
                     ? gh.HinhAnhChinh
                     : gh.HinhAnh;
@@ -124,33 +130,25 @@ public class HomePage : ContentPage
                 restaurantsWithDistance.Add((gh, distance, imagePath ?? "dotnet_bot.png"));
             }
 
-            // Sort by distance
             var sorted = restaurantsWithDistance.OrderBy(r => r.distance).ToList();
+            var followCount = Math.Min(sorted.Count, 8);
+            _heroFollowLabel.Text = $"\u0110ang theo d\u00F5i {followCount} \u0111i\u1EC3m";
+            await _geofenceEngine.UpdateTargetsAsync(gianHangs, radiusMeters: 10);
+            await _geofenceEngine.StartAsync();
 
-            // Update UI
-            _nearbySection.Children.Clear();
-            _nearbySection.Children.Add(BuildSectionHeader("Các quán ăn gần đây", "Gần nhất"));
-
-            var row = new HorizontalStackLayout { Spacing = 12 };
-
-            foreach (var (restaurant, distance, imagePath) in sorted.Take(5))
+            foreach (var (restaurant, distance, imagePath) in sorted.Take(8))
             {
-                var distanceText = distance < 1 
-                    ? $"{(distance * 1000):F0} m" 
+                var distanceText = distance < 1
+                    ? $"{distance * 1000:F0} m"
                     : $"{distance:F1} km";
 
-                row.Children.Add(BuildRestaurantCard(
-                    restaurant.Ten ?? "Quán ăn",
-                    distanceText,
-                    imagePath
-                ));
+                _nearbySection.Children.Add(BuildNearbySpotRow(
+                    restaurant,
+                    string.IsNullOrWhiteSpace(restaurant.DiaChi)
+                        ? $"G\u1EA7n b\u1EA1n • {distanceText}"
+                        : $"{restaurant.DiaChi} • {distanceText}",
+                    imagePath));
             }
-
-            _nearbySection.Children.Add(new ScrollView
-            {
-                Orientation = ScrollOrientation.Horizontal,
-                Content = row
-            });
         }
         catch (Exception ex)
         {
@@ -168,15 +166,7 @@ public class HomePage : ContentPage
                 Timeout = TimeSpan.FromSeconds(30)
             });
 
-            if (location != null)
-            {
-                _userLocation = location;
-            }
-            else
-            {
-                // Default to Ho Chi Minh City center if location not available
-                _userLocation = new Location(10.762622, 106.660172);
-            }
+            _userLocation = location ?? new Location(10.762622, 106.660172);
         }
         catch (Exception ex)
         {
@@ -187,7 +177,7 @@ public class HomePage : ContentPage
 
     private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
     {
-        const double r = 6371; // Earth's radius in km
+        const double r = 6371;
         var dLat = (lat2 - lat1) * Math.PI / 180;
         var dLon = (lon2 - lon1) * Math.PI / 180;
         var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
@@ -197,104 +187,9 @@ public class HomePage : ContentPage
         return r * c;
     }
 
-    private void UpdateDateLabel()
-    {
-        var now = DateTime.Now;
-
-        var dayText = now.DayOfWeek switch
-        {
-            DayOfWeek.Monday => "THỨ HAI",
-            DayOfWeek.Tuesday => "THỨ BA",
-            DayOfWeek.Wednesday => "THỨ TƯ",
-            DayOfWeek.Thursday => "THỨ NĂM",
-            DayOfWeek.Friday => "THỨ SÁU",
-            DayOfWeek.Saturday => "THỨ BẢY",
-            _ => "CHỦ NHẬT"
-        };
-
-        _dateLabel.Text = $"{dayText}, {now:dd} THÁNG {now.Month}";
-    }
-
-    private View BuildTopRow()
+    private View BuildMainHeader()
     {
         var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto)
-            },
-            ColumnSpacing = 8
-        };
-
-        grid.Children.Add(new Label
-        {
-            Text = "📍",
-            FontSize = 14,
-            TextColor = Color.FromArgb("#FF6B00"),
-            VerticalTextAlignment = TextAlignment.Center
-        });
-
-        var location = new Label
-        {
-            Text = "Ho Chi MinhCity,District1",
-            FontSize = 20,
-            FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#30343F"),
-            VerticalTextAlignment = TextAlignment.Center
-        };
-        grid.Children.Add(location);
-        Grid.SetColumn(location, 1);
-
-        var avatar = new Border
-        {
-            HeightRequest = 42,
-            WidthRequest = 42,
-            StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 21 },
-            BackgroundColor = Color.FromArgb("#F1F1F1"),
-            Content = new Image
-            {
-                Source = "dotnet_bot.png",
-                Aspect = Aspect.AspectFill
-            }
-        };
-        grid.Children.Add(avatar);
-        Grid.SetColumn(avatar, 2);
-
-        return grid;
-    }
-
-    private View BuildGreetingSection()
-    {
-        return new VerticalStackLayout
-        {
-            Spacing = 4,
-            Children =
-            {
-                _dateLabel,
-                //new Label
-                //{
-                //    Text = "Chào buổi sáng,",
-                //    FontSize = 28,
-                //    FontAttributes = FontAttributes.Bold,
-                //    TextColor = Color.FromArgb("#1F1F23")
-                //},
-                //new Label
-                //{
-                //    Text = "User!",
-                //    FontSize = 30,
-                //    FontAttributes = FontAttributes.Bold | FontAttributes.Italic,
-                //    TextColor = Color.FromArgb("#FF6B00")
-                //}
-            }
-        };
-    }
-
-    private View BuildSearchRow()
-    {
-        var row = new Grid
         {
             ColumnDefinitions =
             {
@@ -304,190 +199,329 @@ public class HomePage : ContentPage
             ColumnSpacing = 12
         };
 
-        var searchContent = new Grid
+        var left = new VerticalStackLayout
         {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(GridLength.Star)
-            },
-            ColumnSpacing = 10
-        };
-
-        var searchIcon = new Label
-        {
-            Text = "🔍",
-            FontSize = 18,
-            TextColor = Color.FromArgb("#777777"),
-            VerticalTextAlignment = TextAlignment.Center
-        };
-
-        var searchText = new Label
-        {
-            Text = "Tìm kiếm món ăn, nhà hàng",
-            FontSize = 16,
-            TextColor = Color.FromArgb("#8B8B8B"),
-            VerticalTextAlignment = TextAlignment.Center
-        };
-
-        searchContent.Children.Add(searchIcon);
-        searchContent.Children.Add(searchText);
-        Grid.SetColumn(searchText, 1);
-
-        var searchBox = new Border
-        {
-            StrokeThickness = 0,
-            BackgroundColor = Color.FromArgb("#F2F2F2"),
-            StrokeShape = new RoundRectangle { CornerRadius = 22 },
-            Padding = new Thickness(16, 14),
-            Content = searchContent
-        };
-
-        row.Children.Add(searchBox);
-        return row;
-    }
-
-    private View BuildExploreSection()
-    {
-        var section = new VerticalStackLayout
-        {
-            Spacing = 12,
+            Spacing = 6,
             Children =
             {
-                BuildSectionHeader("Khám phá", "Xem tất cả")
+                new Label
+                {
+                    Text = "Khu ph\u1ED1 V\u0129nh Kh\u00E1nh",
+                    FontSize = 32,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Color.FromArgb("#0F172A"),
+                    LineHeight = 1.05
+                },
+                new Border
+                {
+                    StrokeThickness = 0,
+                    BackgroundColor = Color.FromArgb("#FFF0E6"),
+                    StrokeShape = new RoundRectangle { CornerRadius = 999 },
+                    HorizontalOptions = LayoutOptions.Start,
+                    Padding = new Thickness(10, 6),
+                    Content = new HorizontalStackLayout
+                    {
+                        Spacing = 6,
+                        Children =
+                        {
+                            new BoxView
+                            {
+                                WidthRequest = 6,
+                                HeightRequest = 6,
+                                CornerRadius = 3,
+                                Color = Color.FromArgb("#F97316"),
+                                VerticalOptions = LayoutOptions.Center
+                            },
+                            new Label
+                            {
+                                Text = "Qu\u1EADn 4, TP H\u1ED3 Ch\u00ED Minh",
+                                FontSize = 13,
+                                FontAttributes = FontAttributes.Bold,
+                                TextColor = Color.FromArgb("#9A3412"),
+                                VerticalTextAlignment = TextAlignment.Center
+                            }
+                        }
+                    }
+                }
             }
         };
+        grid.Children.Add(left);
 
-        var cards = new Grid
+        var notifyButton = new Border
         {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(new GridLength(1.15, GridUnitType.Star)),
-                new ColumnDefinition(new GridLength(1, GridUnitType.Star))
-            },
-            ColumnSpacing = 12,
-            HeightRequest = 170
-        };
-
-        cards.Children.Add(new Border
-        {
+            HeightRequest = 44,
+            WidthRequest = 44,
             StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            StrokeShape = new RoundRectangle { CornerRadius = 22 },
+            BackgroundColor = Colors.White,
             Content = new Grid
             {
                 Children =
                 {
-                    new Image { Source = "dotnet_bot.png", Aspect = Aspect.AspectFill },
+                    BuildBellIcon(),
                     new Border
                     {
-                        StrokeThickness = 0,
-                        BackgroundColor = Color.FromRgba(0,0,0,0.4),
-                        StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(0,0,16,16) },
-                        VerticalOptions = LayoutOptions.End,
-                        Padding = new Thickness(10,6),
-                        Content = new Label
-                        {
-                            Text = "Hẹn hò",
-                            FontSize = 18,
-                            FontAttributes = FontAttributes.Bold,
-                            TextColor = Colors.White
-                        }
+                        WidthRequest = 10,
+                        HeightRequest = 10,
+                        StrokeThickness = 2,
+                        Stroke = new SolidColorBrush(Colors.White),
+                        StrokeShape = new RoundRectangle { CornerRadius = 5 },
+                        BackgroundColor = Color.FromArgb("#F59E0B"),
+                        HorizontalOptions = LayoutOptions.End,
+                        VerticalOptions = LayoutOptions.Start,
+                        TranslationX = -2,
+                        TranslationY = 2
                     }
                 }
+            },
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.08f,
+                Radius = 10,
+                Offset = new Point(0, 4)
+            }
+        };
+        grid.Children.Add(notifyButton);
+        Grid.SetColumn(notifyButton, 1);
+
+        return grid;
+    }
+
+    private View BuildHeroCard()
+    {
+        var content = new Grid();
+
+        content.Children.Add(new Border
+        {
+            StrokeThickness = 0,
+            WidthRequest = 126,
+            HeightRequest = 126,
+            StrokeShape = new RoundRectangle { CornerRadius = 63 },
+            BackgroundColor = Color.FromArgb("#14FFFFFF"),
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            TranslationX = 34,
+            TranslationY = -26
+        });
+
+        content.Children.Add(new Border
+        {
+            StrokeThickness = 0,
+            WidthRequest = 94,
+            HeightRequest = 94,
+            StrokeShape = new RoundRectangle { CornerRadius = 47 },
+            BackgroundColor = Color.FromArgb("#24FB7185"),
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.End,
+            TranslationX = 18,
+            TranslationY = 20
+        });
+
+        content.Children.Add(new VerticalStackLayout
+        {
+            Spacing = 8,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Border
+                {
+                    StrokeThickness = 0,
+                    StrokeShape = new RoundRectangle { CornerRadius = 999 },
+                    BackgroundColor = Color.FromArgb("#1FFFFFFF"),
+                    HorizontalOptions = LayoutOptions.Start,
+                    Padding = new Thickness(10, 6),
+                    Content = new HorizontalStackLayout
+                    {
+                        Spacing = 6,
+                        Children =
+                        {
+                            new BoxView
+                            {
+                                WidthRequest = 6,
+                                HeightRequest = 6,
+                                CornerRadius = 3,
+                                Color = Color.FromArgb("#FCA5A5"),
+                                VerticalOptions = LayoutOptions.Center
+                            },
+                            new Label
+                            {
+                                Text = "B\u1EAFt \u0111\u1EA7u kh\u00E1m ph\u00E1",
+                                FontSize = 13,
+                                FontAttributes = FontAttributes.Bold,
+                                TextColor = Color.FromArgb("#FDE68A"),
+                                VerticalTextAlignment = TextAlignment.Center
+                            }
+                        }
+                    }
+                },
+                new Label
+                {
+                    Text = "Ph\u1ED1 \u1EA8m Th\u1EF1c",
+                    FontSize = 34,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Colors.White
+                },
+                new Label
+                {
+                    Text = "V\u0129nh Kh\u00E1nh",
+                    FontSize = 34,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Color.FromArgb("#FCA5A5")
+                },
+                _heroFollowLabel
             }
         });
 
-        var right = new VerticalStackLayout
-        {
-            Spacing = 12,
-            Children =
-            {
-                BuildTagCard("🔥", "Phổ biến", false),
-                BuildTagCard("%", "Ưu đãi", true)
-            }
-        };
-
-        cards.Children.Add(right);
-        Grid.SetColumn(right, 1);
-
-        section.Children.Add(cards);
-        return section;
-    }
-
-    private View BuildNearbySection()
-    {
-        var section = new VerticalStackLayout
-        {
-            Spacing = 12,
-            Children =
-            {
-                BuildSectionHeader("Các quán ăn gần đây", "Gần nhất")
-            }
-        };
-
-        var row = new HorizontalStackLayout
-        {
-            Spacing = 12,
-            Children =
-            {
-                BuildRestaurantCard("Noir. Dining in the Dark", "0.8 km · $$$$", "4.8"),
-                BuildRestaurantCard("Quin House", "1.2 km · $$$", "4.6")
-            }
-        };
-
-        section.Children.Add(new ScrollView
-        {
-            Orientation = ScrollOrientation.Horizontal,
-            Content = row
-        });
-
-        return section;
-    }
-
-    private View BuildRestaurantCard(string title, string distanceText, string imagePath)
-    {
         return new Border
         {
-            Stroke = Color.FromArgb("#EFEFEF"),
-            StrokeThickness = 1,
-            BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = 18 },
-            WidthRequest = 255,
-            Padding = new Thickness(10),
-            Content = new VerticalStackLayout
-            {
-                Spacing = 8,
-                Children =
+            StrokeThickness = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 24 },
+            Padding = new Thickness(18),
+            HeightRequest = 194,
+            Background = new LinearGradientBrush(
+                new GradientStopCollection
                 {
-                    new Border
-                    {
-                        StrokeThickness = 0,
-                        HeightRequest = 130,
-                        StrokeShape = new RoundRectangle { CornerRadius = 14 },
-                        Content = new Image 
-                        { 
-                            Source = BuildImageSource(imagePath),
-                            Aspect = Aspect.AspectFill 
-                        }
-                    },
-                    new Label
-                    {
-                        Text = title,
-                        FontSize = 16,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Color.FromArgb("#262626"),
-                        MaxLines = 2,
-                        LineBreakMode = LineBreakMode.TailTruncation
-                    },
-                    new Label
-                    {
-                        Text = $"📍 {distanceText}",
-                        FontSize = 13,
-                        TextColor = Color.FromArgb("#666")
-                    }
+                    new GradientStop(Color.FromArgb("#21356B"), 0f),
+                    new GradientStop(Color.FromArgb("#16213E"), 0.55f),
+                    new GradientStop(Color.FromArgb("#101827"), 1f)
+                },
+                new Point(0, 0),
+                new Point(1, 1)),
+            Content = content,
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.12f,
+                Radius = 18,
+                Offset = new Point(0, 10)
+            }
+        };
+    }
+
+    private View BuildNearbySpotRow(GianHang restaurant, string subtitle, string imagePath)
+    {
+        var rowGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            ColumnSpacing = 12,
+            VerticalOptions = LayoutOptions.Center
+        };
+
+        rowGrid.Children.Add(new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 58,
+            WidthRequest = 58,
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            Content = new Image
+            {
+                Source = BuildImageSource(imagePath),
+                Aspect = Aspect.AspectFill
+            },
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.06f,
+                Radius = 8,
+                Offset = new Point(0, 3)
+            }
+        });
+
+        var textWrap = new VerticalStackLayout
+        {
+            Spacing = 4,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Label
+                {
+                    Text = restaurant.Ten ?? "Quán ăn",
+                    FontSize = 16,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Color.FromArgb("#0F172A"),
+                    MaxLines = 1,
+                    LineBreakMode = LineBreakMode.TailTruncation
+                },
+                new Label
+                {
+                    Text = subtitle,
+                    FontSize = 12,
+                    TextColor = Color.FromArgb("#64748B"),
+                    MaxLines = 2,
+                    LineBreakMode = LineBreakMode.TailTruncation
                 }
             }
         };
+        rowGrid.Children.Add(textWrap);
+        Grid.SetColumn(textWrap, 1);
+
+        var playButton = new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 40,
+            WidthRequest = 40,
+            StrokeShape = new RoundRectangle { CornerRadius = 20 },
+            Background = new LinearGradientBrush(
+                new GradientStopCollection
+                {
+                    new GradientStop(Color.FromArgb("#EF4444"), 0f),
+                    new GradientStop(Color.FromArgb("#DC2626"), 1f)
+                },
+                new Point(0, 0),
+                new Point(1, 1)),
+            VerticalOptions = LayoutOptions.Center,
+            Content = BuildPlayIcon(),
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.08f,
+                Radius = 10,
+                Offset = new Point(0, 4)
+            }
+        };
+        var playTap = new TapGestureRecognizer();
+        playTap.Tapped += async (_, __) => await PlayStoreAudioAsync(restaurant);
+        playButton.GestureRecognizers.Add(playTap);
+        rowGrid.Children.Add(playButton);
+        Grid.SetColumn(playButton, 2);
+
+        return new Border
+        {
+            StrokeThickness = 1,
+            Stroke = new SolidColorBrush(Color.FromArgb("#F3E8E2")),
+            BackgroundColor = Colors.White,
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            Padding = new Thickness(10),
+            Content = rowGrid,
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.04f,
+                Radius = 10,
+                Offset = new Point(0, 3)
+            }
+        };
+    }
+
+    private async Task PlayStoreAudioAsync(GianHang restaurant)
+    {
+        if (string.IsNullOrWhiteSpace(restaurant.AudioFullUrl))
+        {
+            await DisplayAlertAsync("Thông báo", "Quán này chưa có audio.", "OK");
+            return;
+        }
+
+        await _geofenceEngine.TogglePlaybackAsync(new AudioPlaybackRequest(
+            restaurant.IdGianHang,
+            string.IsNullOrWhiteSpace(restaurant.Ten) ? "Quán ăn" : restaurant.Ten,
+            restaurant.AudioFullUrl,
+            restaurant.HinhAnhFullUrl));
     }
 
     private static string NormalizeImagePath(string? dbPath)
@@ -560,7 +594,7 @@ public class HomePage : ContentPage
 
 #if DEBUG
         handler.ServerCertificateCustomValidationCallback =
-            (message, cert, chain, errors) => true;
+            (_, _, _, _) => true;
 #endif
 
         return new HttpClient(handler)
@@ -569,75 +603,93 @@ public class HomePage : ContentPage
         };
     }
 
-    private View BuildPromoCard()
+    private View BuildBottomPlayerStub()
     {
+        var cover = new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 42,
+            WidthRequest = 42,
+            StrokeShape = new RoundRectangle { CornerRadius = 12 },
+            Content = new Image
+            {
+                Source = "dotnet_bot.png",
+                Aspect = Aspect.AspectFill
+            }
+        };
+
+        var textWrap = new VerticalStackLayout
+        {
+            Spacing = 0,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Label
+                {
+                    Text = "\u0110ang ph\u00E1t",
+                    FontSize = 11,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Color.FromArgb("#9A3412")
+                },
+                new Label
+                {
+                    Text = "X\u00F3m Chi\u1EBFu - A Century of Mat-Weaving",
+                    FontSize = 13,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = Color.FromArgb("#0F172A"),
+                    MaxLines = 1,
+                    LineBreakMode = LineBreakMode.TailTruncation
+                }
+            }
+        };
+
+        var closeButton = new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 30,
+            WidthRequest = 30,
+            StrokeShape = new RoundRectangle { CornerRadius = 15 },
+            BackgroundColor = Colors.White,
+            VerticalOptions = LayoutOptions.Center,
+            Content = BuildCloseIcon(),
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.05f,
+                Radius = 8,
+                Offset = new Point(0, 2)
+            }
+        };
+
+        var content = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            ColumnSpacing = 10
+        };
+        content.Children.Add(cover);
+        content.Children.Add(textWrap);
+        content.Children.Add(closeButton);
+        Grid.SetColumn(textWrap, 1);
+        Grid.SetColumn(closeButton, 2);
+
         return new Border
         {
             StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 24 },
-            BackgroundColor = Color.FromArgb("#FFF3EA"),
-            Padding = new Thickness(16),
-            Margin = new Thickness(0, 4, 0, 4),
-            Content = new Grid
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            BackgroundColor = Color.FromArgb("#FFF6EF"),
+            Padding = new Thickness(12, 10),
+            Content = content,
+            Shadow = new Shadow
             {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(GridLength.Star),
-                    new ColumnDefinition(GridLength.Auto)
-                },
-                Children =
-                {
-                    new VerticalStackLayout
-                    {
-                        Spacing = 10,
-                        Children =
-                        {
-                            new Label
-                            {
-                                Text = "Khám phá\nhương vị bản\nđịa",
-                                FontSize = 38,
-                                FontAttributes = FontAttributes.Bold,
-                                TextColor = Color.FromArgb("#2F2F33")
-                            },
-                            new Label
-                            {
-                                Text = "Được tuyển chọn bởi các chuyên gia ẩm thực hàng đầu tại Sài Gòn.",
-                                FontSize = 14,
-                                TextColor = Color.FromArgb("#6D6D72")
-                            },
-                            new Border
-                            {
-                                StrokeThickness = 0,
-                                BackgroundColor = Color.FromArgb("#FF6B00"),
-                                StrokeShape = new RoundRectangle { CornerRadius = 20 },
-                                Padding = new Thickness(18, 10),
-                                HorizontalOptions = LayoutOptions.Start,
-                                Content = new Label
-                                {
-                                    Text = "Thử ngay",
-                                    FontSize = 14,
-                                    FontAttributes = FontAttributes.Bold,
-                                    TextColor = Colors.White
-                                }
-                            }
-                        }
-                    },
-                    new Border
-                    {
-                        HeightRequest = 118,
-                        WidthRequest = 118,
-                        BackgroundColor = Colors.White,
-                        StrokeThickness = 0,
-                        StrokeShape = new RoundRectangle { CornerRadius = 59 },
-                        HorizontalOptions = LayoutOptions.End,
-                        VerticalOptions = LayoutOptions.End,
-                        Content = new Image
-                        {
-                            Source = "dotnet_bot.png",
-                            Aspect = Aspect.AspectFill
-                        }
-                    }
-                }
+                Brush = Brush.Black,
+                Opacity = 0.04f,
+                Radius = 12,
+                Offset = new Point(0, 3)
             }
         };
     }
@@ -656,9 +708,9 @@ public class HomePage : ContentPage
         grid.Children.Add(new Label
         {
             Text = title,
-            FontSize = 37,
+            FontSize = 22,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#222")
+            TextColor = Color.FromArgb("#0F172A")
         });
 
         var actionLabel = new Label
@@ -666,7 +718,7 @@ public class HomePage : ContentPage
             Text = action,
             FontSize = 14,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FF7A1A"),
+            TextColor = Color.FromArgb("#E11D48"),
             VerticalTextAlignment = TextAlignment.End
         };
         grid.Children.Add(actionLabel);
@@ -675,122 +727,100 @@ public class HomePage : ContentPage
         return grid;
     }
 
-    private View BuildTagCard(string icon, String title, bool outlined)
+    private View BuildBellIcon()
     {
-        return new Border
+        return new Grid
         {
-            Stroke = outlined ? Color.FromArgb("#FFD9C2") : Colors.Transparent,
-            StrokeThickness = outlined ? 1 : 0,
-            BackgroundColor = outlined ? Color.FromArgb("#FFF7F1") : Color.FromArgb("#F2F2F2"),
-            StrokeShape = new RoundRectangle { CornerRadius = 16 },
-            Padding = new Thickness(14, 16),
-            Content = new HorizontalStackLayout
+            WidthRequest = 20,
+            HeightRequest = 20,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
             {
-                Spacing = 8,
-                HorizontalOptions = LayoutOptions.Center,
-                Children =
+                new Ellipse
                 {
-                    new Label
-                    {
-                        Text = icon,
-                        FontSize = 18,
-                        TextColor = Color.FromArgb("#A16207")
-                    },
-                    new Label
-                    {
-                        Text = title,
-                        FontSize = 16,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Color.FromArgb("#454545")
-                    }
+                    Stroke = new SolidColorBrush(Color.FromArgb("#0F172A")),
+                    StrokeThickness = 1.6,
+                    WidthRequest = 15,
+                    HeightRequest = 15,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Line
+                {
+                    X1 = 10,
+                    X2 = 10,
+                    Y1 = 4.6,
+                    Y2 = 10.2,
+                    Stroke = new SolidColorBrush(Color.FromArgb("#0F172A")),
+                    StrokeThickness = 1.6,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Ellipse
+                {
+                    WidthRequest = 3.4,
+                    HeightRequest = 3.4,
+                    Fill = new SolidColorBrush(Color.FromArgb("#0F172A")),
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.End,
+                    TranslationY = -1
                 }
             }
         };
     }
 
-    private View BuildFooter()
+    private View BuildPlayIcon()
     {
-        View BuildFooterItem(string icon, string text, bool active, Func<Task>? onTap = null)
+        return new Polygon
         {
-            var content = new VerticalStackLayout
+            Points = new PointCollection
             {
-                Spacing = 4,
-                HorizontalOptions = LayoutOptions.Center,
-                Children =
-                {
-                    new Border
-                    {
-                        StrokeThickness = 0,
-                        BackgroundColor = active ? Color.FromArgb("#FFEBDD") : Colors.Transparent,
-                        StrokeShape = new RoundRectangle { CornerRadius = 18 },
-                        Padding = new Thickness(12, 8),
-                        Content = new Label
-                        {
-                            Text = icon,
-                            FontSize = 18,
-                            HorizontalTextAlignment = TextAlignment.Center
-                        }
-                    },
-                    new Label
-                    {
-                        Text = text,
-                        FontSize = 11,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = active ? Color.FromArgb("#FF7A1A") : Color.FromArgb("#7D7D82"),
-                        HorizontalTextAlignment = TextAlignment.Center
-                    }
-                }
-            };
-
-            if (onTap is not null)
-            {
-                var tap = new TapGestureRecognizer();
-                tap.Tapped += async (_, __) => await onTap();
-                content.GestureRecognizers.Add(tap);
-            }
-
-            return content;
-        }
-
-        var tabs = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Star)
+                new Point(6, 4.5),
+                new Point(6, 15.5),
+                new Point(15, 10)
             },
-            Padding = new Thickness(16, 8, 16, 12)
-        };
-
-        var home = BuildFooterItem("🏠", "Trang chủ", true);
-        var explore = BuildFooterItem("🧭", "Khám phá", false, async () =>
-        {
-            var poiMapPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PoiMapPage>();
-            if (poiMapPage != null)
-            {
-                poiMapPage.RequestAutoOpenExplore();
-                await Navigation.PushAsync(poiMapPage);
-            }
-        });
-
-        tabs.Children.Add(home);
-        tabs.Children.Add(explore);
-        Grid.SetColumn(explore, 1);
-
-        return new Border
-        {
+            Fill = new SolidColorBrush(Colors.White),
             StrokeThickness = 0,
-            BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(24, 24, 0, 0) },
-            Content = tabs,
-            Margin = new Thickness(0, 0, 0, 0),
-            Shadow = new Shadow
+            WidthRequest = 18,
+            HeightRequest = 18,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center
+        };
+    }
+
+    private View BuildCloseIcon()
+    {
+        var stroke = new SolidColorBrush(Color.FromArgb("#64748B"));
+
+        return new Grid
+        {
+            WidthRequest = 14,
+            HeightRequest = 14,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
             {
-                Brush = Brush.Black,
-                Opacity = 0.08f,
-                Radius = 14,
-                Offset = new Point(0, -2)
+                new Line
+                {
+                    X1 = 3,
+                    Y1 = 3,
+                    X2 = 11,
+                    Y2 = 11,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 11,
+                    Y1 = 3,
+                    X2 = 3,
+                    Y2 = 11,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                }
             }
         };
     }
+
 }
