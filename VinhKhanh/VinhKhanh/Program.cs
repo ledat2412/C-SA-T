@@ -29,7 +29,19 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+var configuredUrls = app.Configuration["urls"] ?? app.Configuration["ASPNETCORE_URLS"];
+var hasHttpsEndpoint = !string.IsNullOrWhiteSpace(configuredUrls) &&
+                       configuredUrls
+                           .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                           .Any(url => url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+// Keep HTTP-only launches working while still redirecting when an HTTPS
+// endpoint is actually configured.
+if (hasHttpsEndpoint)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseStaticFiles();
 app.UseAuthorization();
 

@@ -250,6 +250,8 @@ namespace VinhKhanh.Services
 
         public async Task<object?> GenerateAudioFromMoTaAsync(int idGianHang, string languageCode = "vi")
         {
+            var normalizedLanguageCode = NormalizeLanguageCode(languageCode);
+
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
@@ -269,7 +271,7 @@ namespace VinhKhanh.Services
 
             using var cmd = new MySqlCommand(selectSql, conn);
             cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-            cmd.Parameters.AddWithValue("@languageCode", languageCode);
+            cmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
 
             using var reader = await cmd.ExecuteReaderAsync();
 
@@ -285,12 +287,12 @@ namespace VinhKhanh.Services
             if (string.IsNullOrWhiteSpace(moTa))
                 return null;
 
-            if (!string.IsNullOrWhiteSpace(oldAudioUrl))
+            if (!string.IsNullOrWhiteSpace(oldAudioUrl) && _ttsService.AudioPathExists(oldAudioUrl))
             {
                 return new
                 {
                     idGianHang,
-                    languageCode,
+                    languageCode = normalizedLanguageCode,
                     ten,
                     moTa,
                     audioURL = oldAudioUrl,
@@ -298,8 +300,8 @@ namespace VinhKhanh.Services
                 };
             }
 
-            var fileName = $"gianhang_{idGianHang}_{languageCode}.mp3";
-            var generatedUrl = await _ttsService.GenerateSpeechAsync(moTa, fileName, languageCode);
+            var fileName = $"gianhang_{idGianHang}_{normalizedLanguageCode}.mp3";
+            var generatedUrl = await _ttsService.GenerateSpeechAsync(moTa, fileName, normalizedLanguageCode);
             var dbAudioUrl = generatedUrl.TrimStart('/');
 
             const string updateSql = @"
@@ -312,13 +314,13 @@ namespace VinhKhanh.Services
             using var updateCmd = new MySqlCommand(updateSql, conn);
             updateCmd.Parameters.AddWithValue("@audioURL", dbAudioUrl);
             updateCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-            updateCmd.Parameters.AddWithValue("@languageCode", languageCode);
+            updateCmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
             await updateCmd.ExecuteNonQueryAsync();
 
             return new
             {
                 idGianHang,
-                languageCode,
+                languageCode = normalizedLanguageCode,
                 ten,
                 moTa,
                 audioURL = dbAudioUrl,
@@ -328,6 +330,8 @@ namespace VinhKhanh.Services
 
         public async Task<object?> UpdateMoTaAndGenerateAudioAsync(int idGianHang, string languageCode, string moTa)
         {
+            var normalizedLanguageCode = NormalizeLanguageCode(languageCode);
+
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
@@ -342,13 +346,20 @@ namespace VinhKhanh.Services
             using var updateCmd = new MySqlCommand(updateSql, conn);
             updateCmd.Parameters.AddWithValue("@moTa", moTa);
             updateCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-            updateCmd.Parameters.AddWithValue("@languageCode", languageCode);
+            updateCmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
 
             var rows = await updateCmd.ExecuteNonQueryAsync();
             if (rows <= 0)
                 return null;
 
-            return await GenerateAudioFromMoTaAsync(idGianHang, languageCode);
+            return await GenerateAudioFromMoTaAsync(idGianHang, normalizedLanguageCode);
+        }
+
+        private static string NormalizeLanguageCode(string? languageCode)
+        {
+            return string.IsNullOrWhiteSpace(languageCode)
+                ? "vi"
+                : languageCode.Trim().ToLowerInvariant();
         }
     }
 }

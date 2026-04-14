@@ -28,7 +28,7 @@ namespace VinhKhanh.Services
                     ma.donGia,
                     mann.moTa,
                     ma.tinhTrang,
-                    ham.duongDan AS hinhAnh
+                    MIN(ham.duongDan) AS hinhAnh
                 FROM monan ma
                 LEFT JOIN ngonngu nn
                     ON nn.maNgonNgu = @lang
@@ -38,6 +38,14 @@ namespace VinhKhanh.Services
                 LEFT JOIN hinhanhmonan ham
                     ON ham.idMonAn = ma.idMonAn
                 WHERE ma.idGianHang = @idGianHang
+                GROUP BY
+                    ma.idMonAn,
+                    ma.idGianHang,
+                    ma.ten,
+                    mann.ten,
+                    ma.donGia,
+                    mann.moTa,
+                    ma.tinhTrang
                 ORDER BY ma.idMonAn;";
 
             using var cmd = new MySqlCommand(sql, conn);

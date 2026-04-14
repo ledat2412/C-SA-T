@@ -9,5 +9,8 @@ namespace VinhKhanh.Dtos
         public DateTime? BatDauLuc { get; set; }
         public DateTime? HetHanLuc { get; set; }
         public string? TrangThai { get; set; }
+        public int? IdGoi { get; set; }
+        public string? TenGoi { get; set; }
+        public int? SoNgayHieuLuc { get; set; }
     }
 }

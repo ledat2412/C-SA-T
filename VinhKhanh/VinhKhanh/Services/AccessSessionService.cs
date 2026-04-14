@@ -8,12 +8,10 @@ namespace VinhKhanh.Services
     public class AccessSessionService
     {
         private readonly MySqlDbContext _db;
-        private readonly IConfiguration _config;
 
-        public AccessSessionService(MySqlDbContext db, IConfiguration config)
+        public AccessSessionService(MySqlDbContext db)
         {
             _db = db;
-            _config = config;
         }
 
         public async Task<AccessSessionResponseDto> CreateFromQrAsync(ScanQrRequestDto request)
@@ -27,17 +25,19 @@ namespace VinhKhanh.Services
                 };
             }
 
+            var maThietBi = request.MaThietBi.Trim();
+
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
             const string selectDeviceSql = @"
-                SELECT maThietBi, daKichHoat, trangThai
+                SELECT idThietBi, maThietBi, daKichHoat, trangThai
                 FROM thietbi
                 WHERE maThietBi = @maThietBi
                 LIMIT 1;";
 
             using var selectDeviceCmd = new MySqlCommand(selectDeviceSql, conn);
-            selectDeviceCmd.Parameters.AddWithValue("@maThietBi", request.MaThietBi);
+            selectDeviceCmd.Parameters.AddWithValue("@maThietBi", maThietBi);
 
             using var reader = await selectDeviceCmd.ExecuteReaderAsync();
             if (!await reader.ReadAsync())
@@ -49,6 +49,8 @@ namespace VinhKhanh.Services
                 };
             }
 
+            var idThietBi = reader.GetInt32("idThietBi");
+            var resolvedDeviceCode = reader["maThietBi"]?.ToString() ?? maThietBi;
             var daKichHoat = Convert.ToBoolean(reader["daKichHoat"]);
             var trangThaiThietBi = reader["trangThai"]?.ToString();
             await reader.CloseAsync();
@@ -59,7 +61,18 @@ namespace VinhKhanh.Services
                 {
                     Success = false,
                     Message = "Thiết bị chưa được kích hoạt hoặc đang không hoạt động.",
-                    MaThietBi = request.MaThietBi
+                    MaThietBi = resolvedDeviceCode
+                };
+            }
+
+            var package = await ResolvePackageAsync(conn, resolvedDeviceCode, request.IdGoi);
+            if (package is null)
+            {
+                return new AccessSessionResponseDto
+                {
+                    Success = false,
+                    Message = "Thiáº¿t bá»‹ chÆ°a cÃ³ gÃ³i Ä‘Äƒng kÃ½ hoáº·c gÃ³i khÃ´ng há»£p lá»‡.",
+                    MaThietBi = resolvedDeviceCode
                 };
             }
 
@@ -71,21 +84,23 @@ namespace VinhKhanh.Services
 
             using (var expireCmd = new MySqlCommand(expireOldSessionsSql, conn))
             {
-                expireCmd.Parameters.AddWithValue("@maThietBi", request.MaThietBi);
+                expireCmd.Parameters.AddWithValue("@maThietBi", resolvedDeviceCode);
                 await expireCmd.ExecuteNonQueryAsync();
             }
 
             var batDauLuc = DateTime.UtcNow;
-            var hetHanLuc = batDauLuc.AddMinutes(GetSessionMinutes());
+            var hetHanLuc = batDauLuc.AddDays(package.DurationDays);
             var accessToken = GenerateAccessToken();
 
             const string insertSql = @"
-                INSERT INTO phien_vao_app (maThietBi, qrRaw, accessToken, batDauLuc, hetHanLuc, trangThai)
-                VALUES (@maThietBi, @qrRaw, @accessToken, @batDauLuc, @hetHanLuc, 'hieu_luc');";
+                INSERT INTO phien_vao_app (idThietBi, maThietBi, idGoi, qrRaw, accessToken, batDauLuc, hetHanLuc, trangThai)
+                VALUES (@idThietBi, @maThietBi, @idGoi, @qrRaw, @accessToken, @batDauLuc, @hetHanLuc, 'hieu_luc');";
 
             using (var insertCmd = new MySqlCommand(insertSql, conn))
             {
-                insertCmd.Parameters.AddWithValue("@maThietBi", request.MaThietBi);
+                insertCmd.Parameters.AddWithValue("@idThietBi", idThietBi);
+                insertCmd.Parameters.AddWithValue("@maThietBi", resolvedDeviceCode);
+                insertCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
                 insertCmd.Parameters.AddWithValue("@qrRaw", string.IsNullOrWhiteSpace(request.QrRaw) ? DBNull.Value : request.QrRaw);
                 insertCmd.Parameters.AddWithValue("@accessToken", accessToken);
                 insertCmd.Parameters.AddWithValue("@batDauLuc", batDauLuc);
@@ -96,11 +111,11 @@ namespace VinhKhanh.Services
             const string updateDeviceSql = @"
                 UPDATE thietbi
                 SET lanCuoiHoatDong = NOW()
-                WHERE maThietBi = @maThietBi;";
+                WHERE idThietBi = @idThietBi;";
 
             using (var updateDeviceCmd = new MySqlCommand(updateDeviceSql, conn))
             {
-                updateDeviceCmd.Parameters.AddWithValue("@maThietBi", request.MaThietBi);
+                updateDeviceCmd.Parameters.AddWithValue("@idThietBi", idThietBi);
                 await updateDeviceCmd.ExecuteNonQueryAsync();
             }
 
@@ -108,11 +123,14 @@ namespace VinhKhanh.Services
             {
                 Success = true,
                 Message = "Tạo phiên vào app thành công.",
-                MaThietBi = request.MaThietBi,
+                MaThietBi = resolvedDeviceCode,
                 AccessToken = accessToken,
                 BatDauLuc = batDauLuc,
                 HetHanLuc = hetHanLuc,
-                TrangThai = "hieu_luc"
+                TrangThai = "hieu_luc",
+                IdGoi = package.IdGoi,
+                TenGoi = package.TenGoi,
+                SoNgayHieuLuc = package.DurationDays
             };
         }
 
@@ -183,11 +201,59 @@ namespace VinhKhanh.Services
             };
         }
 
-        private int GetSessionMinutes()
+        private static async Task<PackageInfo?> ResolvePackageAsync(MySqlConnection conn, string maThietBi, int? requestedPackageId)
         {
-            var sessionMinutes = _config.GetValue<int?>("AccessControl:SessionMinutes");
-            var value = sessionMinutes.GetValueOrDefault(30);
-            return value > 0 ? value : 30;
+            const string explicitPackageSql = @"
+                SELECT idGoi, ten, thoiHanNgay
+                FROM goidichvu
+                WHERE idGoi = @idGoi
+                  AND trangThai = 'hoat_dong'
+                LIMIT 1;";
+
+            if (requestedPackageId.HasValue)
+            {
+                using var explicitCmd = new MySqlCommand(explicitPackageSql, conn);
+                explicitCmd.Parameters.AddWithValue("@idGoi", requestedPackageId.Value);
+
+                using var explicitReader = await explicitCmd.ExecuteReaderAsync();
+                if (await explicitReader.ReadAsync())
+                {
+                    return new PackageInfo(
+                        explicitReader.GetInt32("idGoi"),
+                        explicitReader["ten"]?.ToString() ?? $"Goi {requestedPackageId.Value}",
+                        NormalizeDurationDays(explicitReader["thoiHanNgay"]));
+                }
+
+                return null;
+            }
+
+            const string lastRegisteredPackageSql = @"
+                SELECT gdv.idGoi, gdv.ten, gdv.thoiHanNgay
+                FROM phien_vao_app pva
+                INNER JOIN goidichvu gdv ON gdv.idGoi = pva.idGoi
+                WHERE pva.maThietBi = @maThietBi
+                  AND pva.idGoi IS NOT NULL
+                  AND gdv.trangThai = 'hoat_dong'
+                ORDER BY pva.batDauLuc DESC, pva.id DESC
+                LIMIT 1;";
+
+            using var lastRegisteredCmd = new MySqlCommand(lastRegisteredPackageSql, conn);
+            lastRegisteredCmd.Parameters.AddWithValue("@maThietBi", maThietBi);
+
+            using var lastRegisteredReader = await lastRegisteredCmd.ExecuteReaderAsync();
+            if (!await lastRegisteredReader.ReadAsync())
+                return null;
+
+            return new PackageInfo(
+                lastRegisteredReader.GetInt32("idGoi"),
+                lastRegisteredReader["ten"]?.ToString() ?? string.Empty,
+                NormalizeDurationDays(lastRegisteredReader["thoiHanNgay"]));
+        }
+
+        private static int NormalizeDurationDays(object value)
+        {
+            var days = Convert.ToInt32(value);
+            return days > 0 ? days : 1;
         }
 
         private static string GenerateAccessToken()
@@ -196,5 +262,7 @@ namespace VinhKhanh.Services
             RandomNumberGenerator.Fill(buffer);
             return Convert.ToHexString(buffer);
         }
+
+        private sealed record PackageInfo(int IdGoi, string TenGoi, int DurationDays);
     }
 }

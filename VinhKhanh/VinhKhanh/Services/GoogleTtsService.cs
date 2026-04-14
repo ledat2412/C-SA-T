@@ -24,6 +24,12 @@ namespace VinhKhanh.Services
             };
         }
 
+        public bool AudioPathExists(string? audioPath)
+        {
+            var fullPath = ResolveLocalAudioPath(audioPath);
+            return fullPath is null || File.Exists(fullPath);
+        }
+
         public async Task<string> GenerateSpeechAsync(string text, string fileName, string languageCode = "vi")
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -58,7 +64,7 @@ namespace VinhKhanh.Services
                     AudioEncoding = AudioEncoding.Mp3
                 });
 
-            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var webRoot = GetWebRoot();
             var folder = Path.Combine(webRoot, "audio");
 
             if (!Directory.Exists(folder))
@@ -69,6 +75,30 @@ namespace VinhKhanh.Services
             await File.WriteAllBytesAsync(fullPath, response.AudioContent.ToByteArray());
 
             return $"/audio/{fileName}";
+        }
+
+        private string GetWebRoot()
+        {
+            return _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+        }
+
+        private string? ResolveLocalAudioPath(string? audioPath)
+        {
+            if (string.IsNullOrWhiteSpace(audioPath))
+                return null;
+
+            if (audioPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                audioPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var normalizedPath = audioPath
+                .Trim()
+                .TrimStart('/')
+                .Replace('/', Path.DirectorySeparatorChar);
+
+            return Path.Combine(GetWebRoot(), normalizedPath);
         }
     }
 }
