@@ -7,9 +7,10 @@ namespace MauiApp1.Services
     {
         private readonly ApiService _apiService;
         private readonly SQLiteService _sqliteService;
+        private readonly AudioCacheService _audioCacheService;
 
-        private AppDataResponse? _memoryCache;
-        private string? _cachedLang;
+        private readonly Dictionary<string, AppDataResponse> _memoryCache =
+            new(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan AppDataCacheMaxAge = TimeSpan.FromHours(12);
 
         private static readonly JsonSerializerOptions JsonOptions = new()
@@ -17,10 +18,14 @@ namespace MauiApp1.Services
             PropertyNameCaseInsensitive = true
         };
 
-        public AppDataCacheService(ApiService apiService, SQLiteService sqliteService)
+        public AppDataCacheService(
+            ApiService apiService,
+            SQLiteService sqliteService,
+            AudioCacheService audioCacheService)
         {
             _apiService = apiService;
             _sqliteService = sqliteService;
+            _audioCacheService = audioCacheService;
         }
 
         public async Task<AppDataResponse> GetAsync(string lang = "vi", bool forceRefresh = false)
@@ -28,10 +33,9 @@ namespace MauiApp1.Services
             lang = string.IsNullOrWhiteSpace(lang) ? "vi" : lang.Trim().ToLowerInvariant();
             var cacheKey = $"appdata_{lang}";
 
-            if (!forceRefresh && _memoryCache != null && _cachedLang == lang)
-                return _memoryCache;
+            if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
+                return memoryData;
 
-            // 1) Có mạng: ưu tiên gọi API
             if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
             {
                 try
@@ -47,8 +51,8 @@ namespace MauiApp1.Services
                             UpdatedAtUtc = DateTime.UtcNow
                         });
 
-                        _memoryCache = apiData;
-                        _cachedLang = lang;
+                        _memoryCache[cacheKey] = apiData;
+                        _ = PrefetchAudioInBackgroundAsync(apiData);
                         return apiData;
                     }
                 }
@@ -58,31 +62,60 @@ namespace MauiApp1.Services
                 }
             }
 
-            // 2) Fallback SQLite
             try
             {
                 var local = await _sqliteService.GetCacheIfFreshAsync(cacheKey, AppDataCacheMaxAge);
-
                 if (local != null && !string.IsNullOrWhiteSpace(local.JsonData))
                 {
                     var cachedData = JsonSerializer.Deserialize<AppDataResponse>(local.JsonData, JsonOptions);
                     if (cachedData != null)
                     {
-                        _memoryCache = cachedData;
-                        _cachedLang = lang;
+                        _memoryCache[cacheKey] = cachedData;
                         return cachedData;
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] SQLite error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Fresh SQLite error: {ex.Message}");
             }
 
-            // 3) Không có gì thì trả rỗng
-            _memoryCache = new AppDataResponse();
-            _cachedLang = lang;
-            return _memoryCache;
+            try
+            {
+                var local = await _sqliteService.GetCacheAsync(cacheKey);
+                if (local != null && !string.IsNullOrWhiteSpace(local.JsonData))
+                {
+                    var cachedData = JsonSerializer.Deserialize<AppDataResponse>(local.JsonData, JsonOptions);
+                    if (cachedData != null)
+                    {
+                        _memoryCache[cacheKey] = cachedData;
+                        return cachedData;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Stale SQLite error: {ex.Message}");
+            }
+
+            try
+            {
+                var fallback = await _sqliteService.GetLatestCacheByPrefixAsync("appdata_");
+                if (fallback != null && !string.IsNullOrWhiteSpace(fallback.JsonData))
+                {
+                    var cachedData = JsonSerializer.Deserialize<AppDataResponse>(fallback.JsonData, JsonOptions);
+                    if (cachedData != null)
+                        return cachedData;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Latest cached fallback error: {ex.Message}");
+            }
+
+            var empty = new AppDataResponse();
+            _memoryCache[cacheKey] = empty;
+            return empty;
         }
 
         public async Task RefreshAsync(string lang = "vi")
@@ -92,8 +125,7 @@ namespace MauiApp1.Services
 
         public async Task ClearAsync()
         {
-            _memoryCache = null;
-            _cachedLang = null;
+            _memoryCache.Clear();
             await _sqliteService.ClearAllCacheAsync();
         }
 
@@ -104,8 +136,19 @@ namespace MauiApp1.Services
 
         public void ClearMemory()
         {
-            _memoryCache = null;
-            _cachedLang = null;
+            _memoryCache.Clear();
+        }
+
+        private async Task PrefetchAudioInBackgroundAsync(AppDataResponse appData)
+        {
+            try
+            {
+                await _audioCacheService.PrefetchForAppDataAsync(appData);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Audio prefetch error: {ex.Message}");
+            }
         }
     }
 }

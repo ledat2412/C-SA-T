@@ -6,6 +6,7 @@ namespace MauiApp1.Services;
 public sealed class GeofenceEngineService : IAsyncDisposable
 {
     private readonly IAudioManager _audioManager;
+    private readonly AudioCacheService _audioCacheService;
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly SemaphoreSlim _playbackSync = new(1, 1);
 
@@ -36,9 +37,10 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
     public AudioPlaybackStateSnapshot PlaybackState => _playbackState;
 
-    public GeofenceEngineService(IAudioManager audioManager)
+    public GeofenceEngineService(IAudioManager audioManager, AudioCacheService audioCacheService)
     {
         _audioManager = audioManager;
+        _audioCacheService = audioCacheService;
     }
 
     public async Task UpdateTargetsAsync(IEnumerable<GianHang> gianHangs, double? radiusMeters = null)
@@ -365,10 +367,10 @@ public sealed class GeofenceEngineService : IAsyncDisposable
             CancelPendingAutoPlayInternal();
             StopCurrentAudioInternal();
 
-            using var client = CreateAudioHttpClient();
-            var bytes = await client.GetByteArrayAsync(request.AudioUrl!, cancellationToken);
-            if (bytes.Length == 0)
+            var bytes = await _audioCacheService.GetAudioBytesAsync(request.AudioUrl, cancellationToken);
+            if (bytes is null || bytes.Length == 0)
             {
+                System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] No cached/network audio for {request.AudioUrl}");
                 PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
                 return;
             }
@@ -416,19 +418,6 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         permission = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
         return permission == PermissionStatus.Granted;
-    }
-
-    private static HttpClient CreateAudioHttpClient()
-    {
-        var handler = new HttpClientHandler();
-#if DEBUG
-        handler.ServerCertificateCustomValidationCallback =
-            (_, _, _, _) => true;
-#endif
-        return new HttpClient(handler)
-        {
-            Timeout = TimeSpan.FromSeconds(12)
-        };
     }
 
     private void StartPlaybackTimerInternal()

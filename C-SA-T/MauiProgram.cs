@@ -48,6 +48,7 @@ public static class MauiProgram
         builder.Services.AddSingleton(AudioManager.Current);
 
         builder.Services.AddSingleton<SQLiteService>();
+        builder.Services.AddSingleton<AudioCacheService>();
         builder.Services.AddSingleton<ApiService>();
         builder.Services.AddSingleton<AppDataCacheService>();
         builder.Services.AddSingleton<GeofenceEngineService>();

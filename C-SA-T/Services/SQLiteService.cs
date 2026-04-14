@@ -43,6 +43,14 @@ namespace MauiApp1.Services
             return null;
         }
 
+        public async Task<AppCacheEntry?> GetLatestCacheByPrefixAsync(string cacheKeyPrefix)
+        {
+            return await _db.Table<AppCacheEntry>()
+                .Where(x => x.CacheKey.StartsWith(cacheKeyPrefix))
+                .OrderByDescending(x => x.UpdatedAtUtc)
+                .FirstOrDefaultAsync();
+        }
+
         public Task<int> DeleteCacheAsync(string cacheKey)
         {
             return _db.DeleteAsync<AppCacheEntry>(cacheKey);
