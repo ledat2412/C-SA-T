@@ -2,6 +2,15 @@
 $auth = isset($_SESSION['admin_auth']) && is_array($_SESSION['admin_auth']) ? $_SESSION['admin_auth'] : array();
 $idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
 $loaiTaiKhoan = isset($auth['loaiTaiKhoan']) ? (string) $auth['loaiTaiKhoan'] : 'admin';
+$flash = isset($_GET['flash']) ? (string) $_GET['flash'] : '';
+$storePageAlert = null;
+
+if ($flash === 'request_sent') {
+    $storePageAlert = array(
+        'type' => 'success',
+        'text' => 'Đã gửi yêu cầu mở gian hàng mới. Admin sẽ xem xét trong mục Yêu cầu trước khi tạo gian hàng.'
+    );
+}
 
 function store_default_cards()
 {
@@ -264,6 +273,12 @@ if (count($cards) === 0) {
       <div class="store-debug-panel">
         Không tải được dữ liệu thật nên đang hiển thị giao diện dự phòng.
         <span><?php echo htmlspecialchars($storeError, ENT_QUOTES, 'UTF-8'); ?></span>
+      </div>
+    <?php } ?>
+
+    <?php if ($storePageAlert !== null) { ?>
+      <div class="store-debug-panel <?php echo htmlspecialchars($storePageAlert['type'], ENT_QUOTES, 'UTF-8'); ?>">
+        <?php echo htmlspecialchars($storePageAlert['text'], ENT_QUOTES, 'UTF-8'); ?>
       </div>
     <?php } ?>
 

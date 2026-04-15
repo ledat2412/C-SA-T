@@ -124,6 +124,17 @@ body {
   color: #3f536d;
 }
 
+.field-help {
+  color: #6f8097;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-help strong {
+  color: #12bcbc;
+  font-weight: 800;
+}
+
 .input-wrap {
   border: 1px solid var(--line);
   border-radius: 12px;

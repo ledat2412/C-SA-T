@@ -35,19 +35,20 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
             <section class="pane login-pane">
                 <div class="brand-mini">
                     <span class="dot"><i class="fa-solid fa-shield-halved"></i></span>
-                    Hệ thống Admin
+                    Hệ thống quản lý
                 </div>
                 <h1>Đăng nhập</h1>
-                <p class="sub">Chào mừng quay lại. Đăng nhập để tiếp tục quản lý gian hàng, tài khoản và báo cáo.</p>
+                <p class="sub">Chào mừng quay lại. Admin và Chủ quản lý đều có thể đăng nhập tại đây để vào đúng khu vực làm việc của mình.</p>
 
 <form class="form" id="loginForm" action="#" method="post" novalidate>
-    <div class="field">
-        <label for="loginAccount">Username hoặc Email</label>
-        <div class="input-wrap">
-            <i class="fa-regular fa-user"></i>
-            <input id="loginAccount" name="account" type="text" placeholder="Nhập username hoặc email" required />
-        </div>
-    </div>
+                    <div class="field">
+                        <label for="loginAccount">Username hoặc Email</label>
+                        <div class="input-wrap">
+                            <i class="fa-regular fa-user"></i>
+                            <input id="loginAccount" name="account" type="text" placeholder="Nhập username hoặc email" required />
+                        </div>
+                        <div class="field-help">Hỗ trợ đăng nhập cho <strong>Admin</strong> và <strong>Chủ quản lý</strong>.</div>
+                    </div>
 
     <div class="field">
         <label for="loginPassword">Mật khẩu</label>
@@ -138,10 +139,10 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
                 <div>
                     <div class="pill">
                         <i class="fa-solid fa-sparkles"></i>
-                        One Site Auth Flow
+                        Đăng nhập theo vai trò
                     </div>
-                    <h2>Đăng nhập và<br />Đăng ký trong<br />một trang</h2>
-                    <p>Chuyển đổi mượt giữa hai chế độ bằng animation. Có thể mở trực tiếp chế độ đăng ký với đường dẫn <strong>?mode=register</strong>.</p>
+                    <h2>Admin và<br />Chủ quản lý<br />dùng chung một cổng</h2>
+                    <p>Hệ thống sẽ tự nhận diện vai trò sau khi đăng nhập và chuyển bạn đến đúng trang quản lý tương ứng.</p>
                 </div>
             </aside>
         </div>

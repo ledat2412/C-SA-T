@@ -38,6 +38,125 @@ function store_form_description_url($idGianHang)
     return backend_api_url('GianHang/' . rawurlencode((string) $idGianHang) . '/update-mo-ta');
 }
 
+function store_form_request_collection_url($idTaiKhoan)
+{
+    return backend_api_url('Owner/store-requests') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+}
+
+function store_form_request_db_create($idTaiKhoan, $payload, &$error)
+{
+    $error = '';
+    $conn = admin_db_connection();
+    if (!$conn instanceof mysqli) {
+        $error = 'Khong the mo ket noi DB de luu yeu cau.';
+        return 0;
+    }
+
+    if (!admin_ensure_store_request_table($conn)) {
+        $error = 'Khong the khoi tao bang yeu cau: ' . $conn->error;
+        $conn->close();
+        return 0;
+    }
+
+    $ownerStmt = $conn->prepare("
+        SELECT idChuQuanLy
+        FROM chu_quan_ly
+        WHERE idTaiKhoan = ?
+        LIMIT 1
+    ");
+    if (!$ownerStmt) {
+        $error = $conn->error;
+        $conn->close();
+        return 0;
+    }
+
+    $ownerStmt->bind_param('i', $idTaiKhoan);
+    $ownerStmt->execute();
+    $ownerResult = $ownerStmt->get_result();
+    $ownerRow = $ownerResult ? $ownerResult->fetch_assoc() : null;
+    if ($ownerResult) {
+        $ownerResult->free();
+    }
+    $ownerStmt->close();
+
+    $ownerId = isset($ownerRow['idChuQuanLy']) ? (int) $ownerRow['idChuQuanLy'] : 0;
+    if ($ownerId <= 0) {
+        $error = 'Tai khoan hien tai chua co ho so chu quan ly.';
+        $conn->close();
+        return 0;
+    }
+
+    $stmt = $conn->prepare("
+        INSERT INTO yeucaugianhang
+        (
+            loaiYeuCau,
+            idChuQuanLy,
+            tenGianHang,
+            diaChi,
+            moTa,
+            ngonNguMoTa,
+            lat,
+            lon,
+            phiHangThang,
+            tinhTrangDeXuat,
+            trangThaiYeuCau,
+            ngayTao
+        )
+        VALUES
+        (
+            'them_gian_hang',
+            ?,
+            ?,
+            NULLIF(?, ''),
+            NULLIF(?, ''),
+            ?,
+            NULLIF(?, ''),
+            NULLIF(?, ''),
+            ?,
+            ?,
+            'cho_duyet',
+            NOW()
+        )
+    ");
+    if (!$stmt) {
+        $error = $conn->error;
+        $conn->close();
+        return 0;
+    }
+
+    $ten = trim((string) ($payload['ten'] ?? ''));
+    $diaChi = isset($payload['diaChi']) && $payload['diaChi'] !== null ? trim((string) $payload['diaChi']) : '';
+    $moTa = isset($payload['moTa']) && $payload['moTa'] !== null ? trim((string) $payload['moTa']) : '';
+    $ngonNguMoTa = isset($payload['ngonNguMoTa']) ? trim((string) $payload['ngonNguMoTa']) : 'vi';
+    $lat = isset($payload['lat']) && $payload['lat'] !== null ? (string) $payload['lat'] : '';
+    $lon = isset($payload['lon']) && $payload['lon'] !== null ? (string) $payload['lon'] : '';
+    $phiHangThang = 0;
+    $tinhTrang = isset($payload['tinhTrang']) ? trim((string) $payload['tinhTrang']) : 'dang_hoat_dong';
+
+    $stmt->bind_param(
+        'issssssds',
+        $ownerId,
+        $ten,
+        $diaChi,
+        $moTa,
+        $ngonNguMoTa,
+        $lat,
+        $lon,
+        $phiHangThang,
+        $tinhTrang
+    );
+
+    $stmt->execute();
+    $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
+    if ($stmt->errno !== 0) {
+        $error = $stmt->error !== '' ? $stmt->error : 'Khong the luu yeu cau moi.';
+    }
+
+    $stmt->close();
+    $conn->close();
+    return $newId;
+}
+
 function store_form_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 {
     $error = '';
@@ -290,6 +409,8 @@ if ($flash === 'created') {
     $pageMessage = array('type' => 'success', 'text' => 'Đã tạo gian hàng mới và lưu vào cơ sở dữ liệu.');
 } elseif ($flash === 'created_partial') {
     $pageMessage = array('type' => 'warning', 'text' => 'Đã tạo gian hàng mới nhưng mô tả chưa cập nhật được.');
+} elseif ($flash === 'request_sent') {
+    $pageMessage = array('type' => 'success', 'text' => 'Đã gửi yêu cầu mở gian hàng mới. Vui lòng chờ admin duyệt.');
 }
 
 $showOwnerEmailInput = $loaiTaiKhoan === 'admin';
@@ -366,42 +487,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
         $imageResult = array();
 
         if ($isCreateMode) {
-            $createError = '';
-            $createResult = store_form_call_json('POST', store_form_collection_url($loaiTaiKhoan, $idTaiKhoan), $payload, $createError);
+            if ($loaiTaiKhoan === 'chu_quan_ly') {
+                $requestPayload = array(
+                    'ten' => $payload['ten'],
+                    'diaChi' => $payload['diaChi'],
+                    'moTa' => $formData['moTa'] !== '' ? $formData['moTa'] : null,
+                    'ngonNguMoTa' => $selectedLanguage,
+                    'lat' => $payload['lat'],
+                    'lon' => $payload['lon'],
+                    'phiHangThang' => 0,
+                    'tinhTrang' => $payload['tinhTrang'],
+                );
 
-            if ($createResult === null) {
-                $pageMessage = array('type' => 'error', 'text' => 'Tạo gian hàng thất bại: ' . $createError);
-            } else {
-                $newId = isset($createResult['idGianHang']) ? (int) $createResult['idGianHang'] : 0;
-                if ($newId <= 0) {
-                    $pageMessage = array('type' => 'error', 'text' => 'Backend đã phản hồi nhưng không trả về id gian hàng mới.');
-                } elseif ($descriptionResult === null) {
-                    $pageMessage = array('type' => 'warning', 'text' => 'ÄÃ£ lÆ°u thÃ´ng tin chÃ­nh nhÆ°ng mÃ´ táº£ vÃ  áº£nh chÆ°a cáº­p nháº­t Ä‘Æ°á»£c: ' . $descriptionError . ' | ' . $imageError);
-                } elseif ($hasUploadedImage && $imageResult === null) {
-                    $pageMessage = array('type' => 'warning', 'text' => 'ÄÃ£ lÆ°u thÃ´ng tin gian hÃ ng nhÆ°ng áº£nh chÆ°a cáº­p nháº­t Ä‘Æ°á»£c: ' . $imageError);
-                } else {
-                    $descriptionError = '';
-                    $descriptionResult = store_form_call_json(
-                        'PUT',
-                        store_form_description_url($newId),
-                        array('languageCode' => $selectedLanguage, 'moTa' => $formData['moTa']),
-                        $descriptionError
-                    );
+                $requestError = '';
+                $requestHttpCode = 0;
+                $requestResult = store_form_call_json('POST', store_form_request_collection_url($idTaiKhoan), $requestPayload, $requestError, $requestHttpCode);
 
-                    $imageError = '';
-                    $imageResult = null;
-                    if ($hasUploadedImage) {
-                        $imageResult = store_form_call_file_upload(
-                            store_form_image_upload_url($loaiTaiKhoan, $idTaiKhoan, $newId),
-                            'image',
-                            $uploadedImage,
-                            $imageError
-                        );
+                if ($requestResult === null && ($requestHttpCode === 0 || $requestHttpCode === 404 || $requestHttpCode === 405)) {
+                    $newRequestId = store_form_request_db_create($idTaiKhoan, $requestPayload, $requestError);
+                    if ($newRequestId > 0) {
+                        header('Location: ' . admin_url('index1st.php?usecase=store&flash=request_sent'));
+                        exit;
                     }
-
-                    $flashTarget = ($descriptionResult === null || ($hasUploadedImage && $imageResult === null)) ? 'created_partial' : 'created';
-                    header('Location: ' . admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . $newId . '&lang=' . rawurlencode($selectedLanguage) . '&flash=' . rawurlencode($flashTarget)));
+                } elseif ($requestResult !== null) {
+                    header('Location: ' . admin_url('index1st.php?usecase=store&flash=request_sent'));
                     exit;
+                }
+
+                $pageMessage = array('type' => 'error', 'text' => 'Gửi yêu cầu thất bại: ' . $requestError);
+            } else {
+                $createError = '';
+                $createResult = store_form_call_json('POST', store_form_collection_url($loaiTaiKhoan, $idTaiKhoan), $payload, $createError);
+
+                if ($createResult === null) {
+                    $pageMessage = array('type' => 'error', 'text' => 'Tạo gian hàng thất bại: ' . $createError);
+                } else {
+                    $newId = isset($createResult['idGianHang']) ? (int) $createResult['idGianHang'] : 0;
+                    if ($newId <= 0) {
+                        $pageMessage = array('type' => 'error', 'text' => 'Backend đã phản hồi nhưng không trả về id gian hàng mới.');
+                    } elseif ($descriptionResult === null) {
+                        $pageMessage = array('type' => 'warning', 'text' => 'Đã lưu thông tin chính nhưng mô tả và ảnh chưa cập nhật được: ' . $descriptionError . ' | ' . $imageError);
+                    } elseif ($hasUploadedImage && $imageResult === null) {
+                        $pageMessage = array('type' => 'warning', 'text' => 'Đã lưu thông tin gian hàng nhưng ảnh chưa cập nhật được: ' . $imageError);
+                    } else {
+                        $descriptionError = '';
+                        $descriptionResult = store_form_call_json(
+                            'PUT',
+                            store_form_description_url($newId),
+                            array('languageCode' => $selectedLanguage, 'moTa' => $formData['moTa']),
+                            $descriptionError
+                        );
+
+                        $imageError = '';
+                        $imageResult = null;
+                        if ($hasUploadedImage) {
+                            $imageResult = store_form_call_file_upload(
+                                store_form_image_upload_url($loaiTaiKhoan, $idTaiKhoan, $newId),
+                                'image',
+                                $uploadedImage,
+                                $imageError
+                            );
+                        }
+
+                        $flashTarget = ($descriptionResult === null || ($hasUploadedImage && $imageResult === null)) ? 'created_partial' : 'created';
+                        header('Location: ' . admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . $newId . '&lang=' . rawurlencode($selectedLanguage) . '&flash=' . rawurlencode($flashTarget)));
+                        exit;
+                    }
                 }
             }
         } else {
@@ -469,12 +620,15 @@ $ownerEmail = $store !== null
 $ownerUsername = $store !== null
     ? store_form_display_value($store['usernameChuQuanLy'] ?? '', 'Chưa có username')
     : store_form_display_value($auth['username'] ?? '', 'Chưa có username');
-$pageHeading = $isCreateMode ? 'Thêm gian hàng mới' : 'Chỉnh sửa thông tin gian hàng';
-$pageIntro = $isCreateMode
-    ? 'Tạo gian hàng mới và lưu trực tiếp vào cơ sở dữ liệu qua backend hiện tại.'
-    : 'Cập nhật trực tiếp dữ liệu gian hàng đang lưu trên hệ thống quản trị. Admin có thể đổi chủ gian hàng bằng email.';
+$isOwnerRequestMode = $isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
+$pageHeading = $isOwnerRequestMode ? 'Gửi yêu cầu mở gian hàng' : ($isCreateMode ? 'Thêm gian hàng mới' : 'Chỉnh sửa thông tin gian hàng');
+$pageIntro = $isOwnerRequestMode
+    ? 'Chủ quản lý sẽ gửi yêu cầu mở gian hàng mới để admin xem xét và phê duyệt trước khi tạo gian hàng thật.'
+    : ($isCreateMode
+        ? 'Tạo gian hàng mới và lưu trực tiếp vào cơ sở dữ liệu qua backend hiện tại.'
+        : 'Cập nhật trực tiếp dữ liệu gian hàng đang lưu trên hệ thống quản trị. Admin có thể đổi chủ gian hàng bằng email.');
 $pageIntro .= ' Đang xem: ' . store_form_language_label($selectedLanguage) . '.';
-$submitLabel = $isCreateMode ? 'Tạo gian hàng' : 'Lưu thay đổi';
+$submitLabel = $isOwnerRequestMode ? 'Gửi yêu cầu' : ($isCreateMode ? 'Tạo gian hàng' : 'Lưu thay đổi');
 $formAction = $isCreateMode
     ? admin_url('index1st.php?usecase=branchdetail2&mode=create&lang=' . rawurlencode($selectedLanguage))
     : admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . (int) $idGianHang . '&lang=' . rawurlencode($selectedLanguage));
@@ -609,7 +763,12 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
 
               <label class="form-field">
                 <span>Phí hàng tháng</span>
+                <?php if ($isOwnerRequestMode) { ?>
+                <input type="text" value="Admin sẽ nhập khi xử lý yêu cầu" readonly />
+                <small class="form-help">Chủ quản lý không được tự đặt phí hàng tháng. Admin sẽ cập nhật mục này khi duyệt yêu cầu.</small>
+                <?php } else { ?>
                 <input type="number" min="0" step="1000" name="phiHangThang" value="<?php echo htmlspecialchars($formData['phiHangThang'], ENT_QUOTES, 'UTF-8'); ?>" />
+                <?php } ?>
               </label>
             </div>
           </div>

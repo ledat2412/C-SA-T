@@ -69,6 +69,15 @@ if (
     $loaiTaiKhoan = 'chu_quan_ly';
   }
 
+  if ($loaiTaiKhoan !== 'admin' && $loaiTaiKhoan !== 'chu_quan_ly') {
+    http_response_code(403);
+    echo json_encode(array(
+      'success' => false,
+      'message' => 'Trang này chỉ hỗ trợ đăng nhập cho Admin và Chủ quản lý.'
+    ));
+    exit;
+  }
+
   $_SESSION['admin_auth'] = array(
     'isLoggedIn' => true,
     'idTaiKhoan' => isset($decodedResponse['idTaiKhoan']) ? $decodedResponse['idTaiKhoan'] : null,
@@ -80,6 +89,17 @@ if (
     'idChuQuanLy' => isset($decodedResponse['idChuQuanLy']) ? $decodedResponse['idChuQuanLy'] : null,
     'loginAt' => date('c')
   );
+
+  $decodedResponse['loaiTaiKhoan'] = $loaiTaiKhoan;
+  $decodedResponse['redirectUrl'] = admin_url(
+    $loaiTaiKhoan === 'chu_quan_ly'
+      ? 'index1st.php?usecase=store'
+      : 'index1st.php?usecase=dashboard'
+  );
+
+  http_response_code($httpCode);
+  echo json_encode($decodedResponse, JSON_UNESCAPED_UNICODE);
+  exit;
 }
 
 http_response_code($httpCode);

@@ -135,10 +135,7 @@
                 showLoginSuccess(data.message || 'Đăng nhập thành công.');
 
                 setTimeout(function () {
-                    var target = 'index1st.php?usecase=dashboard';
-                    if (data.loaiTaiKhoan === 'chu_quan_ly') {
-                        target = 'index1st.php?usecase=store';
-                    }
+                    var target = data.redirectUrl || 'index1st.php?usecase=dashboard';
                     window.location.href = target;
                 }, 700);
             } catch (error) {

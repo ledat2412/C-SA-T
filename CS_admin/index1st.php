@@ -24,16 +24,28 @@ $availableUseCases = array(
         'styles' => array('asset/admin/css/store-content.css'),
     ),
     'branchdetail2' => array(
-        'title' => 'Chỉnh sửa gian hàng',
+        'title' => 'Chi tiết gian hàng',
         'active' => 'store',
         'view' => __DIR__ . '/admin/branchdetail2.php',
         'styles' => array('asset/admin/css/branchdetail2-content.css'),
+    ),
+    'request' => array(
+        'title' => 'Yêu cầu từ chủ gian hàng',
+        'active' => 'request',
+        'view' => __DIR__ . '/admin/request.php',
+        'styles' => array('asset/admin/css/request-content.css'),
     ),
     'account' => array(
         'title' => 'Quản lý tài khoản',
         'active' => 'account',
         'view' => __DIR__ . '/admin/account.php',
         'styles' => array('asset/admin/css/account-content.css'),
+    ),
+    'service' => array(
+        'title' => 'Quản lý dịch vụ',
+        'active' => 'service',
+        'view' => __DIR__ . '/admin/service.php',
+        'styles' => array('asset/admin/css/service-content.css'),
     ),
     'report' => array(
         'title' => 'Báo cáo',
@@ -68,7 +80,14 @@ $pageStyles = isset($currentPage['styles']) && is_array($currentPage['styles']) 
     <link rel="stylesheet" href="asset/admin/css/sidebar.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <?php foreach ($pageStyles as $pageStyle) { ?>
-    <link rel="stylesheet" href="<?php echo htmlspecialchars($pageStyle, ENT_QUOTES, 'UTF-8'); ?>" />
+    <?php
+    $resolvedStylePath = __DIR__ . '/' . str_replace('/', DIRECTORY_SEPARATOR, $pageStyle);
+    $styleHref = $pageStyle;
+    if (is_file($resolvedStylePath)) {
+        $styleHref .= '?v=' . filemtime($resolvedStylePath);
+    }
+    ?>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($styleHref, ENT_QUOTES, 'UTF-8'); ?>" />
     <?php } ?>
     <style>
         html,

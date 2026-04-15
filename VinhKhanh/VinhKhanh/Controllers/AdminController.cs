@@ -66,6 +66,136 @@ namespace VinhKhanh.Controllers
             return Ok(await _adminService.GetOwnersAsync());
         }
 
+        [HttpGet("accounts")]
+        public async Task<IActionResult> GetAccounts([FromQuery] int idTaiKhoan)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await _adminService.GetAccountsAsync());
+        }
+
+        [HttpGet("store-requests")]
+        public async Task<IActionResult> GetStoreRequests([FromQuery] int idTaiKhoan, [FromServices] StoreRequestService storeRequestService, [FromQuery] string? status = null)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                return Ok(await storeRequestService.GetRequestsAsync(status));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpPatch("store-requests/{idYeuCau}/review")]
+        public async Task<IActionResult> ReviewStoreRequest(int idYeuCau, [FromQuery] int idTaiKhoan, [FromBody] ReviewStoreRequestDto request, [FromServices] StoreRequestService storeRequestService)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                var result = await storeRequestService.ReviewRequestAsync(idYeuCau, idTaiKhoan, request);
+                if (result == null)
+                    return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay yeu cau." });
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpPost("accounts")]
+        public async Task<IActionResult> CreateAccount([FromQuery] int idTaiKhoan, [FromBody] CreateAdminAccountRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                return Ok(await _adminService.CreateAccountAsync(request));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpGet("service-packages")]
+        public async Task<IActionResult> GetServicePackages([FromQuery] int idTaiKhoan)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await _adminService.GetServicePackagesAsync());
+        }
+
+        [HttpPost("service-packages")]
+        public async Task<IActionResult> CreateServicePackage([FromQuery] int idTaiKhoan, [FromBody] UpsertServicePackageRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                return Ok(await _adminService.CreateServicePackageAsync(request));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpPut("service-packages/{idGoi}")]
+        public async Task<IActionResult> UpdateServicePackage(int idGoi, [FromQuery] int idTaiKhoan, [FromBody] UpsertServicePackageRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                var result = await _adminService.UpdateServicePackageAsync(idGoi, request);
+                if (result == null)
+                    return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay goi dich vu." });
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpPatch("service-packages/{idGoi}/status")]
+        public async Task<IActionResult> UpdateServicePackageStatus(int idGoi, [FromQuery] int idTaiKhoan, [FromBody] UpdateServicePackageStatusRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                var result = await _adminService.UpdateServicePackageStatusAsync(idGoi, request.TrangThai);
+                if (!result.Success)
+                    return NotFound(result);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpPost("stores")]
         public async Task<IActionResult> CreateStore([FromQuery] int idTaiKhoan, [FromBody] UpsertStoreRequestDto request, [FromServices] StoreManagementService storeManagementService)
         {
@@ -120,14 +250,15 @@ namespace VinhKhanh.Controllers
         }
 
         [HttpPost("stores/{idGianHang}/image")]
-        public async Task<IActionResult> UploadStoreImage(int idGianHang, [FromQuery] int idTaiKhoan, [FromForm] IFormFile image, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadStoreImage(int idGianHang, [FromQuery] int idTaiKhoan, [FromForm] UploadStoreImageRequestDto request, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
         {
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
                 return ForbiddenResult();
-            if (image == null || image.Length <= 0)
+            if (request.Image == null || request.Image.Length <= 0)
                 return BadRequest(new OperationResultDto { Success = false, Message = "Vui long chon anh hop le." });
 
-            var imagePath = await storeManagementService.SaveStoreImageAsync(idGianHang, image, env);
+            var imagePath = await storeManagementService.SaveStoreImageAsync(idGianHang, request.Image, env);
             if (imagePath == null)
                 return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
 

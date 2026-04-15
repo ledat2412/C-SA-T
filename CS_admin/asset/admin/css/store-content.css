@@ -383,3 +383,9 @@
   margin-top:4px;
 }
 
+.store-debug-panel.success{
+  background:#ecfff4;
+  border-color:#a8dfbf;
+  color:#12754a;
+}
+

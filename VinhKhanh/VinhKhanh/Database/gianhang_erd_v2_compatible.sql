@@ -159,6 +159,39 @@ CREATE TABLE `gianhang` (
     ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `yeucaugianhang` (
+  `idYeuCau` int NOT NULL AUTO_INCREMENT,
+  `loaiYeuCau` enum('them_gian_hang') NOT NULL DEFAULT 'them_gian_hang',
+  `idChuQuanLy` int NOT NULL,
+  `tenGianHang` varchar(150) NOT NULL,
+  `diaChi` varchar(255) DEFAULT NULL,
+  `moTa` text DEFAULT NULL,
+  `ngonNguMoTa` varchar(10) NOT NULL DEFAULT 'vi',
+  `lat` decimal(10,7) DEFAULT NULL,
+  `lon` decimal(10,7) DEFAULT NULL,
+  `phiHangThang` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `tinhTrangDeXuat` enum('dang_hoat_dong','tam_ngung','dong_cua') NOT NULL DEFAULT 'dang_hoat_dong',
+  `trangThaiYeuCau` enum('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
+  `ghiChuXuLy` text DEFAULT NULL,
+  `idTaiKhoanXuLy` int DEFAULT NULL,
+  `idGianHang` int DEFAULT NULL,
+  `ngayTao` datetime NOT NULL DEFAULT current_timestamp(),
+  `thoiGianXuLy` datetime DEFAULT NULL,
+  PRIMARY KEY (`idYeuCau`),
+  KEY `idx_yeucaugianhang_owner` (`idChuQuanLy`),
+  KEY `idx_yeucaugianhang_status` (`trangThaiYeuCau`),
+  KEY `idx_yeucaugianhang_store` (`idGianHang`),
+  CONSTRAINT `fk_yeucaugianhang_owner`
+    FOREIGN KEY (`idChuQuanLy`) REFERENCES `chu_quan_ly` (`idChuQuanLy`)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_yeucaugianhang_reviewer`
+    FOREIGN KEY (`idTaiKhoanXuLy`) REFERENCES `taikhoan` (`idTaiKhoan`)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_yeucaugianhang_store`
+    FOREIGN KEY (`idGianHang`) REFERENCES `gianhang` (`idGianHang`)
+    ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `gianhangngonngu` (
   `id` int NOT NULL AUTO_INCREMENT,
   `idGianHang` int NOT NULL,

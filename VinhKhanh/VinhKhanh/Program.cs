@@ -16,6 +16,7 @@ builder.Services.AddScoped<AccountAccessService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<OwnerService>();
 builder.Services.AddScoped<StoreManagementService>();
+builder.Services.AddScoped<StoreRequestService>();
 builder.Services.AddScoped<DeviceService>();
 builder.Services.AddScoped<AccessSessionService>();
 builder.Services.AddSingleton<GoogleTtsService>();

@@ -58,6 +58,35 @@ namespace VinhKhanh.Controllers
             return Ok(result);
         }
 
+        [HttpGet("store-requests")]
+        public async Task<IActionResult> GetStoreRequests([FromQuery] int idTaiKhoan, [FromServices] StoreRequestService storeRequestService)
+        {
+            if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await storeRequestService.GetRequestsByOwnerAsync(idTaiKhoan));
+        }
+
+        [HttpPost("store-requests")]
+        public async Task<IActionResult> CreateStoreRequest([FromQuery] int idTaiKhoan, [FromBody] CreateStoreRequestDto request, [FromServices] StoreRequestService storeRequestService)
+        {
+            if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                return Ok(await storeRequestService.CreateRequestAsync(idTaiKhoan, request));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpPut("stores/{idGianHang}")]
         public async Task<IActionResult> UpdateStore(int idGianHang, [FromQuery] int idTaiKhoan, [FromBody] UpsertStoreRequestDto request, [FromServices] StoreManagementService storeManagementService)
         {
@@ -94,14 +123,15 @@ namespace VinhKhanh.Controllers
         }
 
         [HttpPost("stores/{idGianHang}/image")]
-        public async Task<IActionResult> UploadStoreImage(int idGianHang, [FromQuery] int idTaiKhoan, [FromForm] IFormFile image, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadStoreImage(int idGianHang, [FromQuery] int idTaiKhoan, [FromForm] UploadStoreImageRequestDto request, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
         {
             if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
                 return ForbiddenResult();
-            if (image == null || image.Length <= 0)
+            if (request.Image == null || request.Image.Length <= 0)
                 return BadRequest(new OperationResultDto { Success = false, Message = "Vui long chon anh hop le." });
 
-            var imagePath = await storeManagementService.SaveStoreImageAsync(idGianHang, image, env);
+            var imagePath = await storeManagementService.SaveStoreImageAsync(idGianHang, request.Image, env);
             if (imagePath == null)
                 return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
 
