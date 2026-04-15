@@ -5,6 +5,7 @@ using MauiApp1.Views.Auth;
 using MauiApp1.Views.Maps;
 using Microsoft.Extensions.Logging;
 using Plugin.Maui.Audio;
+using ZXing.Net.Maui.Controls;
 #if ANDROID
 using MauiApp1.Platforms.Android.Maps;
 #endif
@@ -19,6 +20,7 @@ public static class MauiProgram
         builder
             .UseMauiApp<App>()
             .UseMauiMaps()
+            .UseBarcodeReader()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -48,9 +50,11 @@ public static class MauiProgram
 
         builder.Services.AddSingleton(AudioManager.Current);
 
+        builder.Services.AddSingleton<ClientDeviceIdentityService>();
         builder.Services.AddSingleton<SQLiteService>();
         builder.Services.AddSingleton<AudioCacheService>();
         builder.Services.AddSingleton<ApiService>();
+        builder.Services.AddSingleton<AccessFlowService>();
         builder.Services.AddSingleton<AppDataCacheService>();
         builder.Services.AddSingleton<GeofenceEngineService>();
 
@@ -69,6 +73,10 @@ public static class MauiProgram
         builder.Services.AddTransient<HomePage>();
         builder.Services.AddTransient<LoginPage>();
         builder.Services.AddTransient<SettingsPage>();
+        builder.Services.AddTransient<QrScanPage>();
+        builder.Services.AddTransient<AccessEntryPage>();
+        builder.Services.AddTransient<PackageRegistrationPage>();
+        builder.Services.AddTransient<PackageQrPaymentPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

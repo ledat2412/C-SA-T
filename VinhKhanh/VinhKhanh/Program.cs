@@ -19,6 +19,7 @@ builder.Services.AddScoped<StoreManagementService>();
 builder.Services.AddScoped<StoreRequestService>();
 builder.Services.AddScoped<DeviceService>();
 builder.Services.AddScoped<AccessSessionService>();
+builder.Services.AddScoped<PackageAccessEmailService>();
 builder.Services.AddSingleton<GoogleTtsService>();
 
 var app = builder.Build();

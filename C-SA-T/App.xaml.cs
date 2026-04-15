@@ -1,26 +1,60 @@
-﻿using MauiApp1.Services;
-using MauiApp1.Views.Maps;
+using MauiApp1.Services;
+using MauiApp1.Views;
 
 namespace MauiApp1;
 
 public partial class App : Application
 {
-    private readonly Page _rootPage;
+    private readonly IServiceProvider _services;
 
-    public App(PoiMapPage poiMapPage, SQLiteService sqliteService, LocalizationService localizationService)
+    public App(IServiceProvider services, SQLiteService sqliteService, LocalizationService localizationService)
     {
         InitializeComponent();
+
+        _services = services;
 
         var savedLanguage = Preferences.Get("ui_language", "vi");
         localizationService.SetLanguage(savedLanguage);
 
         _ = InitializeDatabaseAsync(sqliteService);
-        _rootPage = new NavigationPage(poiMapPage);
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        return new Window(_rootPage);
+        return new Window(new NavigationPage(_services.GetRequiredService<AccessEntryPage>()));
+    }
+
+    public Task ShowAccessEntryAsync()
+    {
+        return SetRootAsync(_services.GetRequiredService<AccessEntryPage>());
+    }
+
+    public Task ShowMainPageAsync()
+    {
+        return SetRootAsync(_services.GetRequiredService<HomePage>());
+    }
+
+    private Task SetRootAsync(Page page)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                var window = Windows.FirstOrDefault();
+                if (window is not null)
+                    window.Page = new NavigationPage(page);
+
+                tcs.TrySetResult(true);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+
+        return tcs.Task;
     }
 
     private static async Task InitializeDatabaseAsync(SQLiteService sqliteService)
