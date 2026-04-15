@@ -18,10 +18,6 @@
 !**/Secret/*.example.json
 
 # Local development settings with secrets
-**/appsettings.Development.json
-!**/appsettings.Development.example.json
-
-# Legacy explicit rule kept for clarity
 VinhKhanh/VinhKhanh/appsettings.Development.json
 !VinhKhanh/VinhKhanh/appsettings.Development.example.json
 
