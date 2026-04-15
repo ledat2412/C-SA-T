@@ -1,0 +1,537 @@
+# Sequence diagrams (Mermaid)
+
+Tai lieu nay tong hop sequence diagram cho cac chuc nang da thay trong source code hien tai cua `C-SA-T` va `VinhKhanh`.
+
+Luu y:
+- Cac so do ben duoi bam theo code dang co, khong bam theo phan PRD chua duoc implement.
+- Cac chuc nang chua thay code day du: dang ky tai khoan, subscription/payment, email notification, upload anh gian hang.
+
+## 1. Dang nhap va phan luong vao app
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant LoginPage as LoginPage
+    participant Api as ApiService
+    participant AuthCtl as AuthController
+    participant AuthSvc as AuthService
+    participant DB as MySQL
+    participant PoiMap as PoiMapPage
+
+    User->>LoginPage: Nhap username + mat khau
+    User->>LoginPage: Bam Dang nhap
+    LoginPage->>Api: LoginAsync(username, password)
+    Api->>AuthCtl: POST /api/auth/login
+    AuthCtl->>AuthSvc: LoginAsync(request)
+    AuthSvc->>DB: Query taikhoan dang hoat dong
+    DB-->>AuthSvc: idTaiKhoan, loaiTaiKhoan, hoTen...
+
+    alt Dang nhap hop le
+        AuthSvc-->>AuthCtl: LoginResponseDto Success=true
+        AuthCtl-->>Api: 200 OK
+        Api-->>LoginPage: result.Success = true
+        LoginPage->>PoiMap: Navigation.PushAsync(PoiMapPage)
+        PoiMap-->>User: Mo man hinh kham pha
+    else Sai thong tin
+        AuthSvc-->>AuthCtl: LoginResponseDto Success=false
+        AuthCtl-->>Api: 401 Unauthorized
+        Api-->>LoginPage: result.Success = false
+        LoginPage-->>User: Hien thi loi dang nhap
+    end
+```
+
+## 2. Tai AppData va cache offline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as MAUI App
+    participant PoiSvc as PoiService / GianHangService
+    participant Cache as AppDataCacheService
+    participant Api as ApiService
+    participant GianHangCtl as GianHangController
+    participant GianHangSvc as GianHangService
+    participant DB as MySQL
+    participant SQLite as SQLiteService
+
+    User->>App: Mo man hinh kham pha
+    App->>PoiSvc: GetAllPoisAsync() / GetAllAsync()
+    PoiSvc->>Cache: GetAsync(lang)
+
+    alt Co Internet
+        Cache->>Api: GetAppDataAsync(lang)
+        Api->>GianHangCtl: GET /api/gianhang/appdata?lang=vi|en
+        GianHangCtl->>GianHangSvc: GetAppDataAsync(lang)
+        GianHangSvc->>DB: Doc gianhang, hinh anh, monan theo ngon ngu
+        DB-->>GianHangSvc: Dataset appdata
+        GianHangSvc-->>GianHangCtl: AppDataDto { GianHangs[] }
+        GianHangCtl-->>Api: 200 OK + JSON AppDataDto
+        Api-->>Cache: AppDataResponse { GianHangs[] }
+        Cache->>SQLite: UpsertCacheAsync(appdata_lang)
+        Cache-->>PoiSvc: Du lieu moi nhat
+    else Offline hoac API loi
+        Cache->>SQLite: GetCacheIfFreshAsync(appdata_lang, 12h)
+        alt Co cache con han
+            SQLite-->>Cache: AppCacheEntry { CacheKey, JsonData, UpdatedAtUtc }
+            Cache->>Cache: Deserialize JsonData -> AppDataResponse
+            Cache-->>PoiSvc: AppDataResponse { GianHangs[] }
+        else Khong co cache
+            Cache-->>PoiSvc: AppDataResponse rong
+        end
+    end
+
+    PoiSvc-->>App: Danh sach gian hang / poi
+    App-->>User: Hien thi noi dung online hoac offline
+```
+
+## 3. Tim kiem POI va mo chi tiet
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant PoiMap as PoiMapPage
+    participant PoiSvc as PoiService
+    participant GianHangSvc as App GianHangService
+    participant Cache as AppDataCacheService
+
+    User->>PoiMap: Mo man hinh kham pha
+    PoiMap->>PoiSvc: GetAllPoisAsync()
+    PoiSvc->>Cache: GetAsync(lang)
+    Cache-->>PoiSvc: AppDataResponse
+    PoiSvc->>PoiSvc: Build SearchText tu ten, dia chi, mo ta, mon an
+    PoiSvc-->>PoiMap: List<PoiItem>
+    PoiMap->>PoiMap: Luu _allPois va render list
+
+    User->>PoiMap: Nhap tu khoa tim kiem
+    PoiMap->>PoiMap: ApplySmartSearch(query)
+    loop Moi POI
+        PoiMap->>PoiMap: ScorePoiSearchMatch()
+    end
+    PoiMap->>PoiMap: RefreshVisiblePins()
+    PoiMap-->>User: Hien thi ket qua tren list + map
+
+    User->>PoiMap: Chon 1 POI
+    PoiMap->>GianHangSvc: GetByIdAsync(idGianHang)
+    GianHangSvc->>Cache: GetAsync(lang)
+    Cache-->>GianHangSvc: AppDataResponse
+    GianHangSvc-->>PoiMap: GianHang chi tiet
+    PoiMap-->>User: Mo detail sheet cua POI
+```
+
+## 4. Geofence va tu dong phat audio
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant PoiMap as PoiMapPage
+    participant GianHangSvc as App GianHangService
+    participant Geofence as GeofenceEngineService
+    participant GPS as MAUI Geolocation
+    participant AudioHttp as Audio HTTP
+    participant Player as IAudioPlayer
+
+    User->>PoiMap: Mo ban do va cap quyen GPS
+    PoiMap->>GianHangSvc: GetAllAsync(selectedLanguage)
+    GianHangSvc-->>PoiMap: Danh sach gian hang co audio
+    PoiMap->>Geofence: UpdateTargetsAsync(gianHangs, radius=10m)
+    PoiMap->>Geofence: StartAsync()
+
+    loop Moi 3 giay
+        Geofence->>GPS: GetLocationAsync()
+        GPS-->>Geofence: Vi tri hien tai
+        Geofence->>Geofence: Tinh khoang cach den tung target
+
+        alt Vua vao vung POI moi
+            Geofence-->>PoiMap: EnteredGeofence(target)
+            Geofence->>Geofence: ScheduleAutoPlayAsync()
+            Geofence-->>User: Banner Pending "Sap phat sau 3 giay"
+            Geofence->>AudioHttp: GET audioUrl
+            AudioHttp-->>Geofence: MP3 bytes
+            Geofence->>Player: CreatePlayer(stream) + Play()
+            Player-->>User: Audio dang phat
+        else Chua vao POI moi
+            Geofence-->>PoiMap: Chi cap nhat vi tri
+        end
+    end
+```
+
+## 5. Chuyen ngon ngu trong chi tiet POI
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant PoiMap as PoiMapPage
+    participant GianHangSvc as App GianHangService
+    participant Cache as AppDataCacheService
+    participant Geofence as GeofenceEngineService
+
+    User->>PoiMap: Chon ngon ngu moi
+    PoiMap->>PoiMap: SelectLanguageAsync(languageCode)
+    PoiMap->>Geofence: ResetAudioState()
+    PoiMap->>PoiMap: RenderLanguageOptions()
+
+    alt Dang mo chi tiet POI
+        PoiMap->>GianHangSvc: GetByIdAsync(idGianHang, lang)
+        GianHangSvc->>Cache: GetAsync(lang)
+        Cache-->>GianHangSvc: AppDataResponse theo ngon ngu
+        GianHangSvc-->>PoiMap: GianHang da dich
+        PoiMap->>PoiMap: Cap nhat title, mo ta, audio label, image
+        PoiMap-->>User: Noi dung va audio doi theo ngon ngu moi
+    else Chua mo chi tiet
+        PoiMap-->>User: Chi doi language chip dang chon
+    end
+```
+
+## 6. Quet QR va tao phien truy cap
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as Mobile App
+    participant AccessCtl as AccessController
+    participant AccessSvc as AccessSessionService
+    participant DB as MySQL
+
+    User->>App: Quet QR tai thiet bi
+    App->>AccessCtl: POST /api/access/scan (maThietBi, qrRaw)
+    AccessCtl->>AccessSvc: CreateFromQrAsync(request)
+    AccessSvc->>DB: Tim thietbi theo maThietBi
+    DB-->>AccessSvc: daKichHoat, trangThai
+
+    alt Thiet bi hop le va dang hoat dong
+        AccessSvc->>DB: Expire session cu dang hieu luc cua thiet bi
+        AccessSvc->>AccessSvc: Generate accessToken + hetHanLuc
+        AccessSvc->>DB: Insert phien_vao_app
+        AccessSvc->>DB: Update lanCuoiHoatDong cua thiet bi
+        AccessSvc-->>AccessCtl: Success + accessToken
+        AccessCtl-->>App: 200 OK
+        App-->>User: Mo khoa session truy cap POI
+    else Thiet bi khong hop le
+        AccessSvc-->>AccessCtl: Success=false + message
+        AccessCtl-->>App: 400 Bad Request
+        App-->>User: Bao loi quet QR
+    end
+```
+
+## 7. Validate access token
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor App
+    participant AccessCtl as AccessController
+    participant AccessSvc as AccessSessionService
+    participant DB as MySQL
+
+    App->>AccessCtl: GET /api/access/validate?accessToken=...
+    AccessCtl->>AccessSvc: ValidateAsync(accessToken)
+    AccessSvc->>DB: Tim phien_vao_app theo accessToken
+    DB-->>AccessSvc: maThietBi, batDauLuc, hetHanLuc, trangThai
+
+    alt Token ton tai va van con han
+        AccessSvc-->>AccessCtl: IsValid=true
+        AccessCtl-->>App: 200 OK
+    else Token het han nhung DB chua cap nhat
+        AccessSvc->>DB: Update trangThai = 'het_han'
+        AccessSvc-->>AccessCtl: IsValid=false
+        AccessCtl-->>App: 200 OK
+    else Khong tim thay token
+        AccessSvc-->>AccessCtl: IsValid=false
+        AccessCtl-->>App: 200 OK
+    end
+```
+
+## 8. Kich hoat thiet bi QR
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Dashboard as Admin Dashboard
+    participant DeviceCtl as DeviceController
+    participant DeviceSvc as DeviceService
+    participant DB as MySQL
+
+    Admin->>Dashboard: Nhap maKichHoat va maThietBi (neu co)
+    Dashboard->>DeviceCtl: POST /api/device/activate
+    DeviceCtl->>DeviceSvc: ActivateAsync(request)
+    DeviceSvc->>DB: Tim thietbi theo maKichHoat hoac maThietBi
+    DB-->>DeviceSvc: Thong tin thiet bi
+
+    alt Ma kich hoat dung
+        DeviceSvc->>DB: Update daKichHoat=1, trangThai='hoat_dong', lanCuoiHoatDong=NOW()
+        DeviceSvc->>DB: Doc lai trang thai moi
+        DB-->>DeviceSvc: Thiet bi da kich hoat
+        DeviceSvc-->>DeviceCtl: Success=true
+        DeviceCtl-->>Dashboard: 200 OK
+        Dashboard-->>Admin: Hien thi thiet bi da kich hoat
+    else Sai ma hoac khong tim thay
+        DeviceSvc-->>DeviceCtl: Success=false
+        DeviceCtl-->>Dashboard: 400 Bad Request
+        Dashboard-->>Admin: Bao loi kich hoat
+    end
+```
+
+## 9. Xem trang thai thiet bi
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Dashboard as Admin Dashboard
+    participant DeviceCtl as DeviceController
+    participant DeviceSvc as DeviceService
+    participant DB as MySQL
+
+    Admin->>Dashboard: Xem trang thai theo maThietBi
+    Dashboard->>DeviceCtl: GET /api/device/{maThietBi}/status
+    DeviceCtl->>DeviceSvc: GetStatusAsync(maThietBi)
+    DeviceSvc->>DB: Query thietbi
+    DB-->>DeviceSvc: daKichHoat, thoiGianKichHoat, lanCuoiHoatDong, trangThai
+
+    alt Tim thay thiet bi
+        DeviceSvc-->>DeviceCtl: Found=true + DeviceStatusDto
+        DeviceCtl-->>Dashboard: 200 OK
+        Dashboard-->>Admin: Hien thi trang thai hien tai
+    else Khong tim thay
+        DeviceSvc-->>DeviceCtl: Found=false
+        DeviceCtl-->>Dashboard: 404 Not Found
+        Dashboard-->>Admin: Bao loi khong co thiet bi
+    end
+```
+
+## 10. Owner quan ly gian hang
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Owner
+    participant Dashboard as Owner Dashboard
+    participant OwnerCtl as OwnerController
+    participant AccessSvc as AccountAccessService
+    participant OwnerSvc as OwnerService
+    participant StoreSvc as StoreManagementService
+    participant DB as MySQL
+
+    Owner->>Dashboard: Tao hoac cap nhat gian hang
+    Dashboard->>OwnerCtl: POST/PUT/PATCH /api/owner/stores...
+    OwnerCtl->>AccessSvc: Kiem tra owner va ownership
+    AccessSvc->>DB: Query quyen / gian hang cua tai khoan
+    DB-->>AccessSvc: Ket qua hop le / khong hop le
+
+    alt Tao moi gian hang
+        OwnerCtl->>OwnerSvc: CreateStoreAsync(idTaiKhoan, request)
+        OwnerSvc->>DB: Tim idChuQuanLy tu idTaiKhoan
+        DB-->>OwnerSvc: idChuQuanLy
+        OwnerSvc->>StoreSvc: CreateStoreAsync(request, ownerId)
+        StoreSvc->>DB: Insert gianhang
+        DB-->>StoreSvc: idGianHang moi
+        StoreSvc->>DB: Doc lai gian hang
+        StoreSvc-->>OwnerCtl: OwnerStoreDto
+        OwnerCtl-->>Dashboard: 200 OK
+    else Cap nhat thong tin hoac trang thai
+        OwnerCtl->>StoreSvc: UpdateStoreAsync() / UpdateStoreStatusAsync()
+        StoreSvc->>DB: Update gianhang
+        DB-->>StoreSvc: So dong bi anh huong
+        StoreSvc-->>OwnerCtl: Ket qua
+        OwnerCtl-->>Dashboard: 200 OK / 404
+    else Khong dung quyen
+        OwnerCtl-->>Dashboard: 403 Forbidden
+    end
+
+    Dashboard-->>Owner: Hien thi danh sach / trang thai gian hang
+```
+
+## 11. Quan ly mon an
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as Owner hoac Admin
+    participant UI as Dashboard
+    participant Ctl as OwnerController / AdminController
+    participant AccessSvc as AccountAccessService
+    participant StoreSvc as StoreManagementService
+    participant DB as MySQL
+
+    Staff->>UI: Them, sua, doi trang thai mon an
+    UI->>Ctl: POST/PUT/PATCH /foods...
+
+    alt Luong Owner
+        Ctl->>AccessSvc: Kiem tra food thuoc owner va store thuoc owner
+        AccessSvc->>DB: Query ownership
+        DB-->>AccessSvc: Hop le / khong hop le
+    else Luong Admin
+        Ctl->>AccessSvc: Kiem tra tai khoan la admin
+        AccessSvc->>DB: Query role admin
+        DB-->>AccessSvc: Hop le / khong hop le
+    end
+
+    alt Them mon
+        Ctl->>StoreSvc: CreateFoodAsync(request)
+        StoreSvc->>DB: Insert monan
+        StoreSvc->>DB: Doc lai mon vua tao
+        DB-->>StoreSvc: MonAnDto
+        StoreSvc-->>Ctl: MonAnDto
+        Ctl-->>UI: 200 OK
+    else Sua mon
+        Ctl->>StoreSvc: UpdateFoodAsync(idMonAn, request)
+        StoreSvc->>DB: Update monan
+        StoreSvc->>DB: Doc lai mon sau update
+        StoreSvc-->>Ctl: MonAnDto / null
+        Ctl-->>UI: 200 OK / 404
+    else Doi trang thai
+        Ctl->>StoreSvc: UpdateFoodStatusAsync(idMonAn, tinhTrang)
+        StoreSvc->>DB: Update tinhTrang monan
+        DB-->>StoreSvc: So dong bi anh huong
+        StoreSvc-->>Ctl: OperationResultDto
+        Ctl-->>UI: 200 OK / 404
+    else Khong dung quyen
+        Ctl-->>UI: 403 Forbidden
+    end
+```
+
+## 12. Generate audio TTS tu mo ta gian hang
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as Owner hoac Admin
+    participant UI as Dashboard
+    participant GianHangCtl as GianHangController
+    participant GianHangSvc as GianHangService
+    participant DB as MySQL
+    participant TTS as GoogleTtsService
+    participant FileStore as wwwroot/audio
+
+    Staff->>UI: Bam generate audio
+    UI->>GianHangCtl: POST /api/gianhang/{id}/generate-audio?languageCode=vi|en
+    GianHangCtl->>GianHangSvc: GenerateAudioFromMoTaAsync(id, languageCode)
+    GianHangSvc->>DB: Doc moTa + audioURL hien tai trong gianhangngonngu
+    DB-->>GianHangSvc: ten, moTa, audioURL
+
+    alt Da co audioURL
+        GianHangSvc-->>GianHangCtl: Tra audioURL cu, isCached=true
+        GianHangCtl-->>UI: 200 OK
+    else Chua co audioURL va co moTa
+        GianHangSvc->>TTS: GenerateSpeechAsync(moTa, fileName, languageCode)
+        TTS->>FileStore: Ghi file mp3
+        FileStore-->>TTS: /audio/gianhang_{id}_{lang}.mp3
+        TTS-->>GianHangSvc: generatedUrl
+        GianHangSvc->>DB: Update audioURL vao gianhangngonngu
+        GianHangSvc-->>GianHangCtl: audioURL moi, isCached=false
+        GianHangCtl-->>UI: 200 OK
+    else Khong tim thay mo ta
+        GianHangSvc-->>GianHangCtl: null
+        GianHangCtl-->>UI: 404 Not Found
+    end
+```
+
+## 13. Cap nhat mo ta va tao lai audio
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as Owner hoac Admin
+    participant UI as Dashboard
+    participant GianHangCtl as GianHangController
+    participant GianHangSvc as GianHangService
+    participant DB as MySQL
+    participant TTS as GoogleTtsService
+
+    Staff->>UI: Sua mo ta theo ngon ngu
+    UI->>GianHangCtl: PUT /api/gianhang/{id}/update-mo-ta
+    GianHangCtl->>GianHangSvc: UpdateMoTaAndGenerateAudioAsync(id, languageCode, moTa)
+    GianHangSvc->>DB: Update moTa, set audioURL = NULL
+    DB-->>GianHangSvc: So dong bi anh huong
+
+    alt Cap nhat thanh cong
+        GianHangSvc->>GianHangSvc: Goi lai GenerateAudioFromMoTaAsync()
+        GianHangSvc->>DB: Doc moTa vua cap nhat
+        DB-->>GianHangSvc: moTa moi
+        GianHangSvc->>TTS: GenerateSpeechAsync(moTa moi)
+        TTS-->>GianHangSvc: generatedUrl
+        GianHangSvc->>DB: Luu audioURL moi
+        GianHangSvc-->>GianHangCtl: Object ket qua
+        GianHangCtl-->>UI: 200 OK
+    else Khong tim thay gian hang/ngon ngu
+        GianHangSvc-->>GianHangCtl: null
+        GianHangCtl-->>UI: 404 Not Found
+    end
+```
+
+## 14. Admin xem tong quan he thong
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Dashboard as Admin Dashboard
+    participant AdminCtl as AdminController
+    participant AccessSvc as AccountAccessService
+    participant AdminSvc as AdminService
+    participant DB as MySQL
+
+    Admin->>Dashboard: Mo dashboard tong quan
+    Dashboard->>AdminCtl: GET /api/admin/summary?idTaiKhoan=...
+    AdminCtl->>AccessSvc: IsAdminAsync(idTaiKhoan)
+    AccessSvc->>DB: Query role admin
+    DB-->>AccessSvc: Hop le / khong hop le
+
+    alt Co quyen admin
+        AdminCtl->>AdminSvc: GetSummaryAsync()
+        AdminSvc->>DB: COUNT gianhang
+        AdminSvc->>DB: COUNT chu_quan_ly
+        AdminSvc->>DB: COUNT thietbi
+        AdminSvc->>DB: COUNT thietbi dang hoat dong
+        DB-->>AdminSvc: Cac chi so tong hop
+        AdminSvc-->>AdminCtl: AdminSummaryDto
+        AdminCtl-->>Dashboard: 200 OK
+        Dashboard-->>Admin: Hien thi KPI
+    else Khong co quyen
+        AdminCtl-->>Dashboard: 403 Forbidden
+        Dashboard-->>Admin: Bao loi truy cap
+    end
+```
+
+## 15. Admin xem danh sach va cap nhat gian hang
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Dashboard as Admin Dashboard
+    participant AdminCtl as AdminController
+    participant AccessSvc as AccountAccessService
+    participant AdminSvc as AdminService
+    participant StoreSvc as StoreManagementService
+    participant DB as MySQL
+
+    Admin->>Dashboard: Xem hoac cap nhat gian hang
+    Dashboard->>AdminCtl: GET /api/admin/stores hoac PUT/PATCH /api/admin/stores/{id}
+    AdminCtl->>AccessSvc: IsAdminAsync(idTaiKhoan)
+    AccessSvc->>DB: Query role admin
+    DB-->>AccessSvc: Hop le / khong hop le
+
+    alt Xem danh sach
+        AdminCtl->>AdminSvc: GetStoresAsync()
+        AdminSvc->>DB: Join gianhang + chu_quan_ly + taikhoan
+        DB-->>AdminSvc: Danh sach gian hang toan he thong
+        AdminSvc-->>AdminCtl: List<AdminStoreDto>
+        AdminCtl-->>Dashboard: 200 OK
+    else Cap nhat thong tin/trang thai
+        AdminCtl->>StoreSvc: UpdateStoreAsync() / UpdateStoreStatusAsync()
+        StoreSvc->>DB: Update gianhang
+        DB-->>StoreSvc: So dong bi anh huong
+        StoreSvc-->>AdminCtl: Ket qua
+        AdminCtl-->>Dashboard: 200 OK / 404
+    else Khong co quyen
+        AdminCtl-->>Dashboard: 403 Forbidden
+    end
+```
