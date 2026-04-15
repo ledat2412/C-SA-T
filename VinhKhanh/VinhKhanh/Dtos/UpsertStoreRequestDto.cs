@@ -9,5 +9,6 @@ namespace VinhKhanh.Dtos
         public decimal PhiHangThang { get; set; }
         public string TinhTrang { get; set; } = "dang_hoat_dong";
         public int? IdChuQuanLy { get; set; }
+        public string? EmailChuQuanLy { get; set; }
     }
 }

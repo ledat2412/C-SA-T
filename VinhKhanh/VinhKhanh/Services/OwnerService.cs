@@ -26,6 +26,13 @@ namespace VinhKhanh.Services
                     gh.lat,
                     gh.lon,
                     gh.tinhTrang,
+                    (
+                        SELECT hgg.duongDan
+                        FROM hinhanhgianhang hgg
+                        WHERE hgg.idGianHang = gh.idGianHang
+                        ORDER BY hgg.idHinhAnh
+                        LIMIT 1
+                    ) AS hinhAnh,
                     gh.phiHangThang,
                     gh.ngayDangKy,
                     gh.thoiGianCapNhat
@@ -50,6 +57,7 @@ namespace VinhKhanh.Services
                     Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]),
                     Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
                     TinhTrang = reader["tinhTrang"]?.ToString(),
+                    HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString()),
                     PhiHangThang = reader.GetDecimal("phiHangThang"),
                     NgayDangKy = Convert.ToDateTime(reader["ngayDangKy"]),
                     ThoiGianCapNhat = reader["thoiGianCapNhat"] == DBNull.Value
@@ -81,6 +89,29 @@ namespace VinhKhanh.Services
 
             var ownerId = Convert.ToInt32(result);
             return await storeManagementService.CreateStoreAsync(request, ownerId);
+        }
+
+        private static string? NormalizeImagePathForWeb(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return path;
+            }
+
+            var cleanPath = path.Trim().TrimStart('/');
+
+            if (!cleanPath.StartsWith("images/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("content/", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanPath = "images/" + cleanPath;
+            }
+
+            return "/" + cleanPath;
         }
     }
 }

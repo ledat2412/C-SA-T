@@ -15,6 +15,19 @@ namespace VinhKhanh.Services
 
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
         {
+            var account = !string.IsNullOrWhiteSpace(request.Username)
+                ? request.Username.Trim()
+                : request.Email.Trim();
+
+            if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(request.MatKhau))
+            {
+                return new LoginResponseDto
+                {
+                    Success = false,
+                    Message = "Sai tài khoản hoặc mật khẩu."
+                };
+            }
+
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
@@ -30,13 +43,13 @@ namespace VinhKhanh.Services
                 FROM taikhoan tk
                 LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
                 LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
-                WHERE tk.username = @username
+                WHERE (tk.username = @account OR tk.email = @account)
                   AND tk.matKhau = @matKhau
                   AND tk.tinhTrang = 'hoat_dong'
                 LIMIT 1;";
 
             using var cmd = new MySqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue("@username", request.Username);
+            cmd.Parameters.AddWithValue("@account", account);
             cmd.Parameters.AddWithValue("@matKhau", request.MatKhau);
 
             using var reader = await cmd.ExecuteReaderAsync();

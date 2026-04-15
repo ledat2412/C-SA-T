@@ -8,6 +8,7 @@ namespace VinhKhanh.Dtos
         public double? Lat { get; set; }
         public double? Lon { get; set; }
         public string? TinhTrang { get; set; }
+        public string? HinhAnh { get; set; }
         public decimal PhiHangThang { get; set; }
         public DateTime NgayDangKy { get; set; }
         public DateTime? ThoiGianCapNhat { get; set; }

@@ -1,4 +1,5 @@
 ﻿using MauiApp1.Models;
+using Microsoft.Maui.Controls.Maps;
 using System.Security.Cryptography;
 
 namespace MauiApp1.Views.Maps;
@@ -6,6 +7,7 @@ namespace MauiApp1.Views.Maps;
 public partial class PoiMapPage
 {
     private static readonly TimeSpan BinaryCacheMaxAge = TimeSpan.FromDays(7);
+    private const int MarkerLoadParallelism = 3;
 
     private static string NormalizeImagePath(string? dbPath)
     {
@@ -128,6 +130,61 @@ public partial class PoiMapPage
             System.Diagnostics.Debug.WriteLine($"[MarkerImage][WARN] {normalized} -> {ex.Message}");
             return null;
         }
+    }
+
+    private async Task BuildStyledPinsAsync(IEnumerable<PoiItem> pois, CancellationToken cancellationToken = default)
+    {
+        using var semaphore = new SemaphoreSlim(MarkerLoadParallelism);
+
+        var markerTasks = pois.Select(async poi =>
+        {
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                var markerImagePath = await PrepareMarkerImagePathAsync(poi.ImagePath, cancellationToken).ConfigureAwait(false);
+                return (poi, markerImagePath);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MarkerLoad][WARN] {poi.Title}: {ex.Message}");
+                return (poi, markerImagePath: (string?)null);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        var preparedPins = await Task.WhenAll(markerTasks).ConfigureAwait(false);
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            foreach (var (poi, markerImagePath) in preparedPins)
+            {
+                var pin = new StyledPin
+                {
+                    Label = poi.Title,
+                    Address = poi.Subtitle,
+                    Type = PinType.Place,
+                    Location = new Location(poi.Latitude, poi.Longitude),
+                    Rating = 4.9,
+                    ImagePath = markerImagePath
+                };
+
+                pin.MarkerClicked += async (_, e) =>
+                {
+                    e.HideInfoWindow = true;
+                    await OpenDetailAsync(poi);
+                };
+
+                _pinsByPoiId[poi.IDChiNhanh] = pin;
+            }
+        });
     }
 
     private async Task<byte[]?> GetAudioBytesAsync(string audioUrl)

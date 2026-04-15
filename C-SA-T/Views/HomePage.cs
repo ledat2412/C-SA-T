@@ -96,10 +96,19 @@ public class HomePage : ContentPage
 
         Content = root;
 
-        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(UpdateLocalizedText);
+        localizationService.LanguageChanged += OnLanguageChanged;
         UpdateLocalizedText();
 
         Loaded += async (_, __) => await LoadNearbyRestaurants();
+    }
+
+    private void OnLanguageChanged()
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            UpdateLocalizedText();
+            await LoadNearbyRestaurants();
+        });
     }
 
     private void UpdateLocalizedText()
@@ -117,7 +126,7 @@ public class HomePage : ContentPage
         {
             await GetUserLocation();
 
-            var gianHangs = await _gianHangService.GetAllAsync();
+            var gianHangs = await _gianHangService.GetAllAsync(_loc.CurrentLanguage);
 
             _nearbySection.Children.Clear();
             _sectionNearbyLabel = null!;

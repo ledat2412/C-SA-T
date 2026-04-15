@@ -497,28 +497,6 @@ public partial class PoiMapPage : ContentPage
                 System.Diagnostics.Debug.WriteLine($"[PoiMapPage] POI: {poi.Title}, ImagePath: '{poi.ImagePath}'");
 
                 _allPois.Add(poi);
-                var markerImagePath = await PrepareMarkerImagePathAsync(poi.ImagePath);
-
-                var pin = new StyledPin
-                {
-                    Label = poi.Title,
-                    Address = poi.Subtitle,
-                    Type = PinType.Place,
-                    Location = new Location(poi.Latitude, poi.Longitude),
-                    Rating = 4.9,
-                    ImagePath = markerImagePath
-                };
-
-                pin.MarkerClicked += async (_, e) =>
-                {
-                    e.HideInfoWindow = true;
-                    await OpenDetailAsync(poi);
-                };
-
-                _pinsByPoiId[poi.IDChiNhanh] = pin;
-
-                if (_pois.Count % 6 == 0)
-                    await Task.Yield();
             }
 
             ApplySmartSearch(
@@ -534,6 +512,8 @@ public partial class PoiMapPage : ContentPage
                         Distance.FromKilometers(1)));
             }
 
+            RefreshVisiblePins();
+            await BuildStyledPinsAsync(data);
             RefreshVisiblePins();
         }
         catch (Exception ex)

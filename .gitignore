@@ -20,3 +20,5 @@
 # Service account credentials
 **/Credentials/service-account.json
 **/bin/**/Credentials/service-account.json
+
+**/.claude/

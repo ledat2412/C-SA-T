@@ -8,8 +8,11 @@ namespace MauiApp1.Services
         private readonly ApiService _apiService;
         private readonly SQLiteService _sqliteService;
         private readonly AudioCacheService _audioCacheService;
+        private readonly object _refreshLock = new();
 
         private readonly Dictionary<string, AppDataResponse> _memoryCache =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _refreshingKeys =
             new(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan AppDataCacheMaxAge = TimeSpan.FromHours(12);
 
@@ -36,66 +39,33 @@ namespace MauiApp1.Services
             if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
                 return memoryData;
 
+            if (forceRefresh)
+            {
+                var refreshed = await TryFetchAndCacheFromApiAsync(lang, cacheKey);
+                if (refreshed is not null)
+                    return refreshed;
+            }
+
+            var freshCached = await TryReadCachedResponseAsync(cacheKey, AppDataCacheMaxAge);
+            if (freshCached is not null)
+            {
+                _memoryCache[cacheKey] = freshCached;
+                return freshCached;
+            }
+
+            var staleCached = await TryReadCachedResponseAsync(cacheKey, maxAge: null);
+            if (staleCached is not null)
+            {
+                _memoryCache[cacheKey] = staleCached;
+                QueueRefresh(cacheKey, lang);
+                return staleCached;
+            }
+
             if (Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
             {
-                try
-                {
-                    var apiData = await _apiService.GetAppDataAsync(lang);
-
-                    if (apiData != null)
-                    {
-                        await _sqliteService.UpsertCacheAsync(new AppCacheEntry
-                        {
-                            CacheKey = cacheKey,
-                            JsonData = JsonSerializer.Serialize(apiData, JsonOptions),
-                            UpdatedAtUtc = DateTime.UtcNow
-                        });
-
-                        _memoryCache[cacheKey] = apiData;
-                        _ = PrefetchAudioInBackgroundAsync(apiData);
-                        return apiData;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] API error: {ex.Message}");
-                }
-            }
-
-            try
-            {
-                var local = await _sqliteService.GetCacheIfFreshAsync(cacheKey, AppDataCacheMaxAge);
-                if (local != null && !string.IsNullOrWhiteSpace(local.JsonData))
-                {
-                    var cachedData = JsonSerializer.Deserialize<AppDataResponse>(local.JsonData, JsonOptions);
-                    if (cachedData != null)
-                    {
-                        _memoryCache[cacheKey] = cachedData;
-                        return cachedData;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Fresh SQLite error: {ex.Message}");
-            }
-
-            try
-            {
-                var local = await _sqliteService.GetCacheAsync(cacheKey);
-                if (local != null && !string.IsNullOrWhiteSpace(local.JsonData))
-                {
-                    var cachedData = JsonSerializer.Deserialize<AppDataResponse>(local.JsonData, JsonOptions);
-                    if (cachedData != null)
-                    {
-                        _memoryCache[cacheKey] = cachedData;
-                        return cachedData;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] Stale SQLite error: {ex.Message}");
+                var apiData = await TryFetchAndCacheFromApiAsync(lang, cacheKey);
+                if (apiData is not null)
+                    return apiData;
             }
 
             try
@@ -137,6 +107,84 @@ namespace MauiApp1.Services
         public void ClearMemory()
         {
             _memoryCache.Clear();
+        }
+
+        private async Task<AppDataResponse?> TryReadCachedResponseAsync(string cacheKey, TimeSpan? maxAge)
+        {
+            try
+            {
+                var local = maxAge.HasValue
+                    ? await _sqliteService.GetCacheIfFreshAsync(cacheKey, maxAge.Value)
+                    : await _sqliteService.GetCacheAsync(cacheKey);
+
+                if (local is null || string.IsNullOrWhiteSpace(local.JsonData))
+                    return null;
+
+                return JsonSerializer.Deserialize<AppDataResponse>(local.JsonData, JsonOptions);
+            }
+            catch (Exception ex)
+            {
+                var cacheType = maxAge.HasValue ? "Fresh" : "Stale";
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] {cacheType} SQLite error: {ex.Message}");
+                return null;
+            }
+        }
+
+        private async Task<AppDataResponse?> TryFetchAndCacheFromApiAsync(string lang, string cacheKey)
+        {
+            if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+                return null;
+
+            try
+            {
+                var apiData = await _apiService.GetAppDataAsync(lang);
+
+                if (apiData is null)
+                    return null;
+
+                await _sqliteService.UpsertCacheAsync(new AppCacheEntry
+                {
+                    CacheKey = cacheKey,
+                    JsonData = JsonSerializer.Serialize(apiData, JsonOptions),
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+
+                _memoryCache[cacheKey] = apiData;
+                _ = PrefetchAudioInBackgroundAsync(apiData);
+                return apiData;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] API error: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void QueueRefresh(string cacheKey, string lang)
+        {
+            if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+                return;
+
+            lock (_refreshLock)
+            {
+                if (!_refreshingKeys.Add(cacheKey))
+                    return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await TryFetchAndCacheFromApiAsync(lang, cacheKey);
+                }
+                finally
+                {
+                    lock (_refreshLock)
+                    {
+                        _refreshingKeys.Remove(cacheKey);
+                    }
+                }
+            });
         }
 
         private async Task PrefetchAudioInBackgroundAsync(AppDataResponse appData)

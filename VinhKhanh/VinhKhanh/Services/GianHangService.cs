@@ -335,20 +335,28 @@ namespace VinhKhanh.Services
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
-            const string updateSql = @"
-                UPDATE gianhangngonngu ghnn
-                INNER JOIN ngonngu nn ON ghnn.idNgonNgu = nn.idNgonNgu
-                SET ghnn.moTa = @moTa,
-                    ghnn.audioURL = NULL
-                WHERE ghnn.idGianHang = @idGianHang
-                  AND nn.maNgonNgu = @languageCode;";
+            const string upsertSql = @"
+                INSERT INTO gianhangngonngu (idGianHang, idNgonNgu, ten, audioURL, moTa)
+                SELECT
+                    gh.idGianHang,
+                    nn.idNgonNgu,
+                    gh.ten,
+                    NULL,
+                    @moTa
+                FROM gianhang gh
+                INNER JOIN ngonngu nn ON nn.maNgonNgu = @languageCode
+                WHERE gh.idGianHang = @idGianHang
+                ON DUPLICATE KEY UPDATE
+                    ten = VALUES(ten),
+                    moTa = VALUES(moTa),
+                    audioURL = NULL;";
 
-            using var updateCmd = new MySqlCommand(updateSql, conn);
-            updateCmd.Parameters.AddWithValue("@moTa", moTa);
-            updateCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-            updateCmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
+            using var upsertCmd = new MySqlCommand(upsertSql, conn);
+            upsertCmd.Parameters.AddWithValue("@moTa", moTa);
+            upsertCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+            upsertCmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
 
-            var rows = await updateCmd.ExecuteNonQueryAsync();
+            var rows = await upsertCmd.ExecuteNonQueryAsync();
             if (rows <= 0)
                 return null;
 

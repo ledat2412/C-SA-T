@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs wc:*)"
+      "Bash(xargs wc:*)",
+      "Bash(find \"/c/xampp/htdocs/C-SA-T/C-SA-T\" -type f -name \"*.cs\" ! -path \"*/obj/*\" ! -path \"*/bin/*\" -exec wc -l {} \\\\;)",
+      "Bash(find \"/c/xampp/htdocs/C-SA-T/VinhKhanh/VinhKhanh\" -type f -name \"*.cs\" ! -path \"*/obj/*\" ! -path \"*/bin/*\" -exec wc -l {} \\\\;)"
     ]
   }
 }

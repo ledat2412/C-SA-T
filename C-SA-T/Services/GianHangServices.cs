@@ -1,20 +1,21 @@
 using MauiApp1.Models;
-using System.Globalization;
 
 namespace MauiApp1.Services
 {
     public class GianHangService
     {
         private readonly AppDataCacheService _cacheService;
+        private readonly LocalizationService _localizationService;
 
-        public GianHangService(AppDataCacheService cacheService)
+        public GianHangService(AppDataCacheService cacheService, LocalizationService localizationService)
         {
             _cacheService = cacheService;
+            _localizationService = localizationService;
         }
 
-        private static string GetCurrentLang()
+        private string GetCurrentLang()
         {
-            var lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName?.ToLowerInvariant();
+            var lang = _localizationService.CurrentLanguage?.Trim().ToLowerInvariant();
             return string.IsNullOrWhiteSpace(lang) ? "vi" : lang;
         }
 

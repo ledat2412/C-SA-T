@@ -35,6 +35,19 @@ namespace VinhKhanh.Controllers
             return Ok(await _ownerService.GetStoresByAccountAsync(idTaiKhoan));
         }
 
+        [HttpGet("stores/{idGianHang}")]
+        public async Task<IActionResult> GetStore(int idGianHang, [FromQuery] int idTaiKhoan, [FromServices] StoreManagementService storeManagementService, [FromQuery] string lang = "vi")
+        {
+            if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
+                return ForbiddenResult();
+
+            var result = await storeManagementService.GetStoreByIdAsync(idGianHang, lang);
+            if (result == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+
+            return Ok(result);
+        }
+
         [HttpPost("stores")]
         public async Task<IActionResult> CreateStore([FromQuery] int idTaiKhoan, [FromBody] UpsertStoreRequestDto request, [FromServices] StoreManagementService storeManagementService)
         {
@@ -78,6 +91,26 @@ namespace VinhKhanh.Controllers
                 return ForbiddenResult();
 
             return Ok(await storeManagementService.GetFoodsByStoreAsync(idGianHang));
+        }
+
+        [HttpPost("stores/{idGianHang}/image")]
+        public async Task<IActionResult> UploadStoreImage(int idGianHang, [FromQuery] int idTaiKhoan, [FromForm] IFormFile image, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
+        {
+            if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
+                return ForbiddenResult();
+            if (image == null || image.Length <= 0)
+                return BadRequest(new OperationResultDto { Success = false, Message = "Vui long chon anh hop le." });
+
+            var imagePath = await storeManagementService.SaveStoreImageAsync(idGianHang, image, env);
+            if (imagePath == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+
+            return Ok(new
+            {
+                success = true,
+                message = "Cap nhat anh gian hang thanh cong.",
+                imagePath
+            });
         }
 
         [HttpPost("foods")]
