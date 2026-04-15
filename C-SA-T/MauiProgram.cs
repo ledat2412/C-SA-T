@@ -1,6 +1,7 @@
 ﻿using MauiApp1.Services;
 using MauiApp1.Utils;
 using MauiApp1.Views;
+using MauiApp1.Views.Auth;
 using MauiApp1.Views.Maps;
 using Microsoft.Extensions.Logging;
 using Plugin.Maui.Audio;
@@ -57,6 +58,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<MonAnService>();
         builder.Services.AddSingleton<PoiService>();
 
+        builder.Services.AddSingleton<LocalizationService>();
+
         builder.Services.AddSingleton<GoogleServiceAccountJsonProvider>();
         builder.Services.AddSingleton<ImagePathHelper>();
 
@@ -64,6 +67,8 @@ public static class MauiProgram
         builder.Services.AddTransient<MonAnPage>();
         builder.Services.AddTransient<PoiMapPage>();
         builder.Services.AddTransient<HomePage>();
+        builder.Services.AddTransient<LoginPage>();
+        builder.Services.AddTransient<SettingsPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

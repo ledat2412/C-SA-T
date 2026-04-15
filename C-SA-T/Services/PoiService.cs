@@ -1,26 +1,21 @@
 using MauiApp1.Models;
-using System.Globalization;
 
 namespace MauiApp1.Services
 {
     public class PoiService
     {
         private readonly AppDataCacheService _cacheService;
+        private readonly LocalizationService _loc;
 
-        public PoiService(AppDataCacheService cacheService)
+        public PoiService(AppDataCacheService cacheService, LocalizationService localizationService)
         {
             _cacheService = cacheService;
-        }
-
-        private static string GetCurrentLang()
-        {
-            var lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName?.ToLowerInvariant();
-            return string.IsNullOrWhiteSpace(lang) ? "vi" : lang;
+            _loc = localizationService;
         }
 
         public async Task<List<PoiItem>> GetAllPoisAsync()
         {
-            var lang = GetCurrentLang();
+            var lang = _loc.CurrentLanguage;
             var appData = await _cacheService.GetAsync(lang);
 
             return appData.GianHangs

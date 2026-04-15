@@ -11,7 +11,7 @@ public partial class PoiMapPage
             var request = BuildCurrentDetailPlaybackRequest();
             if (request is null)
             {
-                await DisplayAlertAsync("Thông báo", "Gian hàng này chưa có audio.", "OK");
+                await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("alert_no_audio"), _loc.Get("alert_ok"));
                 return;
             }
 
@@ -20,7 +20,7 @@ public partial class PoiMapPage
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync("Lỗi audio", ex.Message, "OK");
+            await DisplayAlertAsync(_loc.Get("alert_audio_error"), ex.Message, _loc.Get("alert_ok"));
         }
     }
 
@@ -61,9 +61,9 @@ public partial class PoiMapPage
 
         _playButton.Text = state.Phase switch
         {
-            AudioPlaybackPhase.Playing => "⏸ Tạm dừng",
-            AudioPlaybackPhase.Pending => "■ Chờ phát",
-            _ => "▶ Phát nè"
+            AudioPlaybackPhase.Playing => _loc.Get("btn_pause"),
+            AudioPlaybackPhase.Pending => _loc.Get("btn_pending"),
+            _ => _loc.Get("btn_play")
         };
 
         _progressSlider.Minimum = 0;
@@ -118,7 +118,7 @@ public partial class PoiMapPage
         if (_playButton is null || _progressSlider is null || _currentTimeLabel is null || _durationLabel is null)
             return;
 
-        _playButton.Text = "▶ Phát nè";
+        _playButton.Text = _loc.Get("btn_play");
         _progressSlider.Minimum = 0;
         _progressSlider.Maximum = 1;
         _progressSlider.Value = 0;

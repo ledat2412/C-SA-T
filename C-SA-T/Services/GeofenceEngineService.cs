@@ -37,10 +37,13 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
     public AudioPlaybackStateSnapshot PlaybackState => _playbackState;
 
-    public GeofenceEngineService(IAudioManager audioManager, AudioCacheService audioCacheService)
+    private readonly LocalizationService _loc;
+
+    public GeofenceEngineService(IAudioManager audioManager, AudioCacheService audioCacheService, LocalizationService localizationService)
     {
         _audioManager = audioManager;
         _audioCacheService = audioCacheService;
+        _loc = localizationService;
     }
 
     public async Task UpdateTargetsAsync(IEnumerable<GianHang> gianHangs, double? radiusMeters = null)
@@ -495,8 +498,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         var duration = _currentPlayer?.Duration ?? 0;
         var message = phase switch
         {
-            AudioPlaybackPhase.Playing => "Đang phát",
-            AudioPlaybackPhase.Paused => "Đã tạm dừng",
+            AudioPlaybackPhase.Playing => _loc.Get("audio_playing"),
+            AudioPlaybackPhase.Paused => _loc.Get("audio_paused"),
+            AudioPlaybackPhase.Pending => _loc.Get("audio_pending"),
             _ => string.Empty
         };
 

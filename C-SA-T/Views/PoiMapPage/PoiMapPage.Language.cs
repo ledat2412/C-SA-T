@@ -11,16 +11,10 @@ public partial class PoiMapPage
             return;
 
         _languages.Clear();
-        _languages.Add(new NgonNgu
-        {
-            MaNgonNgu = "vi",
-            TenNgonNgu = "Tiếng Việt"
-        });
-        _languages.Add(new NgonNgu
-        {
-            MaNgonNgu = "en",
-            TenNgonNgu = "English"
-        });
+        _languages.Add(new NgonNgu { MaNgonNgu = "vi", TenNgonNgu = "Tiếng Việt" });
+        _languages.Add(new NgonNgu { MaNgonNgu = "en", TenNgonNgu = "English" });
+        _languages.Add(new NgonNgu { MaNgonNgu = "ko", TenNgonNgu = "한국어" });
+        _languages.Add(new NgonNgu { MaNgonNgu = "ja", TenNgonNgu = "日本語" });
 
         if (_languages.All(x => !x.MaNgonNgu.Equals(_selectedLanguageCode, StringComparison.OrdinalIgnoreCase)))
         {
@@ -89,13 +83,13 @@ public partial class PoiMapPage
             return;
         }
 
-        _detailTitle.Text = string.IsNullOrWhiteSpace(translated.Ten) ? "Tên gian hàng" : translated.Ten;
-        _detailAddress.Text = string.IsNullOrWhiteSpace(translated.DiaChi) ? "Chưa có địa chỉ" : translated.DiaChi;
-        _detailDescription.Text = string.IsNullOrWhiteSpace(translated.MoTa) ? "Chưa có mô tả." : translated.MoTa;
+        _detailTitle.Text = string.IsNullOrWhiteSpace(translated.Ten) ? _loc.Get("fallback_name") : translated.Ten;
+        _detailAddress.Text = string.IsNullOrWhiteSpace(translated.DiaChi) ? _loc.Get("fallback_address") : translated.DiaChi;
+        _detailDescription.Text = string.IsNullOrWhiteSpace(translated.MoTa) ? _loc.Get("fallback_description") : translated.MoTa;
 
         _detailAudioLabel.Text = string.IsNullOrWhiteSpace(translated.AudioURL)
-            ? "Audio: chưa có"
-            : "Audio thuyết minh đã sẵn sàng";
+            ? _loc.Get("fallback_audio_none")
+            : _loc.Get("fallback_audio_ready");
 
         System.Diagnostics.Debug.WriteLine(
             $"[Lang] selected={_selectedLanguageCode}, translatedAudio={translated.AudioURL}");
@@ -117,12 +111,14 @@ public partial class PoiMapPage
             return "vi";
 
         var code = rawCode.Trim().ToLowerInvariant();
-        if (code.StartsWith("en"))
-            return "en";
-        if (code.StartsWith("vi"))
-            return "vi";
-
-        return code;
+        return code switch
+        {
+            var c when c.StartsWith("vi") => "vi",
+            var c when c.StartsWith("en") => "en",
+            var c when c.StartsWith("ko") => "ko",
+            var c when c.StartsWith("ja") => "ja",
+            _ => code
+        };
     }
 
     private string? ResolveAudioPathForSelectedLanguage(string? rawAudioPath)

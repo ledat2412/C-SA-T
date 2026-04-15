@@ -9,12 +9,14 @@ namespace MauiApp1.Views
     public class GianHangPage : ContentPage
     {
         private readonly GianHangService _gianHangService;
+        private readonly LocalizationService _loc;
         private readonly ObservableCollection<GianHang> _items = new();
         private readonly CollectionView _collectionView;
 
-        public GianHangPage(GianHangService gianHangService)
+        public GianHangPage(GianHangService gianHangService, LocalizationService localizationService)
         {
             _gianHangService = gianHangService;
+            _loc = localizationService;
 
             Title = "Danh sÃ¡ch gian hÃ ng";
             BackgroundColor = Colors.White;
@@ -96,7 +98,7 @@ namespace MauiApp1.Views
                             string imagePath = "banhtrangcoba.jpg";
                             string audioPath = "gianhang_1_vi.mp3";
 
-                            var detailPage = new GianHangDetailPage(gianHang, imagePath, audioPath);
+                            var detailPage = new GianHangDetailPage(gianHang, imagePath, audioPath, _loc);
                             await Navigation.PushAsync(detailPage);
                         }
                         catch (Exception ex)

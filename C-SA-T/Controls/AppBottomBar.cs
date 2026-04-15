@@ -1,3 +1,4 @@
+using MauiApp1.Services;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiApp1.Controls;
@@ -5,27 +6,44 @@ namespace MauiApp1.Controls;
 public enum BottomBarTab
 {
     Home,
-    Explore
+    Explore,
+    Settings
 }
 
 public sealed class AppBottomBar : ContentView
 {
     private readonly Func<Task>? _onHomeTap;
     private readonly Func<Task>? _onExploreTap;
+    private readonly Func<Task>? _onSettingsTap;
+    private readonly LocalizationService _loc;
+    private Label _homeLabel = null!;
+    private Label _exploreLabel = null!;
+    private Label _settingsLabel = null!;
 
-    public AppBottomBar(BottomBarTab activeTab, Func<Task>? onHomeTap = null, Func<Task>? onExploreTap = null)
+    public AppBottomBar(BottomBarTab activeTab, LocalizationService localizationService, Func<Task>? onHomeTap = null, Func<Task>? onExploreTap = null, Func<Task>? onSettingsTap = null)
     {
         ActiveTab = activeTab;
+        _loc = localizationService;
         _onHomeTap = onHomeTap;
         _onExploreTap = onExploreTap;
+        _onSettingsTap = onSettingsTap;
 
         HorizontalOptions = LayoutOptions.Fill;
         VerticalOptions = LayoutOptions.End;
 
         Content = BuildRoot();
+
+        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(UpdateLocalizedText);
     }
 
     public BottomBarTab ActiveTab { get; }
+
+    private void UpdateLocalizedText()
+    {
+        _homeLabel.Text = _loc.Get("tab_home");
+        _exploreLabel.Text = _loc.Get("tab_explore");
+        _settingsLabel.Text = _loc.Get("tab_settings");
+    }
 
     private View BuildRoot()
     {
@@ -34,6 +52,7 @@ public sealed class AppBottomBar : ContentView
             ColumnDefinitions =
             {
                 new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star)
             },
             Padding = new Thickness(16, 8, 16, 10)
@@ -41,19 +60,30 @@ public sealed class AppBottomBar : ContentView
 
         var home = BuildFooterItem(
             BuildHomeIcon(ActiveTab == BottomBarTab.Home),
-            "Trang chủ",
+            _loc.Get("tab_home"),
             ActiveTab == BottomBarTab.Home,
-            _onHomeTap);
+            _onHomeTap,
+            out _homeLabel);
 
         var explore = BuildFooterItem(
             BuildExploreIcon(ActiveTab == BottomBarTab.Explore),
-            "Khám phá",
+            _loc.Get("tab_explore"),
             ActiveTab == BottomBarTab.Explore,
-            _onExploreTap);
+            _onExploreTap,
+            out _exploreLabel);
+
+        var settings = BuildFooterItem(
+            BuildSettingsIcon(ActiveTab == BottomBarTab.Settings),
+            _loc.Get("tab_settings"),
+            ActiveTab == BottomBarTab.Settings,
+            _onSettingsTap,
+            out _settingsLabel);
 
         tabs.Children.Add(home);
         tabs.Children.Add(explore);
         Grid.SetColumn(explore, 1);
+        tabs.Children.Add(settings);
+        Grid.SetColumn(settings, 2);
 
         return new Border
         {
@@ -73,8 +103,17 @@ public sealed class AppBottomBar : ContentView
         };
     }
 
-    private static View BuildFooterItem(View icon, string text, bool active, Func<Task>? onTap)
+    private static View BuildFooterItem(View icon, string text, bool active, Func<Task>? onTap, out Label labelRef)
     {
+        labelRef = new Label
+        {
+            Text = text,
+            FontSize = 10,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = active ? Color.FromArgb("#DC2626") : Color.FromArgb("#7D7D82"),
+            HorizontalTextAlignment = TextAlignment.Center
+        };
+
         var content = new VerticalStackLayout
         {
             Spacing = 4,
@@ -89,14 +128,7 @@ public sealed class AppBottomBar : ContentView
                     Padding = new Thickness(14, 7),
                     Content = icon
                 },
-                new Label
-                {
-                    Text = text,
-                    FontSize = 10,
-                    FontAttributes = FontAttributes.Bold,
-                    TextColor = active ? Color.FromArgb("#DC2626") : Color.FromArgb("#7D7D82"),
-                    HorizontalTextAlignment = TextAlignment.Center
-                }
+                labelRef
             }
         };
 
@@ -175,6 +207,40 @@ public sealed class AppBottomBar : ContentView
                     Y2 = 15.3,
                     Stroke = stroke,
                     StrokeThickness = 1.8
+                }
+            }
+        };
+    }
+
+    private static View BuildSettingsIcon(bool active)
+    {
+        var strokeColor = active ? Color.FromArgb("#DC2626") : Color.FromArgb("#94A3B8");
+
+        return new Grid
+        {
+            WidthRequest = 20,
+            HeightRequest = 20,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Ellipse
+                {
+                    WidthRequest = 18,
+                    HeightRequest = 18,
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1.7,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Ellipse
+                {
+                    WidthRequest = 6,
+                    HeightRequest = 6,
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1.5,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
                 }
             }
         };

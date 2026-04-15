@@ -7,9 +7,12 @@ public partial class App : Application
 {
     private readonly Page _rootPage;
 
-    public App(PoiMapPage poiMapPage, SQLiteService sqliteService)
+    public App(PoiMapPage poiMapPage, SQLiteService sqliteService, LocalizationService localizationService)
     {
         InitializeComponent();
+
+        var savedLanguage = Preferences.Get("ui_language", "vi");
+        localizationService.SetLanguage(savedLanguage);
 
         _ = InitializeDatabaseAsync(sqliteService);
         _rootPage = new NavigationPage(poiMapPage);

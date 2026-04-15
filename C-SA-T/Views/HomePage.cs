@@ -13,16 +13,22 @@ public class HomePage : ContentPage
 {
     private readonly GianHangService _gianHangService;
     private readonly GeofenceEngineService _geofenceEngine;
+    private readonly LocalizationService _loc;
     private static HttpClient? _imageRenderHttpClient;
     private static readonly ConcurrentDictionary<string, byte[]> _imageBytesCache = new();
     private Location? _userLocation;
     private readonly VerticalStackLayout _nearbySection;
     private readonly Label _heroFollowLabel;
+    private Label _heroBadgeLabel = null!;
+    private Label _heroStreetLabel = null!;
+    private Label _sectionNearbyLabel = null!;
+    private int _followCount;
 
-    public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine)
+    public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine, LocalizationService localizationService)
     {
         _gianHangService = gianHangService;
         _geofenceEngine = geofenceEngine;
+        _loc = localizationService;
 
         Title = string.Empty;
         BackgroundColor = Color.FromArgb("#FFF7F1");
@@ -32,7 +38,6 @@ public class HomePage : ContentPage
         _nearbySection = new VerticalStackLayout { Spacing = 12 };
         _heroFollowLabel = new Label
         {
-            Text = "\u0110ang theo d\u00F5i 0 \u0111i\u1EC3m",
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#D6E4FF")
@@ -66,6 +71,7 @@ public class HomePage : ContentPage
 
         var footer = new AppBottomBar(
             BottomBarTab.Home,
+            localizationService,
             onExploreTap: async () =>
             {
                 var poiMapPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PoiMapPage>();
@@ -74,17 +80,35 @@ public class HomePage : ContentPage
                     poiMapPage.RequestAutoOpenExplore();
                     await Navigation.PushAsync(poiMapPage);
                 }
+            },
+            onSettingsTap: async () =>
+            {
+                var settingsPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<SettingsPage>();
+                if (settingsPage != null)
+                    await Navigation.PushAsync(settingsPage);
             });
         root.Children.Add(footer);
         Grid.SetRow(footer, 1);
 
-        var audioBanner = new AudioPlaybackBanner(_geofenceEngine);
+        var audioBanner = new AudioPlaybackBanner(_geofenceEngine, localizationService);
         root.Children.Add(audioBanner);
         Grid.SetRowSpan(audioBanner, 2);
 
         Content = root;
 
+        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(UpdateLocalizedText);
+        UpdateLocalizedText();
+
         Loaded += async (_, __) => await LoadNearbyRestaurants();
+    }
+
+    private void UpdateLocalizedText()
+    {
+        _heroBadgeLabel.Text = _loc.Get("hero_badge");
+        _heroStreetLabel.Text = _loc.Get("hero_street");
+        _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
+        if (_sectionNearbyLabel is not null)
+            _sectionNearbyLabel.Text = _loc.Get("section_nearby");
     }
 
     private async Task LoadNearbyRestaurants()
@@ -96,13 +120,14 @@ public class HomePage : ContentPage
             var gianHangs = await _gianHangService.GetAllAsync();
 
             _nearbySection.Children.Clear();
-            _nearbySection.Children.Add(BuildSectionHeader("\u0110i\u1EC3m n\u1ED5i b\u1EADt g\u1EA7n b\u1EA1n", "Xem t\u1EA5t c\u1EA3"));
+            _sectionNearbyLabel = null!;
+            _nearbySection.Children.Add(BuildSectionHeader(_loc.Get("section_nearby"), _loc.Get("section_see_all")));
 
             if (gianHangs == null || gianHangs.Count == 0)
             {
                 _nearbySection.Children.Add(new Label
                 {
-                    Text = "Ch\u01B0a c\u00F3 d\u1EEF li\u1EC7u \u0111\u1ECBa \u0111i\u1EC3m",
+                    Text = _loc.Get("no_data"),
                     FontSize = 14,
                     TextColor = Color.FromArgb("#64748B")
                 });
@@ -131,8 +156,8 @@ public class HomePage : ContentPage
             }
 
             var sorted = restaurantsWithDistance.OrderBy(r => r.distance).ToList();
-            var followCount = Math.Min(sorted.Count, 8);
-            _heroFollowLabel.Text = $"\u0110ang theo d\u00F5i {followCount} \u0111i\u1EC3m";
+            _followCount = Math.Min(sorted.Count, 8);
+            _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
             await _geofenceEngine.UpdateTargetsAsync(gianHangs, radiusMeters: 10);
             await _geofenceEngine.StartAsync();
 
@@ -318,6 +343,21 @@ public class HomePage : ContentPage
             TranslationY = 20
         });
 
+        _heroBadgeLabel = new Label
+        {
+            FontSize = 13,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#FDE68A"),
+            VerticalTextAlignment = TextAlignment.Center
+        };
+
+        _heroStreetLabel = new Label
+        {
+            FontSize = 34,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.White
+        };
+
         content.Children.Add(new VerticalStackLayout
         {
             Spacing = 8,
@@ -344,24 +384,11 @@ public class HomePage : ContentPage
                                 Color = Color.FromArgb("#FCA5A5"),
                                 VerticalOptions = LayoutOptions.Center
                             },
-                            new Label
-                            {
-                                Text = "B\u1EAFt \u0111\u1EA7u kh\u00E1m ph\u00E1",
-                                FontSize = 13,
-                                FontAttributes = FontAttributes.Bold,
-                                TextColor = Color.FromArgb("#FDE68A"),
-                                VerticalTextAlignment = TextAlignment.Center
-                            }
+                            _heroBadgeLabel
                         }
                     }
                 },
-                new Label
-                {
-                    Text = "Ph\u1ED1 \u1EA8m Th\u1EF1c",
-                    FontSize = 34,
-                    FontAttributes = FontAttributes.Bold,
-                    TextColor = Colors.White
-                },
+                _heroStreetLabel,
                 new Label
                 {
                     Text = "V\u0129nh Kh\u00E1nh",
@@ -513,7 +540,7 @@ public class HomePage : ContentPage
     {
         if (string.IsNullOrWhiteSpace(restaurant.AudioFullUrl))
         {
-            await DisplayAlertAsync("Thông báo", "Quán này chưa có audio.", "OK");
+            await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("alert_no_audio"), _loc.Get("alert_ok"));
             return;
         }
 
@@ -705,13 +732,15 @@ public class HomePage : ContentPage
             }
         };
 
-        grid.Children.Add(new Label
+        _sectionNearbyLabel = new Label
         {
             Text = title,
             FontSize = 22,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#0F172A")
-        });
+        };
+
+        grid.Children.Add(_sectionNearbyLabel);
 
         var actionLabel = new Label
         {

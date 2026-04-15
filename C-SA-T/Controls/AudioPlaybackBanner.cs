@@ -6,6 +6,7 @@ namespace MauiApp1.Controls;
 public sealed class AudioPlaybackBanner : ContentView
 {
     private readonly GeofenceEngineService _audioService;
+    private readonly LocalizationService _loc;
     private readonly Border _container;
     private readonly Image _coverImage;
     private readonly Label _statusLabel;
@@ -13,9 +14,10 @@ public sealed class AudioPlaybackBanner : ContentView
     private readonly Border _stopButton;
     private bool _isSubscribed;
 
-    public AudioPlaybackBanner(GeofenceEngineService audioService)
+    public AudioPlaybackBanner(GeofenceEngineService audioService, LocalizationService localizationService)
     {
         _audioService = audioService;
+        _loc = localizationService;
 
         _coverImage = new Image
         {
@@ -40,7 +42,7 @@ public sealed class AudioPlaybackBanner : ContentView
             FontSize = 11,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#C2410C"),
-            Text = "Đang phát"
+            Text = localizationService.Get("audio_playing")
         };
 
         _titleLabel = new Label
@@ -50,7 +52,7 @@ public sealed class AudioPlaybackBanner : ContentView
             TextColor = Color.FromArgb("#0F172A"),
             MaxLines = 1,
             LineBreakMode = LineBreakMode.TailTruncation,
-            Text = "Âm thanh gian hàng"
+            Text = localizationService.Get("audio_banner_title")
         };
 
         var textWrap = new VerticalStackLayout
@@ -135,6 +137,12 @@ public sealed class AudioPlaybackBanner : ContentView
 
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+
+        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _statusLabel.Text = _loc.Get("audio_playing");
+            _titleLabel.Text = _loc.Get("audio_banner_title");
+        });
     }
 
     private void OnLoaded(object? sender, EventArgs e)
@@ -174,7 +182,7 @@ public sealed class AudioPlaybackBanner : ContentView
         }
 
         _statusLabel.Text = state.Message;
-        _titleLabel.Text = string.IsNullOrWhiteSpace(state.Title) ? "Audio gian hang" : state.Title;
+        _titleLabel.Text = string.IsNullOrWhiteSpace(state.Title) ? _loc.Get("audio_banner_title") : state.Title;
         _container.BackgroundColor = state.Phase == AudioPlaybackPhase.Pending
             ? Color.FromArgb("#FFF0E4")
             : Color.FromArgb("#FFF6EF");

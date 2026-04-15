@@ -55,6 +55,12 @@ public partial class PoiMapPage : ContentPage
     private Label _detailDescription = null!;
     private Label _detailAudioLabel = null!;
     private HorizontalStackLayout _languageRow = null!;
+    private Label _languageSectionLabel = null!;
+    private Label _audioSectionLabel = null!;
+    private Label _foodImagesSectionLabel = null!;
+    private Button _closeButton = null!;
+
+    private readonly LocalizationService _loc;
 
     // Audio controls
     private Button _playButton = null!;
@@ -112,7 +118,7 @@ public partial class PoiMapPage : ContentPage
     private bool _isPlaybackStateSubscribed;
     private GianHang? _currentDetailGianHang;
     private readonly List<NgonNgu> _languages = new();
-    private string _selectedLanguageCode = DefaultLanguageCode;
+    private string _selectedLanguageCode = DefaultLanguageCode; // overridden in constructor
     private bool _isLiveLocationSubscribed;
 
 #if ANDROID
@@ -124,13 +130,16 @@ public partial class PoiMapPage : ContentPage
         GianHangService gianHangService,
         MonAnService monAnService,
         GeofenceEngineService geofenceEngine,
-        SQLiteService sqliteService)
+        SQLiteService sqliteService,
+        LocalizationService localizationService)
     {
         _poiService = poiService;
         _gianHangService = gianHangService;
         _monAnService = monAnService;
         _geofenceEngine = geofenceEngine;
         _sqliteService = sqliteService;
+        _loc = localizationService;
+        _selectedLanguageCode = localizationService.CurrentLanguage;
 
         Title = "";
         BackgroundColor = Colors.White;
@@ -143,7 +152,6 @@ public partial class PoiMapPage : ContentPage
 
         _titleLabel = new Label
         {
-            Text = "Khám phá",
             FontSize = 24,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#111111")
@@ -151,7 +159,6 @@ public partial class PoiMapPage : ContentPage
 
         _subtitleLabel = new Label
         {
-            Text = "Ẩm thực, đồ uống và các địa điểm gần bạn",
             FontSize = 13,
             TextColor = Color.FromArgb("#6B7280")
         };
@@ -171,14 +178,32 @@ public partial class PoiMapPage : ContentPage
         _detailSheet = CreateDetailSheet();
         _footer = new AppBottomBar(
             BottomBarTab.Explore,
+            localizationService,
             onHomeTap: async () =>
             {
                 var homePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<HomePage>();
                 if (homePage != null)
                     await Navigation.PushAsync(homePage);
             },
-            onExploreTap: ToggleSuggestionSheetAsync);
+            onExploreTap: ToggleSuggestionSheetAsync,
+            onSettingsTap: async () =>
+            {
+                var settingsPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<SettingsPage>();
+                if (settingsPage != null)
+                    await Navigation.PushAsync(settingsPage);
+            });
         _topBar = CreateTopBar();
+
+        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            UpdateLocalizedText();
+            _selectedLanguageCode = _loc.CurrentLanguage;
+            RenderLanguageOptions();
+            _ = ApplySelectedLanguageToCurrentDetailAsync();
+            if (_isInitialLoadCompleted)
+                _ = LoadRealPoisAsync();
+        });
+        UpdateLocalizedText();
 
         Content = BuildLayout();
 
@@ -232,7 +257,7 @@ public partial class PoiMapPage : ContentPage
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_footer);
-        root.Children.Add(new AudioPlaybackBanner(_geofenceEngine));
+        root.Children.Add(new AudioPlaybackBanner(_geofenceEngine, _loc));
 
         return root;
     }
@@ -241,7 +266,7 @@ public partial class PoiMapPage : ContentPage
     {
         _searchEntry = new Entry
         {
-            Placeholder = "Tìm kiếm gian hàng",
+            Placeholder = _loc.Get("search_placeholder"),
             BackgroundColor = Colors.Transparent,
             TextColor = Color.FromArgb("#111111"),
             PlaceholderColor = Color.FromArgb("#9CA3AF"),
@@ -513,7 +538,7 @@ public partial class PoiMapPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync("Lỗi", $"Không tải được dữ liệu POI từ DB.\n{ex.Message}", "OK");
+            await DisplayAlertAsync(_loc.Get("alert_error"), $"Không tải được dữ liệu POI từ DB.\n{ex.Message}", _loc.Get("alert_ok"));
         }
         finally
         {
@@ -623,14 +648,14 @@ public partial class PoiMapPage : ContentPage
                 {
                     new Label
                     {
-                        Text = "Không tìm thấy quán hoặc món phù hợp",
+                        Text = _loc.Get("search_no_results"),
                         FontSize = 16,
                         FontAttributes = FontAttributes.Bold,
                         TextColor = Color.FromArgb("#0F172A")
                     },
                     new Label
                     {
-                        Text = $"Thử từ khóa khác cho \"{query}\" hoặc tìm theo tên món, tên quán, địa chỉ.",
+                        Text = string.Format(_loc.Get("search_try_other"), query),
                         FontSize = 13,
                         TextColor = Color.FromArgb("#64748B")
                     }
@@ -846,7 +871,6 @@ public partial class PoiMapPage : ContentPage
 
         _detailTitle = new Label
         {
-            Text = "Tên gian hàng",
             FontSize = 24,
             FontAttributes = FontAttributes.Bold,
             TextColor = Colors.Black
@@ -854,14 +878,12 @@ public partial class PoiMapPage : ContentPage
 
         _detailAddress = new Label
         {
-            Text = "Địa chỉ",
             FontSize = 14,
             TextColor = Colors.Gray
         };
 
         _detailDescription = new Label
         {
-            Text = "Mô tả gian hàng",
             FontSize = 15,
             TextColor = Colors.Black,
             LineBreakMode = LineBreakMode.WordWrap
@@ -869,20 +891,18 @@ public partial class PoiMapPage : ContentPage
 
         _detailAudioLabel = new Label
         {
-            Text = "Audio: chưa có",
             FontSize = 13,
             TextColor = Colors.Gray
         };
 
-        var closeButton = new Button
+        _closeButton = new Button
         {
-            Text = "Đóng",
             BackgroundColor = Color.FromArgb("#E85D04"),
             TextColor = Colors.White,
             CornerRadius = 12,
             Padding = new Thickness(16, 10)
         };
-        closeButton.Clicked += async (_, __) => await HideDetailSheetAsync();
+        _closeButton.Clicked += async (_, __) => await HideDetailSheetAsync();
 
         var dragBar = new Border
         {
@@ -930,6 +950,13 @@ public partial class PoiMapPage : ContentPage
             Spacing = 8
         };
 
+        _languageSectionLabel = new Label
+        {
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.Black
+        };
+
         var languageCard = new Border
         {
             Stroke = Color.FromArgb("#EEEEEE"),
@@ -942,13 +969,7 @@ public partial class PoiMapPage : ContentPage
                 Spacing = 10,
                 Children =
                 {
-                    new Label
-                    {
-                        Text = "Ngôn ngữ",
-                        FontSize = 18,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Colors.Black
-                    },
+                    _languageSectionLabel,
                     new ScrollView
                     {
                         Orientation = ScrollOrientation.Horizontal,
@@ -959,9 +980,15 @@ public partial class PoiMapPage : ContentPage
             }
         };
 
+        _audioSectionLabel = new Label
+        {
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.Black
+        };
+
         _playButton = new Button
         {
-            Text = "▶ Phát nè",
             BackgroundColor = Color.FromArgb("#E85D04"),
             TextColor = Colors.White,
             CornerRadius = 12,
@@ -1020,13 +1047,7 @@ public partial class PoiMapPage : ContentPage
                 Spacing = 12,
                 Children =
                 {
-                    new Label
-                    {
-                        Text = "Thuyết minh audio",
-                        FontSize = 18,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Colors.Black
-                    },
+                    _audioSectionLabel,
                     _playButton,
                     _progressSlider,
                     timeGrid
@@ -1034,9 +1055,8 @@ public partial class PoiMapPage : ContentPage
             }
         };
 
-        var foodTitle = new Label
+        _foodImagesSectionLabel = new Label
         {
-            Text = "Một số hình ảnh món ăn",
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
             TextColor = Colors.Black,
@@ -1067,12 +1087,12 @@ public partial class PoiMapPage : ContentPage
                     infoCard,
                     languageCard,
                     audioCard,
-                    foodTitle,
+                    _foodImagesSectionLabel,
                     foodImages,
                     new VerticalStackLayout
                     {
                         Padding = new Thickness(16, 0, 16, 0),
-                        Children = { closeButton }
+                        Children = { _closeButton }
                     }
                 }
             }
@@ -1239,8 +1259,8 @@ public partial class PoiMapPage : ContentPage
         ResetAudioState();
 
         _detailAudioLabel.Text = string.IsNullOrWhiteSpace(gianHang.AudioURL)
-            ? "Audio: chưa có"
-            : "Audio thuyết minh đã sẵn sàng";
+            ? _loc.Get("fallback_audio_none")
+            : _loc.Get("fallback_audio_ready");
 
         _detailImage.Source = BuildImageSource(
             !string.IsNullOrWhiteSpace(gianHang.HinhAnhChinh)
@@ -1717,9 +1737,29 @@ public partial class PoiMapPage : ContentPage
 
     private void SetDetailInfo(GianHang gianHang)
     {
-        _detailTitle.Text = string.IsNullOrWhiteSpace(gianHang.Ten) ? "Tên gian hàng" : gianHang.Ten;
-        _detailAddress.Text = string.IsNullOrWhiteSpace(gianHang.DiaChi) ? "Chưa có địa chỉ" : gianHang.DiaChi;
-        _detailDescription.Text = string.IsNullOrWhiteSpace(gianHang.MoTa) ? "Chưa có mô tả." : gianHang.MoTa;
+        _detailTitle.Text = string.IsNullOrWhiteSpace(gianHang.Ten) ? _loc.Get("fallback_name") : gianHang.Ten;
+        _detailAddress.Text = string.IsNullOrWhiteSpace(gianHang.DiaChi) ? _loc.Get("fallback_address") : gianHang.DiaChi;
+        _detailDescription.Text = string.IsNullOrWhiteSpace(gianHang.MoTa) ? _loc.Get("fallback_description") : gianHang.MoTa;
+    }
+
+    private void UpdateLocalizedText()
+    {
+        _titleLabel.Text = _loc.Get("map_title");
+        _subtitleLabel.Text = _loc.Get("map_subtitle_default");
+        _searchEntry.Placeholder = _loc.Get("search_placeholder");
+        _closeButton.Text = _loc.Get("detail_close");
+        _languageSectionLabel.Text = _loc.Get("detail_language");
+        _audioSectionLabel.Text = _loc.Get("detail_audio_title");
+        _foodImagesSectionLabel.Text = _loc.Get("detail_food_images");
+        _playButton.Text = _loc.Get("btn_play");
+        if (_currentDetailGianHang is null)
+        {
+            _detailAudioLabel.Text = _loc.Get("fallback_audio_none");
+        }
+        if (_userLocationPin is not null)
+        {
+            _userLocationPin.Label = _loc.Get("my_location");
+        }
     }
 
     private void UpdateDetailPanelShape(bool forceSquare = false)
@@ -1748,8 +1788,8 @@ public partial class PoiMapPage : ContentPage
         if (!string.IsNullOrWhiteSpace(_activeSearchQuery))
             return;
 
-        _titleLabel.Text = "Khám phá";
-        _subtitleLabel.Text = "Ẩm thực, đồ uống và các địa điểm gần bạn";
+        _titleLabel.Text = _loc.Get("map_title");
+        _subtitleLabel.Text = _loc.Get("map_subtitle_default");
     }
 
     private void UpdateHeaderByState()
@@ -1759,21 +1799,21 @@ public partial class PoiMapPage : ContentPage
 
         if (!_isExploreVisible)
         {
-            _subtitleLabel.Text = "Ẩm thực, đồ uống và các địa điểm gần bạn";
+            _subtitleLabel.Text = _loc.Get("map_subtitle_default");
             return;
         }
 
         if (_currentSheetY <= _sheetFullY + 10)
         {
-            _subtitleLabel.Text = "Danh sách đầy đủ các địa điểm gợi ý";
+            _subtitleLabel.Text = _loc.Get("map_subtitle_full");
         }
         else if (_currentSheetY <= _sheetHalfY + 10)
         {
-            _subtitleLabel.Text = "Chạm vào quán để xem chi tiết";
+            _subtitleLabel.Text = _loc.Get("map_subtitle_half");
         }
         else
         {
-            _subtitleLabel.Text = "Ẩm thực, đồ uống và các địa điểm gần bạn";
+            _subtitleLabel.Text = _loc.Get("map_subtitle_default");
         }
     }
 
@@ -1870,13 +1910,13 @@ public partial class PoiMapPage : ContentPage
     private string GetSearchHintForPoi(PoiItem poi)
     {
         if (string.IsNullOrWhiteSpace(_activeSearchQuery))
-            return "Xem chi tiết";
+            return _loc.Get("explore_view_detail");
 
         var normalizedQuery = NormalizeSearchText(_activeSearchQuery);
         var title = NormalizeSearchText(poi.Title);
 
         if (title.Contains(normalizedQuery, StringComparison.Ordinal))
-            return "Khớp tên quán";
+            return _loc.Get("search_match_name");
 
         var matchedFoods = poi.MenuNames
             .Where(name => NormalizeSearchText(name).Contains(normalizedQuery, StringComparison.Ordinal))
@@ -1884,12 +1924,12 @@ public partial class PoiMapPage : ContentPage
             .ToArray();
 
         if (matchedFoods.Length > 0)
-            return $"Món hợp: {string.Join(", ", matchedFoods)}";
+            return string.Format(_loc.Get("search_match_food"), string.Join(", ", matchedFoods));
 
         if (NormalizeSearchText(poi.Address).Contains(normalizedQuery, StringComparison.Ordinal))
-            return "Khớp địa chỉ";
+            return _loc.Get("search_match_address");
 
-        return "Xem chi tiết";
+        return _loc.Get("explore_view_detail");
     }
 
     private async Task OpenDetailAsync(PoiItem poi)
@@ -1900,7 +1940,7 @@ public partial class PoiMapPage : ContentPage
 
             if (gianHang == null)
             {
-                await DisplayAlertAsync("Thông báo", $"Không tìm thấy gian hàng tương ứng. Id = {poi.IDChiNhanh}", "OK");
+                await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("alert_poi_not_found"), _loc.Get("alert_ok"));
                 return;
             }
 
@@ -1909,7 +1949,7 @@ public partial class PoiMapPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync("Lỗi", ex.Message, "OK");
+            await DisplayAlertAsync(_loc.Get("alert_error"), ex.Message, _loc.Get("alert_ok"));
         }
     }
 

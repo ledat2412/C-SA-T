@@ -1,4 +1,5 @@
 ﻿using MauiApp1.Models;
+using MauiApp1.Services;
 using Microsoft.Maui.Controls.Shapes;
 using System.Collections.ObjectModel;
 
@@ -9,6 +10,7 @@ namespace MauiApp1.Views
         private readonly GianHang? _gianHang;
         private readonly string? _imagePath;
         private readonly string? _audioPath;
+        private readonly LocalizationService _loc;
 
         private readonly Image _mainImage;
         private readonly Label _titleLabel;
@@ -38,13 +40,12 @@ namespace MauiApp1.Views
         private bool _isSheetVisible;
         private bool _hasShownInitialSheet;
 
-        public GianHangDetailPage(GianHang gianHang, string? imagePath, string? audioPath)
+        public GianHangDetailPage(GianHang gianHang, string? imagePath, string? audioPath, LocalizationService localizationService)
         {
             _gianHang = gianHang;
             _imagePath = imagePath;
             _audioPath = audioPath;
-
-            Title = "Chi tiết gian hàng";
+            _loc = localizationService;
             BackgroundColor = Colors.White;
 
             _mainImage = new Image
@@ -56,7 +57,6 @@ namespace MauiApp1.Views
 
             _titleLabel = new Label
             {
-                Text = "Tên gian hàng",
                 FontSize = 24,
                 FontAttributes = FontAttributes.Bold,
                 TextColor = Colors.Black
@@ -64,14 +64,12 @@ namespace MauiApp1.Views
 
             _addressLabel = new Label
             {
-                Text = "Địa chỉ",
                 FontSize = 14,
                 TextColor = Colors.Gray
             };
 
             _descriptionLabel = new Label
             {
-                Text = "Mô tả gian hàng",
                 FontSize = 15,
                 TextColor = Colors.Black,
                 LineBreakMode = LineBreakMode.WordWrap
@@ -79,7 +77,6 @@ namespace MauiApp1.Views
 
             _playButton = new Button
             {
-                Text = "▶ Phát",
                 BackgroundColor = Color.FromArgb("#E85D04"),
                 TextColor = Colors.White,
                 CornerRadius = 12,
@@ -114,6 +111,11 @@ namespace MauiApp1.Views
             _detailSheet = CreateDetailSheet();
             Content = BuildLayout();
             BindDataToUI();
+
+            localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _playButton.Text = _loc.Get("btn_play");
+            });
 
             Loaded += async (_, __) =>
             {
@@ -153,7 +155,7 @@ namespace MauiApp1.Views
         {
             var audioTitle = new Label
             {
-                Text = "Thuyết minh audio",
+                Text = _loc.Get("detail_audio_title"),
                 FontSize = 18,
                 FontAttributes = FontAttributes.Bold,
                 TextColor = Colors.Black
@@ -195,7 +197,7 @@ namespace MauiApp1.Views
 
             var foodTitle = new Label
             {
-                Text = "Một số hình ảnh món ăn",
+                Text = _loc.Get("detail_food_images"),
                 FontSize = 18,
                 FontAttributes = FontAttributes.Bold,
                 TextColor = Colors.Black
@@ -476,18 +478,20 @@ namespace MauiApp1.Views
 
         private void BindDataToUI()
         {
+            _playButton.Text = _loc.Get("btn_play");
+
             if (_gianHang != null)
             {
                 _titleLabel.Text = string.IsNullOrWhiteSpace(_gianHang.Ten)
-                    ? "Tên gian hàng"
+                    ? _loc.Get("fallback_name")
                     : _gianHang.Ten;
 
                 _addressLabel.Text = string.IsNullOrWhiteSpace(_gianHang.DiaChi)
-                    ? "Chưa có địa chỉ"
+                    ? _loc.Get("fallback_address")
                     : _gianHang.DiaChi;
 
                 _descriptionLabel.Text = string.IsNullOrWhiteSpace(_gianHang.MoTa)
-                    ? "Đây là phần mô tả gian hàng. Bạn có thể thay bằng dữ liệu thật từ DB sau."
+                    ? _loc.Get("fallback_description")
                     : _gianHang.MoTa;
 
                 _mainImage.Source = NormalizeImagePath(_gianHang.HinhAnh);

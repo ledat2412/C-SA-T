@@ -53,7 +53,7 @@ public partial class PoiMapPage
 
         _userLocationPin ??= new UserLocationPin
         {
-            Label = "Vị trí của tôi",
+            Label = _loc.Get("my_location"),
             Type = PinType.SavedPin
         };
 

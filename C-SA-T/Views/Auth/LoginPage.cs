@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.Maui.Controls;
 using MauiApp1.Services;
 using MauiApp1.Views.Maps;
@@ -10,46 +10,46 @@ public class LoginPage : ContentPage
 {
     private readonly ApiService _apiService;
     private readonly IServiceProvider _serviceProvider;
+    private readonly LocalizationService _loc;
 
     private Entry _usernameEntry;
     private Entry _passwordEntry;
     private Label _statusLabel;
     private Button _loginButton;
+    private Button _registerButton;
+    private Label _titleLabel;
     private bool _isLoggingIn;
 
-    public LoginPage(ApiService apiService, IServiceProvider serviceProvider)
+    public LoginPage(ApiService apiService, IServiceProvider serviceProvider, LocalizationService localizationService)
     {
         _apiService = apiService;
         _serviceProvider = serviceProvider;
+        _loc = localizationService;
 
-        Title = "Đăng nhập";
-
-        _usernameEntry = new Entry
+        _titleLabel = new Label
         {
-            Placeholder = "Tên đăng nhập hoặc email"
+            FontSize = 24,
+            HorizontalOptions = LayoutOptions.Center
         };
+
+        _usernameEntry = new Entry();
 
         _passwordEntry = new Entry
         {
-            Placeholder = "Mật khẩu",
             IsPassword = true
         };
 
         _loginButton = new Button
         {
-            Text = "Đăng nhập",
             BackgroundColor = Colors.Blue,
             TextColor = Colors.White
         };
         _loginButton.Clicked += OnLoginClicked;
 
-        var registerButton = new Button
+        _registerButton = new Button();
+        _registerButton.Clicked += async (_, __) =>
         {
-            Text = "Đăng ký"
-        };
-        registerButton.Clicked += async (_, __) =>
-        {
-            await DisplayAlertAsync("Thông báo", "Chưa làm chức năng đăng ký", "OK");
+            await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("register_todo"), _loc.Get("alert_ok"));
         };
 
         _statusLabel = new Label
@@ -66,19 +66,27 @@ public class LoginPage : ContentPage
             VerticalOptions = LayoutOptions.Center,
             Children =
             {
-                new Label
-                {
-                    Text = "LOGIN",
-                    FontSize = 24,
-                    HorizontalOptions = LayoutOptions.Center
-                },
+                _titleLabel,
                 _usernameEntry,
                 _passwordEntry,
                 _loginButton,
-                registerButton,
+                _registerButton,
                 _statusLabel
             }
         };
+
+        localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(UpdateLocalizedText);
+        UpdateLocalizedText();
+    }
+
+    private void UpdateLocalizedText()
+    {
+        Title = _loc.Get("login_title");
+        _titleLabel.Text = _loc.Get("login_title");
+        _usernameEntry.Placeholder = _loc.Get("login_username_hint");
+        _passwordEntry.Placeholder = _loc.Get("login_password_hint");
+        _loginButton.Text = _loc.Get("login_btn");
+        _registerButton.Text = _loc.Get("register_btn");
     }
 
     private async void OnLoginClicked(object? sender, EventArgs e)
@@ -91,13 +99,13 @@ public class LoginPage : ContentPage
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
-            _statusLabel.Text = "Vui lòng nhập đầy đủ thông tin";
+            _statusLabel.Text = _loc.Get("login_empty_fields");
             return;
         }
 
         _isLoggingIn = true;
         _loginButton.IsEnabled = false;
-        _statusLabel.Text = "Đang đăng nhập...";
+        _statusLabel.Text = _loc.Get("login_loading");
 
         try
         {
@@ -105,21 +113,21 @@ public class LoginPage : ContentPage
 
             if (result.Success)
             {
-                _statusLabel.Text = "Đăng nhập thành công";
+                _statusLabel.Text = _loc.Get("login_success");
                 var poiMapPage = _serviceProvider.GetRequiredService<PoiMapPage>();
                 await Navigation.PushAsync(poiMapPage);
             }
             else
             {
                 _statusLabel.Text = string.IsNullOrWhiteSpace(result.Message)
-                    ? "Sai tài khoản hoặc mật khẩu"
+                    ? _loc.Get("login_wrong_creds")
                     : result.Message;
             }
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = "Lỗi kết nối API";
-            await DisplayAlertAsync("Error", ex.Message, "OK");
+            _statusLabel.Text = _loc.Get("login_api_error");
+            await DisplayAlertAsync(_loc.Get("alert_error"), ex.Message, _loc.Get("alert_ok"));
         }
         finally
         {
