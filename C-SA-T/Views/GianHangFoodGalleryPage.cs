@@ -1,3 +1,4 @@
+using System.Linq;
 using MauiApp1.Models;
 using MauiApp1.Services;
 using Microsoft.Maui.Controls.Shapes;
@@ -10,9 +11,17 @@ public class GianHangFoodGalleryPage : ContentPage
     private readonly MonAnService _monAnService;
     private readonly string _heroImage;
 
+    private readonly Label _heroSubtitleLabel;
+    private readonly Label _summaryLabel;
+    private readonly Label _menuActionLabel;
+    private readonly Grid _featuredHeader;
+    private readonly Grid _menuHeader;
+    private readonly Border _featuredCard;
+    private readonly Border _statusCard;
+    private readonly Label _statusLabel;
+    private readonly VerticalStackLayout _menuList;
     private readonly VerticalStackLayout _popularList;
     private readonly HorizontalStackLayout _drinkRow;
-    private readonly Border _featuredCard;
 
     private bool _isLoaded;
 
@@ -20,19 +29,65 @@ public class GianHangFoodGalleryPage : ContentPage
     {
         _gianHang = gianHang;
         _monAnService = monAnService;
-        _heroImage = string.IsNullOrWhiteSpace(heroImage) ? "dotnet_bot.png" : heroImage;
+        _heroImage = string.IsNullOrWhiteSpace(heroImage)
+            ? (_gianHang.HinhAnhFullUrl ?? "dotnet_bot.png")
+            : heroImage;
 
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Colors.White;
+
+        _heroSubtitleLabel = new Label
+        {
+            Text = BuildHeroSubtitle(0),
+            FontSize = 12,
+            TextColor = Colors.White
+        };
+
+        _summaryLabel = new Label
+        {
+            Text = BuildSummaryText(0),
+            FontSize = 14,
+            TextColor = Color.FromArgb("#5C5C5C")
+        };
+
+        _menuActionLabel = new Label
+        {
+            Text = "0 mon",
+            FontSize = 12,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#FF6B00"),
+            VerticalTextAlignment = TextAlignment.End
+        };
+
+        _featuredHeader = BuildSectionTitle("Mon noi bat", (Label?)null);
+        _menuHeader = BuildSectionTitle("Thuc don", _menuActionLabel);
 
         _featuredCard = new Border
         {
             Stroke = Color.FromArgb("#EDEDED"),
             StrokeShape = new RoundRectangle { CornerRadius = 26 },
             Padding = 0,
+            BackgroundColor = Colors.White,
+            IsVisible = false,
             Content = CreateDishCard("Món nổi bật", "Mô tả đang cập nhật", 0, true)
         };
 
+        _statusLabel = new Label
+        {
+            FontSize = 14,
+            TextColor = Color.FromArgb("#5C5C5C")
+        };
+
+        _statusCard = new Border
+        {
+            Stroke = Color.FromArgb("#EDEDED"),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            BackgroundColor = Color.FromArgb("#FAFAFA"),
+            Padding = 16,
+            Content = _statusLabel
+        };
+
+        _menuList = new VerticalStackLayout { Spacing = 16 };
         _popularList = new VerticalStackLayout { Spacing = 16 };
         _drinkRow = new HorizontalStackLayout { Spacing = 12 };
 
@@ -55,8 +110,10 @@ public class GianHangFoodGalleryPage : ContentPage
                 Children =
                 {
                     BuildHero(),
-                    BuildCategoryChips(),
+                    CreateSummaryCard(),
+                    _featuredHeader,
                     _featuredCard,
+                    _statusCard,
                     BuildSectionTitle("Món chính phổ biến", "Xem tất cả"),
                     _popularList,
                     new Label
@@ -80,6 +137,7 @@ public class GianHangFoodGalleryPage : ContentPage
         Grid.SetRow(scroll, 1);
 
         Content = layout;
+        ShowStatus("Dang tai thuc don tu backend...");
     }
 
     protected override async void OnAppearing()
@@ -90,7 +148,17 @@ public class GianHangFoodGalleryPage : ContentPage
             return;
 
         _isLoaded = true;
-        await LoadMenuAsync();
+
+        try
+        {
+            await LoadMenuAsync();
+        }
+        catch (Exception ex)
+        {
+            _isLoaded = false;
+            ShowStatus("Khong tai duoc thuc don cua gian hang nay.");
+            System.Diagnostics.Debug.WriteLine($"[GianHangFoodGalleryPage] Load menu error: {ex.Message}");
+        }
     }
 
     private View BuildHeader()
@@ -109,23 +177,29 @@ public class GianHangFoodGalleryPage : ContentPage
 
         var title = new Label
         {
-            Text = "The Gastronomic\nGallery",
-            FontSize = 30,
+            Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Thuc don" : _gianHang.Ten,
+            FontSize = 24,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FF5A1F")
+            TextColor = Color.FromArgb("#1F1F1F"),
+            LineBreakMode = LineBreakMode.TailTruncation,
+            MaxLines = 1
         };
 
         var avatar = new Border
         {
-            HeightRequest = 34,
-            WidthRequest = 34,
+            HeightRequest = 38,
+            WidthRequest = 38,
             StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 17 },
-            BackgroundColor = Color.FromArgb("#F1F1F1"),
-            Content = new Image
+            StrokeShape = new RoundRectangle { CornerRadius = 19 },
+            BackgroundColor = Color.FromArgb("#FFF1E8"),
+            Content = new Label
             {
-                Source = "dotnet_bot.png",
-                Aspect = Aspect.AspectFill
+                Text = GetAvatarText(),
+                FontSize = 14,
+                FontAttributes = FontAttributes.Bold,
+                TextColor = Color.FromArgb("#FF6B00"),
+                HorizontalTextAlignment = TextAlignment.Center,
+                VerticalTextAlignment = TextAlignment.Center
             }
         };
 
@@ -137,7 +211,8 @@ public class GianHangFoodGalleryPage : ContentPage
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto)
-            }
+            },
+            ColumnSpacing = 12
         };
 
         grid.Children.Add(backIcon);
@@ -160,11 +235,15 @@ public class GianHangFoodGalleryPage : ContentPage
             {
                 Children =
                 {
-                    new Image { Source = _heroImage, Aspect = Aspect.AspectFill },
+                    new Image
+                    {
+                        Source = BuildImageSource(_heroImage),
+                        Aspect = Aspect.AspectFill
+                    },
                     new Border
                     {
                         StrokeThickness = 0,
-                        BackgroundColor = Color.FromRgba(0, 0, 0, 0.35),
+                        BackgroundColor = Color.FromRgba(0, 0, 0, 0.38),
                         StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(0, 0, 26, 26) },
                         VerticalOptions = LayoutOptions.End,
                         Padding = 16,
@@ -182,7 +261,7 @@ public class GianHangFoodGalleryPage : ContentPage
                                     HorizontalOptions = LayoutOptions.Start,
                                     Content = new Label
                                     {
-                                        Text = "FINE DINING EXCELLENCE",
+                                        Text = "THUC DON GIAN HANG",
                                         FontSize = 11,
                                         FontAttributes = FontAttributes.Bold,
                                         TextColor = Colors.White
@@ -191,7 +270,7 @@ public class GianHangFoodGalleryPage : ContentPage
                                 new Label
                                 {
                                     Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Nhà hàng" : _gianHang.Ten,
-                                    FontSize = 50,
+                                    FontSize = 36,
                                     FontAttributes = FontAttributes.Bold,
                                     TextColor = Colors.White
                                 },
@@ -199,8 +278,10 @@ public class GianHangFoodGalleryPage : ContentPage
                                 {
                                     Text = "⭐ 4.9 (2.4k reviews)  ·  ⏰ 07:00 - 22:00",
                                     FontSize = 12,
-                                    TextColor = Colors.White
-                                }
+                                    TextColor = Colors.White,
+                                    IsVisible = false
+                                },
+                                _heroSubtitleLabel
                             }
                         }
                     }
@@ -236,7 +317,7 @@ public class GianHangFoodGalleryPage : ContentPage
         };
     }
 
-    private View BuildSectionTitle(string title, string action)
+    private Grid BuildSectionTitle(string title, Label? actionLabel)
     {
         var grid = new Grid
         {
@@ -250,55 +331,116 @@ public class GianHangFoodGalleryPage : ContentPage
         grid.Children.Add(new Label
         {
             Text = title,
-            FontSize = 32,
+            FontSize = 28,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#1F1F1F")
         });
 
-        var right = new Label
+        if (actionLabel is not null)
+        {
+            grid.Children.Add(actionLabel);
+            Grid.SetColumn(actionLabel, 1);
+        }
+
+        return grid;
+    }
+
+    private Grid BuildSectionTitle(string title, string action)
+    {
+        return BuildSectionTitle(title, new Label
         {
             Text = action,
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#FF6B00"),
             VerticalTextAlignment = TextAlignment.End
+        });
+    }
+
+    private Border CreateSummaryCard()
+    {
+        return new Border
+        {
+            Stroke = Color.FromArgb("#ECECEC"),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            BackgroundColor = Color.FromArgb("#FFF8F1"),
+            Padding = 16,
+            Content = new VerticalStackLayout
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new Label
+                    {
+                        Text = "Du lieu thuc don",
+                        FontSize = 12,
+                        FontAttributes = FontAttributes.Bold,
+                        TextColor = Color.FromArgb("#FF6B00")
+                    },
+                    _summaryLabel
+                }
+            }
         };
-
-        grid.Children.Add(right);
-        Grid.SetColumn(right, 1);
-
-        return grid;
     }
 
     private async Task LoadMenuAsync()
     {
-        var items = await _monAnService.GetByChiNhanhAsync(_gianHang.IdGianHang);
-        if (items.Count == 0)
-        {
-            items = await _monAnService.GetAllAsync();
-        }
+        var items = FilterMenuItems(await _monAnService.GetByGianHangAsync(_gianHang.IdGianHang));
 
-        var featured = items.FirstOrDefault();
-        if (featured is not null)
-        {
-            _featuredCard.Content = CreateDishCard(featured.TenMon, featured.ThongTinMon, featured.DonGia, true);
-        }
+        if (items.Count == 0 && _gianHang.MonAns.Count > 0)
+            items = FilterMenuItems(_gianHang.MonAns);
+
+        _summaryLabel.Text = BuildSummaryText(items.Count);
+        _heroSubtitleLabel.Text = BuildHeroSubtitle(items.Count);
+        _menuActionLabel.Text = $"{items.Count} mon";
 
         _popularList.Children.Clear();
-        foreach (var item in items.Skip(1).Take(3))
+        _drinkRow.Children.Clear();
+
+        if (items.Count == 0)
         {
-            _popularList.Children.Add(CreateDishCard(item.TenMon, item.ThongTinMon, item.DonGia, false));
+            _featuredHeader.IsVisible = false;
+            _featuredCard.IsVisible = false;
+            ShowStatus("Gian hang nay chua co mon nao dang ban tren backend.");
+            return;
         }
 
-        _drinkRow.Children.Clear();
-        foreach (var item in items.Take(4))
+        _featuredHeader.IsVisible = true;
+        _featuredCard.IsVisible = true;
+        HideStatus();
+        _featuredCard.Content = CreateDishCard(items[0], true);
+
+        foreach (var item in items.Skip(1).Take(3))
         {
-            _drinkRow.Children.Add(CreateDrinkCard(item.TenMon, item.DonGia));
+            _popularList.Children.Add(CreateDishCard(item, false));
         }
+
+        foreach (var item in items.Skip(4).Take(4))
+        {
+            _drinkRow.Children.Add(CreateDrinkCard(item));
+        }
+
+        if (_popularList.Children.Count == 0)
+            ShowStatus("Gian hang hien co 1 mon dang ban.");
     }
 
     private View CreateDishCard(string? name, string? description, decimal price, bool large)
     {
+        return CreateDishCard(new MonAn
+        {
+            TenMon = name ?? string.Empty,
+            ThongTinMon = description ?? string.Empty,
+            DonGia = price
+        }, large);
+    }
+
+    private View CreateDishCard(MonAn item, bool large)
+    {
+        var price = item.DonGia;
+        var name = item.TenMon;
+        var description = item.ThongTinMon;
+        var imageSource = item.HinhAnhFullUrl;
+
         var priceGrid = new Grid
         {
             ColumnDefinitions =
@@ -355,7 +497,7 @@ public class GianHangFoodGalleryPage : ContentPage
                         HeightRequest = large ? 210 : 130,
                         Content = new Image
                         {
-                            Source = "dotnet_bot.png",
+                            Source = BuildImageSource(imageSource),
                             Aspect = Aspect.AspectFill
                         }
                     },
@@ -380,8 +522,12 @@ public class GianHangFoodGalleryPage : ContentPage
         };
     }
 
-    private View CreateDrinkCard(string? name, decimal price)
+    private View CreateDrinkCard(MonAn item)
     {
+        var name = item.TenMon;
+        var price = item.DonGia;
+        var imageSource = item.HinhAnhFullUrl;
+
         return new Border
         {
             Stroke = Color.FromArgb("#ECECEC"),
@@ -403,7 +549,7 @@ public class GianHangFoodGalleryPage : ContentPage
                         HorizontalOptions = LayoutOptions.Center,
                         Content = new Image
                         {
-                            Source = "dotnet_bot.png",
+                            Source = BuildImageSource(imageSource),
                             Aspect = Aspect.AspectFill
                         }
                     },
@@ -426,5 +572,82 @@ public class GianHangFoodGalleryPage : ContentPage
                 }
             }
         };
+    }
+
+    private void ShowStatus(string message)
+    {
+        _statusLabel.Text = message;
+        _statusCard.IsVisible = true;
+    }
+
+    private void HideStatus()
+    {
+        _statusCard.IsVisible = false;
+    }
+
+    private static List<MonAn> FilterMenuItems(IEnumerable<MonAn>? items)
+    {
+        if (items is null)
+            return new List<MonAn>();
+
+        return items
+            .Where(item => item is not null)
+            .Where(item =>
+                string.IsNullOrWhiteSpace(item.TinhTrang) ||
+                string.Equals(item.TinhTrang, "con_ban", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.IdMonAn)
+            .ToList();
+    }
+
+    private string BuildSummaryText(int itemCount)
+    {
+        if (itemCount <= 0)
+            return "Chua nhan duoc mon dang ban cho gian hang nay.";
+
+        var storeName = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Gian hang" : _gianHang.Ten;
+        return $"{storeName} hien co {itemCount} mon dang ban duoc dong bo tu backend.";
+    }
+
+    private string BuildHeroSubtitle(int itemCount)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_gianHang.DiaChi))
+            parts.Add(_gianHang.DiaChi!);
+
+        parts.Add(itemCount <= 0 ? "Chua co mon dang ban" : $"{itemCount} mon dang ban");
+        return string.Join(" | ", parts);
+    }
+
+    private string GetAvatarText()
+    {
+        if (string.IsNullOrWhiteSpace(_gianHang.Ten))
+            return "GH";
+
+        var words = _gianHang.Ten
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Take(2)
+            .Select(word => char.ToUpperInvariant(word[0]));
+
+        return string.Concat(words);
+    }
+
+    private static string FormatPrice(decimal price)
+    {
+        return $"{price:N0}d";
+    }
+
+    private static ImageSource BuildImageSource(string? imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath))
+            return ImageSource.FromFile("dotnet_bot.png");
+
+        if (Uri.TryCreate(imagePath, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return ImageSource.FromUri(uri);
+        }
+
+        return ImageSource.FromFile(imagePath);
     }
 }

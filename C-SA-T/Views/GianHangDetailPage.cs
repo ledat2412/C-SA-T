@@ -2,6 +2,7 @@
 using MauiApp1.Services;
 using Microsoft.Maui.Controls.Shapes;
 using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace MauiApp1.Views
 {
@@ -494,7 +495,7 @@ namespace MauiApp1.Views
                     ? _loc.Get("fallback_description")
                     : _gianHang.MoTa;
 
-                _mainImage.Source = NormalizeImagePath(_gianHang.HinhAnh);
+                _mainImage.Source = NormalizeImagePath(_gianHang.HinhAnhFullUrl);
             }
             else
             {
@@ -510,13 +511,30 @@ namespace MauiApp1.Views
             return dbPath;
         }
 
-        private void SeedDemoFoodImages()
+    private void SeedDemoFoodImages()
+    {
+        _demoFoodImages.Clear();
+
+        var imagePaths = _gianHang?.MonAns?
+            .Where(item =>
+                !string.IsNullOrWhiteSpace(item.HinhAnhFullUrl) &&
+                (string.IsNullOrWhiteSpace(item.TinhTrang) ||
+                 string.Equals(item.TinhTrang, "con_ban", StringComparison.OrdinalIgnoreCase)))
+            .Select(item => item.HinhAnhFullUrl!)
+            .Distinct()
+            .Take(6)
+            .ToList();
+
+        if (imagePaths is not null && imagePaths.Count > 0)
         {
-            _demoFoodImages.Clear();
-            _demoFoodImages.Add("dotnet_bot.png");
-            _demoFoodImages.Add("dotnet_bot.png");
-            _demoFoodImages.Add("dotnet_bot.png");
+            foreach (var imagePath in imagePaths)
+                _demoFoodImages.Add(imagePath);
+
+            return;
         }
+
+        _demoFoodImages.Add("dotnet_bot.png");
+    }
 
         private void OnPlayPauseClicked(object? sender, EventArgs e)
         {

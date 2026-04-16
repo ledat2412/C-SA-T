@@ -120,7 +120,7 @@ namespace VinhKhanh.Services
             return dict;
         }
 
-        private static string NormalizeImagePathForWeb(string path)
+        private static string NormalizeImagePathForWeb(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return string.Empty;
@@ -164,6 +164,7 @@ namespace VinhKhanh.Services
                     AND mann.idNgonNgu = nn.idNgonNgu
                 LEFT JOIN hinhanhmonan ham
                     ON ham.idMonAn = ma.idMonAn
+                WHERE ma.tinhTrang = 'con_ban'
                 GROUP BY 
                     ma.idMonAn, ma.idGianHang, ma.ten, mann.ten, ma.donGia, mann.moTa, ma.tinhTrang
                 ORDER BY ma.idGianHang, ma.idMonAn;";
@@ -182,7 +183,7 @@ namespace VinhKhanh.Services
                     DonGia = reader.GetDecimal("donGia"),
                     MoTa = reader["moTa"]?.ToString(),
                     TinhTrang = reader["tinhTrang"]?.ToString(),
-                    HinhAnh = reader["hinhAnh"]?.ToString()
+                    HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString())
                 });
             }
 

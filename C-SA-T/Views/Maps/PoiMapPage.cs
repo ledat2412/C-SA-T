@@ -1517,7 +1517,7 @@ public partial class PoiMapPage : ContentPage
             var page = new GianHangFoodGalleryPage(
                 _currentDetailGianHang,
                 _monAnService,
-                NormalizeImagePath(_currentDetailGianHang.HinhAnh));
+                NormalizeImagePath(_currentDetailGianHang.HinhAnhFullUrl));
 
             var isMenuLayerOpened = false;
             var menuOpenedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1919,7 +1919,9 @@ public partial class PoiMapPage : ContentPage
     {
         try
         {
-            var gianHang = await _gianHangService.GetByIdAsync(poi.IDChiNhanh);
+            var gianHang = await _gianHangService.GetByIdAsync(
+                poi.IDChiNhanh,
+                forceRefresh: true);
 
             if (gianHang == null)
             {

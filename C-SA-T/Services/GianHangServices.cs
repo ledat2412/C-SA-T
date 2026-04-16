@@ -19,17 +19,17 @@ namespace MauiApp1.Services
             return string.IsNullOrWhiteSpace(lang) ? "vi" : lang;
         }
 
-        public async Task<List<GianHang>> GetAllAsync(string? lang = null)
+        public async Task<List<GianHang>> GetAllAsync(string? lang = null, bool forceRefresh = false)
         {
             var currentLang = lang ?? GetCurrentLang();
-            var appData = await _cacheService.GetAsync(currentLang);
+            var appData = await _cacheService.GetAsync(currentLang, forceRefresh);
             return appData.GianHangs;
         }
 
-        public async Task<GianHang?> GetByIdAsync(int idGianHang, string? lang = null)
+        public async Task<GianHang?> GetByIdAsync(int idGianHang, string? lang = null, bool forceRefresh = false)
         {
             var currentLang = lang ?? GetCurrentLang();
-            var appData = await _cacheService.GetAsync(currentLang);
+            var appData = await _cacheService.GetAsync(currentLang, forceRefresh);
 
             return appData.GianHangs.FirstOrDefault(x => x.IdGianHang == idGianHang);
         }

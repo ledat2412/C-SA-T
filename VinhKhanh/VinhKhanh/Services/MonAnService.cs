@@ -38,6 +38,7 @@ namespace VinhKhanh.Services
                 LEFT JOIN hinhanhmonan ham
                     ON ham.idMonAn = ma.idMonAn
                 WHERE ma.idGianHang = @idGianHang
+                  AND ma.tinhTrang = 'con_ban'
                 GROUP BY
                     ma.idMonAn,
                     ma.idGianHang,
@@ -64,11 +65,34 @@ namespace VinhKhanh.Services
                     DonGia = reader.GetDecimal("donGia"),
                     MoTa = reader["moTa"]?.ToString(),
                     TinhTrang = reader["tinhTrang"]?.ToString(),
-                    HinhAnh = reader["hinhAnh"]?.ToString()
+                    HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString())
                 });
             }
 
             return list;
+        }
+
+        private static string? NormalizeImagePathForWeb(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return path;
+            }
+
+            var cleanPath = path.Trim().TrimStart('/');
+
+            if (!cleanPath.StartsWith("images/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("content/", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanPath = "images/" + cleanPath;
+            }
+
+            return "/" + cleanPath;
         }
     }
 }
