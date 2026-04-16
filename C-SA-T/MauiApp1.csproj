@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<Import Project="Secrets.props" Condition="Exists('Secrets.props')" />
+	<Import Project="Secret\props.txt" Condition="!Exists('Secrets.props') And Exists('Secret\props.txt')" />
 
 	<PropertyGroup>
 		<TargetFrameworks>net10.0-android</TargetFrameworks>
@@ -34,6 +35,10 @@
 		<AndroidManifestPlaceholders>google_maps_api_key=$(GoogleMapsApiKey)</AndroidManifestPlaceholders>
 		<NoWarn>$(NoWarn);XA0141</NoWarn>
 	</PropertyGroup>
+
+	<Target Name="WarnWhenGoogleMapsApiKeyMissing" BeforeTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(GoogleMapsApiKey)' == ''">
+		<Warning Text="GoogleMapsApiKey is empty. Google Maps tiles will not render on Android. Create Secrets.props or Secret\props.txt with a GoogleMapsApiKey property." />
+	</Target>
 
 	<ItemGroup>
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
