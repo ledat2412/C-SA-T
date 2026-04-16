@@ -76,5 +76,95 @@ namespace VinhKhanh.Services
                 Message = "Sai tài khoản hoặc mật khẩu."
             };
         }
+
+        public async Task<OperationResultDto> RegisterOwnerAsync(RegisterOwnerRequestDto request)
+        {
+            ValidateRegisterOwnerRequest(request);
+
+            var username = request.Username.Trim();
+            var email = request.Email.Trim();
+            var hoTen = request.HoTen.Trim();
+            var matKhau = request.MatKhau;
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await using var transaction = await conn.BeginTransactionAsync();
+
+            try
+            {
+                if (await AccountFieldExistsAsync(conn, transaction, "username", username))
+                    throw new ArgumentException("Ten dang nhap da ton tai trong he thong.");
+
+                if (await AccountFieldExistsAsync(conn, transaction, "email", email))
+                    throw new ArgumentException("Email da ton tai trong he thong.");
+
+                const string insertAccountSql = @"
+                    INSERT INTO taikhoan (email, matKhau, username, loaiTaiKhoan, tinhTrang, tinhTrangDangKy)
+                    VALUES (@email, @matKhau, @username, 'chu_quan_ly', 'hoat_dong', 'da_duyet');
+                    SELECT LAST_INSERT_ID();";
+
+                using var insertAccountCmd = new MySqlCommand(insertAccountSql, conn, transaction);
+                insertAccountCmd.Parameters.AddWithValue("@email", email);
+                insertAccountCmd.Parameters.AddWithValue("@matKhau", matKhau);
+                insertAccountCmd.Parameters.AddWithValue("@username", username);
+
+                var insertedAccountId = Convert.ToInt32(await insertAccountCmd.ExecuteScalarAsync());
+
+                const string insertOwnerSql = @"
+                    INSERT INTO chu_quan_ly (idTaiKhoan, hoTen)
+                    VALUES (@idTaiKhoan, @hoTen);";
+
+                using var insertOwnerCmd = new MySqlCommand(insertOwnerSql, conn, transaction);
+                insertOwnerCmd.Parameters.AddWithValue("@idTaiKhoan", insertedAccountId);
+                insertOwnerCmd.Parameters.AddWithValue("@hoTen", hoTen);
+                await insertOwnerCmd.ExecuteNonQueryAsync();
+
+                await transaction.CommitAsync();
+
+                return new OperationResultDto
+                {
+                    Success = true,
+                    Message = "Dang ky tai khoan chu quan ly thanh cong. Ban co the dang nhap ngay bay gio."
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private static void ValidateRegisterOwnerRequest(RegisterOwnerRequestDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.HoTen))
+                throw new ArgumentException("Ho ten khong duoc de trong.");
+
+            if (string.IsNullOrWhiteSpace(request.Username))
+                throw new ArgumentException("Ten dang nhap khong duoc de trong.");
+
+            if (string.IsNullOrWhiteSpace(request.Email))
+                throw new ArgumentException("Email khong duoc de trong.");
+
+            if (!request.Email.Contains('@') || !request.Email.Contains('.'))
+                throw new ArgumentException("Email khong dung dinh dang.");
+
+            if (string.IsNullOrWhiteSpace(request.MatKhau))
+                throw new ArgumentException("Mat khau khong duoc de trong.");
+
+            if (request.MatKhau.Length < 8)
+                throw new ArgumentException("Mat khau phai co it nhat 8 ky tu.");
+        }
+
+        private static async Task<bool> AccountFieldExistsAsync(
+            MySqlConnection conn,
+            MySqlTransaction transaction,
+            string fieldName,
+            string value)
+        {
+            var sql = $"SELECT 1 FROM taikhoan WHERE {fieldName} = @value LIMIT 1;";
+            using var cmd = new MySqlCommand(sql, conn, transaction);
+            cmd.Parameters.AddWithValue("@value", value);
+            return await cmd.ExecuteScalarAsync() != null;
+        }
     }
 }

@@ -647,10 +647,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && $_POST['account_action'] === 'update_status') {
     $targetAccountId = isset($_POST['targetAccountId']) ? (int) $_POST['targetAccountId'] : 0;
-    $targetStatus = trim((string) ($_POST['targetStatus'] ?? ''));
+    $targetStatus = strtolower(trim((string) ($_POST['targetStatus'] ?? '')));
 
     if ($targetAccountId <= 0) {
         $accountError = 'Không xác định được tài khoản cần cập nhật.';
+    } elseif ($idTaiKhoan > 0 && $targetAccountId === $idTaiKhoan && $targetStatus === 'khoa') {
+        $accountError = 'Khong the khoa chinh tai khoan admin dang dang nhap. Hay dang nhap bang mot admin khac neu muon doi trang thai tai khoan nay.';
     } elseif (!array_key_exists($targetStatus, account_status_options())) {
         $accountError = 'Tình trạng tài khoản không hợp lệ.';
     } else {
@@ -942,6 +944,8 @@ if ($selectedAccount === null && $filteredCount > 0) {
           <?php
           $selectedRole = account_role_meta($selectedAccount['loaiTaiKhoan'] ?? '');
           $selectedStatus = account_status_meta($selectedAccount['tinhTrang'] ?? '', $selectedAccount['tinhTrangDangKy'] ?? '');
+          $selectedRoleKey = strtolower(trim((string) ($selectedAccount['loaiTaiKhoan'] ?? '')));
+          $isSelectedCurrentAdmin = $selectedRoleKey === 'admin' && (int) ($selectedAccount['idTaiKhoan'] ?? 0) === $idTaiKhoan;
           ?>
           <div class="section-label">TÀI KHOẢN ĐANG CHỌN</div>
           <div class="selected-user">
@@ -989,7 +993,8 @@ if ($selectedAccount === null && $filteredCount > 0) {
               <span>Tình trạng tài khoản</span>
               <select name="targetStatus">
                 <?php foreach (account_status_options() as $statusValue => $statusLabel) { ?>
-                <option value="<?php echo htmlspecialchars($statusValue, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (($selectedAccount['tinhTrang'] ?? '') === $statusValue) ? 'selected' : ''; ?>>
+                <?php $disableStatusOption = $isSelectedCurrentAdmin && $statusValue === 'khoa'; ?>
+                <option value="<?php echo htmlspecialchars($statusValue, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (($selectedAccount['tinhTrang'] ?? '') === $statusValue) ? 'selected' : ''; ?> <?php echo $disableStatusOption ? 'disabled' : ''; ?>>
                   <?php echo htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8'); ?>
                 </option>
                 <?php } ?>
@@ -997,6 +1002,7 @@ if ($selectedAccount === null && $filteredCount > 0) {
               <?php if (($selectedAccount['loaiTaiKhoan'] ?? '') === 'chu_quan_ly') { ?>
               <small>Nếu khóa chủ quản lý, toàn bộ gian hàng của chủ này sẽ tự chuyển sang trạng thái tạm ngừng.</small>
               <?php } elseif ((int) ($selectedAccount['idTaiKhoan'] ?? 0) === $idTaiKhoan) { ?>
+              <small>Admin dang dang nhap khong the tu khoa. Hay dang nhap bang mot admin khac neu muon doi trang thai tai khoan nay.</small>
               <small>Bạn không thể khóa chính tài khoản admin đang đăng nhập.</small>
               <?php } ?>
             </label>

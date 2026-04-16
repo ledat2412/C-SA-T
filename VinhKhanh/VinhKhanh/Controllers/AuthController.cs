@@ -25,5 +25,26 @@ namespace VinhKhanh.Controllers
 
             return Ok(result);
         }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterOwnerRequestDto request)
+        {
+            try
+            {
+                var result = await _service.RegisterOwnerAsync(request);
+                if (!result.Success)
+                    return BadRequest(result);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
     }
 }

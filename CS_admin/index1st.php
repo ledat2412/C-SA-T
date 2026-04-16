@@ -8,7 +8,7 @@ if (!isset($_SESSION['admin_auth']) || empty($_SESSION['admin_auth']['isLoggedIn
 }
 
 $accountRole = isset($_SESSION['admin_auth']['loaiTaiKhoan']) ? $_SESSION['admin_auth']['loaiTaiKhoan'] : 'admin';
-$useCase = isset($_GET['usecase']) ? $_GET['usecase'] : ($accountRole === 'chu_quan_ly' ? 'store' : 'dashboard');
+$useCase = isset($_GET['usecase']) ? $_GET['usecase'] : 'store';
 
 $availableUseCases = array(
     'dashboard' => array(
@@ -68,8 +68,12 @@ if ($accountRole === 'chu_quan_ly') {
     }
 }
 
+if ($accountRole !== 'chu_quan_ly' && $useCase === 'dashboard') {
+    $useCase = 'store';
+}
+
 if (!isset($availableUseCases[$useCase])) {
-    $useCase = $accountRole === 'chu_quan_ly' ? 'store' : 'dashboard';
+    $useCase = 'store';
 }
 
 $currentPage = $availableUseCases[$useCase];

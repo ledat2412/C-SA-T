@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);bin_verify/**;bin_verify_accounts/**;bin_verify_packages/**;bin_verify_requests/**;bin_verify_requests_final/**;bin_verify_swagger/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin_verify/**;bin_verify_accounts/**;bin_verify_packages/**;bin_verify_requests/**;bin_verify_requests_final/**;bin_verify_swagger/**;tempobj*/**;tempbuild*/**;VinhKhanh/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

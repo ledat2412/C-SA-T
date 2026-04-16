@@ -91,11 +91,7 @@ if (
   );
 
   $decodedResponse['loaiTaiKhoan'] = $loaiTaiKhoan;
-  $decodedResponse['redirectUrl'] = admin_url(
-    $loaiTaiKhoan === 'chu_quan_ly'
-      ? 'index1st.php?usecase=store'
-      : 'index1st.php?usecase=dashboard'
-  );
+  $decodedResponse['redirectUrl'] = admin_url('index1st.php?usecase=store');
 
   http_response_code($httpCode);
   echo json_encode($decodedResponse, JSON_UNESCAPED_UNICODE);

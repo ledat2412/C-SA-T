@@ -3,16 +3,15 @@ require_once __DIR__ . '/connect.php';
 session_start();
 
 if (isset($_SESSION['admin_auth']) && !empty($_SESSION['admin_auth']['isLoggedIn'])) {
-    $redirectUseCase = 'dashboard';
-    if (isset($_SESSION['admin_auth']['loaiTaiKhoan']) && $_SESSION['admin_auth']['loaiTaiKhoan'] === 'chu_quan_ly') {
-        $redirectUseCase = 'store';
-    }
+    $redirectUseCase = 'store';
 
     header('Location: ' . admin_url('index1st.php?usecase=' . $redirectUseCase));
     exit;
 }
 
 $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register' : 'login';
+$authCssVersion = @filemtime(__DIR__ . '/asset/admin/css/auth.css') ?: time();
+$authJsVersion = @filemtime(__DIR__ . '/asset/admin/js/auth.js') ?: time();
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -25,7 +24,7 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <link rel="stylesheet" href="asset/admin/css/auth.css" />
+    <link rel="stylesheet" href="asset/admin/css/auth.css?v=<?php echo rawurlencode((string) $authCssVersion); ?>" />
 
 </head>
 
@@ -80,17 +79,25 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
             <section class="pane register-pane">
                 <div class="brand-mini">
                     <span class="dot"><i class="fa-solid fa-user-plus"></i></span>
-                    Tạo tài khoản mới
+                    Tạo tài khoản chủ quản lý
                 </div>
                 <h1>Đăng ký</h1>
-                <p class="sub">Tạo tài khoản để bắt đầu sử dụng hệ thống. Bạn có thể chuyển lại Đăng nhập bất kỳ lúc nào.</p>
+                <p class="sub">Tạo tài khoản chủ quản lý để bắt đầu sử dụng hệ thống. Sau khi đăng ký thành công, bạn có thể đăng nhập ngay tại đây.</p>
 
                 <form class="form" id="registerForm" action="#" method="post" novalidate>
                     <div class="field">
-                        <label for="registerUsername">Username</label>
+                        <label for="registerFullName">Họ và tên</label>
                         <div class="input-wrap">
                             <i class="fa-regular fa-user"></i>
-                            <input id="registerUsername" name="full_name" type="text" placeholder="Nguyễn Văn A" required />
+                            <input id="registerFullName" name="full_name" type="text" placeholder="Nguyễn Văn A" required />
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="registerUsername">Tên đăng nhập</label>
+                        <div class="input-wrap">
+                            <i class="fa-solid fa-at"></i>
+                            <input id="registerUsername" name="username" type="text" placeholder="chuquanly01" required />
                         </div>
                     </div>
 
@@ -126,7 +133,8 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
                     </div>
 
                     <button class="btn" type="submit">Đăng ký tài khoản</button>
-                    <div class="ok-msg" id="registerMsg">Đăng ký mẫu thành công. Hãy nối backend để lưu dữ liệu thật.</div>
+                    <div class="field-error" id="registerError"></div>
+                    <div class="ok-msg" id="registerMsg"></div>
                 </form>
 
                 <p class="toggle-link">
@@ -148,7 +156,7 @@ $initialMode = isset($_GET['mode']) && $_GET['mode'] === 'register' ? 'register'
         </div>
     </div>
 
-    <script src="asset/admin/js/auth.js"></script>
+    <script src="asset/admin/js/auth.js?v=<?php echo rawurlencode((string) $authJsVersion); ?>"></script>
 </body>
 
 </html>
