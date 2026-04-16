@@ -173,7 +173,7 @@ public class PackageQrPaymentPage : ContentPage
                                         _bypassCheckBox,
                                         new Label
                                         {
-                                            Text = "Bypass quy trinh thanh toan QR de kich hoat token ngay",
+                                            Text = "Bypass thanh toan de tao QR token dang nhap",
                                             FontSize = 13,
                                             TextColor = MauiColor.FromArgb("#334155"),
                                             VerticalTextAlignment = TextAlignment.Center
@@ -200,7 +200,7 @@ public class PackageQrPaymentPage : ContentPage
         try
         {
             _statusLabel.Text = "Dang sinh token theo goi dich vu...";
-            _helperLabel.Text = "He thong se bypass thanh toan, tao token that, validate token va tao QR recovery.";
+            _helperLabel.Text = "He thong se bypass thanh toan, kich hoat token tren may nay va gui QR token den email.";
 
             var result = await _accessFlowService.RegisterPackageAccessBypassAsync(_email, _plan.BackendPackageId);
             if (!result.Success)
@@ -211,10 +211,10 @@ public class PackageQrPaymentPage : ContentPage
                 return;
             }
 
-            _statusLabel.Text = "Token hop le";
+            _statusLabel.Text = "Da kich hoat token";
             _helperLabel.Text = result.EmailSent
-                ? "Da gui email recovery va token da hop le."
-                : result.EmailStatusMessage ?? "Da sinh token hop le.";
+                ? "Da kich hoat token va gui email QR token dang nhap."
+                : result.EmailStatusMessage ?? "Da kich hoat token va sinh QR token dang nhap.";
 
             ShowSuccess(result);
         }
@@ -232,7 +232,7 @@ public class PackageQrPaymentPage : ContentPage
 
         var gmailButton = new Button
         {
-            Text = result.EmailSent ? "Email da gui" : "Mo Gmail de gui recovery",
+            Text = result.EmailSent ? "Email da gui" : "Mo Gmail de gui QR token",
             BackgroundColor = Colors.White,
             TextColor = MauiColor.FromArgb("#0F766E"),
             BorderColor = MauiColor.FromArgb("#CCFBF1"),
@@ -242,9 +242,9 @@ public class PackageQrPaymentPage : ContentPage
         };
         gmailButton.Clicked += async (_, __) =>
         {
-            var subject = Uri.EscapeDataString("Recovery QR token Vinh Khanh Smart Tourism");
+            var subject = Uri.EscapeDataString("QR token dang nhap Vinh Khanh Smart Tourism");
             var body = Uri.EscapeDataString(
-                $"Email: {result.Email}\nGoi: {result.PackageName}\nToken: {result.AccessToken}\nRecovery payload: {result.RecoveryQrPayload}\nHet han: {result.ExpiresAtUtc?.ToLocalTime():dd/MM/yyyy HH:mm}");
+                $"Email: {result.Email}\nGoi: {result.PackageName}\nToken: {result.AccessToken}\nQR payload: {result.QrTokenPayload}\nHet han: {result.ExpiresAtUtc?.ToLocalTime():dd/MM/yyyy HH:mm}");
             await Launcher.Default.OpenAsync(new Uri($"mailto:{result.Email}?subject={subject}&body={body}"));
         };
 
@@ -291,7 +291,7 @@ public class PackageQrPaymentPage : ContentPage
                             HorizontalOptions = LayoutOptions.Center,
                             Content = new BarcodeGeneratorView
                             {
-                                Value = result.RecoveryQrPayload ?? result.AccessToken,
+                                Value = result.QrTokenPayload ?? result.AccessToken,
                                 Format = ZXing.Net.Maui.BarcodeFormat.QrCode,
                                 WidthRequest = 220,
                                 HeightRequest = 220,
@@ -300,7 +300,7 @@ public class PackageQrPaymentPage : ContentPage
                         },
                         new Label
                         {
-                            Text = $"Recovery QR payload: {result.RecoveryQrPayload}",
+                            Text = $"QR payload: {result.QrTokenPayload}",
                             FontSize = 12,
                             TextColor = MauiColor.FromArgb("#334155"),
                             LineBreakMode = LineBreakMode.WordWrap
@@ -308,7 +308,7 @@ public class PackageQrPaymentPage : ContentPage
                         new Label
                         {
                             Text = result.EmailSent
-                                ? "Backend da gui email recovery tu dong."
+                                ? "Backend da gui email QR token tu dong."
                                 : (result.EmailStatusMessage ?? "Chua gui duoc email tu dong, ban co the dung nut Gmail de gui thu cong."),
                             FontSize = 12,
                             TextColor = MauiColor.FromArgb("#9A3412"),

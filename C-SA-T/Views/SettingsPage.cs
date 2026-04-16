@@ -488,8 +488,8 @@ public class SettingsPage : ContentPage
     {
         return _loc.CurrentLanguage switch
         {
-            "en" => "Open the QR scanner to activate access from a device code.",
-            _ => "Mo man hinh quet QR de truy cap nhanh bang ma thiet bi."
+            "en" => "Open the QR scanner to activate access from a login token.",
+            _ => "Mo man hinh quet QR de truy cap bang QR token dang nhap."
         };
     }
 
@@ -506,8 +506,8 @@ public class SettingsPage : ContentPage
     {
         return _loc.CurrentLanguage switch
         {
-            "en" => "Clear the local token so you can test package purchase and recovery again.",
-            _ => "Xoa token local de ban test lai luong chon goi, thanh toan va gui email recovery."
+            "en" => "Clear the local token so you can test package purchase and QR token login again.",
+            _ => "Xoa token local de ban test lai luong chon goi, thanh toan va QR token dang nhap."
         };
     }
 

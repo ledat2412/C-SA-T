@@ -33,10 +33,10 @@ namespace VinhKhanh.Controllers
             return Ok(result);
         }
 
-        [HttpPost("recover")]
-        public async Task<IActionResult> Recover([FromBody] RecoverAccessRequestDto request)
+        [HttpPost("token/activate")]
+        public async Task<IActionResult> ActivateToken([FromBody] ActivateAccessTokenRequestDto request)
         {
-            var result = await _accessSessionService.RecoverAccessAsync(request);
+            var result = await _accessSessionService.ActivateTokenAsync(request);
 
             if (!result.Success)
                 return BadRequest(result);

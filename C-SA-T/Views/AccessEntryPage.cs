@@ -63,7 +63,7 @@ public class AccessEntryPage : ContentPage
                     }),
                 BuildOptionCard(
                     "Dang ky goi",
-                    "Chon goi dich vu, den trang thanh toan QR, tick bypass de kich hoat va nhan QR recovery qua email.",
+                    "Chon goi dich vu, den trang thanh toan QR, tick bypass de nhan QR token dang nhap qua email.",
                     async () =>
                     {
                         var packagePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PackageRegistrationPage>();

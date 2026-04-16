@@ -15,11 +15,11 @@ namespace VinhKhanh.Services
             _config = config;
         }
 
-        public async Task<(bool Sent, string Message)> TrySendRecoveryEmailAsync(
+        public async Task<(bool Sent, string Message)> TrySendQrTokenEmailAsync(
             string email,
             string packageName,
             string accessToken,
-            string recoveryQrPayload,
+            string qrTokenPayload,
             DateTime expiresAtUtc)
         {
             var host = _config["Email:SmtpHost"];
@@ -42,33 +42,32 @@ namespace VinhKhanh.Services
                 var enableSsl = _config.GetValue<bool?>("Email:EnableSsl") ?? true;
 
                 using var qrGenerator = new QRCodeGenerator();
-                using var qrData = qrGenerator.CreateQrCode(recoveryQrPayload, QRCodeGenerator.ECCLevel.Q);
+                using var qrData = qrGenerator.CreateQrCode(qrTokenPayload, QRCodeGenerator.ECCLevel.Q);
                 var qrCode = new PngByteQRCode(qrData);
                 var pngBytes = qrCode.GetGraphic(20);
                 var expiresAtLocal = expiresAtUtc.ToLocalTime();
                 var qrContentId = Guid.NewGuid().ToString("N");
                 var htmlBody = $@"
 <div style='font-family:Arial,sans-serif;line-height:1.5'>
-  <h2>QR token truy cap</h2>
+  <h2>QR token dang nhap</h2>
   <p>Goi dich vu: <strong>{WebUtility.HtmlEncode(packageName)}</strong></p>
   <p>Token co hieu luc den: <strong>{expiresAtLocal:dd/MM/yyyy HH:mm}</strong></p>
-  <p>Ban co the luu email nay de quet lai QR neu ung dung bi xoa hoac token local bi mat.</p>
+  <p>Hay dung QR nay de dang nhap vao thiet bi. Token chi duoc kich hoat tren mot may dau tien quet thanh cong.</p>
   <div style='margin:16px 0;padding:14px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc'>
-    <p style='margin:0 0 8px 0'><strong>Recovery QR:</strong></p>
-    <p style='margin:0 0 12px 0'>Neu app mail ho tro anh inline, QR se hien ngay ben duoi. Neu khong, hay mo file <strong>recovery-qr.png</strong> dinh kem.</p>
-    <img alt='Recovery QR' style='display:block;width:240px;height:240px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff' src='cid:{qrContentId}' />
+    <p style='margin:0 0 8px 0'><strong>QR token dang nhap:</strong></p>
+    <img alt='QR token dang nhap' style='display:block;width:240px;height:240px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff' src='cid:{qrContentId}' />
   </div>
   <p><strong>Access token:</strong> {WebUtility.HtmlEncode(accessToken)}</p>
-  <p><strong>Recovery payload:</strong> {WebUtility.HtmlEncode(recoveryQrPayload)}</p>
+  <p><strong>QR payload:</strong> {WebUtility.HtmlEncode(qrTokenPayload)}</p>
 </div>";
 
                 var plainTextBody = $@"
-QR token truy cap
+QR token dang nhap
 Goi dich vu: {packageName}
 Token co hieu luc den: {expiresAtLocal:dd/MM/yyyy HH:mm}
-Recovery QR co the hien inline trong mail. Neu khong hien, hay mo tep dinh kem recovery-qr.png
+Token chi duoc kich hoat tren mot may dau tien quet thanh cong.
 Access token: {accessToken}
-Recovery payload: {recoveryQrPayload}";
+QR payload: {qrTokenPayload}";
 
                 using var message = new MailMessage
                 {
@@ -94,37 +93,10 @@ Recovery payload: {recoveryQrPayload}";
                     TransferEncoding = TransferEncoding.Base64,
                     ContentType = new ContentType(pngMimeType)
                 };
-                inlineQr.ContentType.Name = "recovery-qr-inline.png";
+                inlineQr.ContentType.Name = "qr-token-dang-nhap.png";
                 inlineQr.ContentLink = new Uri($"cid:{qrContentId}");
                 htmlView.LinkedResources.Add(inlineQr);
                 message.AlternateViews.Add(htmlView);
-
-                var qrAttachment = new Attachment(new MemoryStream(pngBytes, writable: false), "recovery-qr.png", pngMimeType);
-                qrAttachment.NameEncoding = Encoding.UTF8;
-                qrAttachment.TransferEncoding = TransferEncoding.Base64;
-                var qrDisposition = qrAttachment.ContentDisposition;
-                if (qrDisposition is not null)
-                {
-                    qrDisposition.Inline = false;
-                    qrDisposition.DispositionType = DispositionTypeNames.Attachment;
-                    qrDisposition.FileName = "recovery-qr.png";
-                }
-                message.Attachments.Add(qrAttachment);
-
-                var tokenFileContent = $@"Access token: {accessToken}
-Recovery payload: {recoveryQrPayload}
-Expires at: {expiresAtLocal:dd/MM/yyyy HH:mm}
-                Package: {packageName}";
-                var tokenAttachment = Attachment.CreateAttachmentFromString(tokenFileContent, "recovery-token.txt", Encoding.UTF8, MediaTypeNames.Text.Plain);
-                tokenAttachment.TransferEncoding = TransferEncoding.Base64;
-                var tokenDisposition = tokenAttachment.ContentDisposition;
-                if (tokenDisposition is not null)
-                {
-                    tokenDisposition.Inline = false;
-                    tokenDisposition.DispositionType = DispositionTypeNames.Attachment;
-                    tokenDisposition.FileName = "recovery-token.txt";
-                }
-                message.Attachments.Add(tokenAttachment);
 
                 using var client = new SmtpClient(host, port)
                 {
@@ -133,7 +105,7 @@ Expires at: {expiresAtLocal:dd/MM/yyyy HH:mm}
                 };
 
                 await client.SendMailAsync(message);
-                return (true, "Da gui email recovery QR thanh cong.");
+                return (true, "Da gui email QR token dang nhap thanh cong.");
             }
             catch (Exception ex)
             {

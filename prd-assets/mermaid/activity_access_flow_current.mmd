@@ -1,0 +1,48 @@
+flowchart TD
+    A([Bắt đầu]) --> B[Người dùng mở app]
+    B --> C{Đã có token truy cập<br/>lưu trên máy?}
+
+    C -->|Có| D[Hệ thống kiểm tra token]
+    D --> E{Token còn hạn<br/>và đúng máy đã kích hoạt?}
+    E -->|Có| Z[Mở nội dung chính của app]
+    E -->|Không| F[Xóa token không hợp lệ trên máy]
+    F --> G[Hiển thị màn hình truy cập]
+
+    C -->|Không| G
+
+    G --> H{Người dùng chọn cách truy cập}
+
+    %% LUỒNG 1: QUÉT QR TOKEN
+    H -->|Quét QR token đăng nhập| I[Mở màn hình quét QR]
+    I --> J[Người dùng quét QR token<br/>đã nhận qua email]
+    J --> K[Hệ thống đọc token trong QR]
+    K --> L{Token tồn tại<br/>và còn hạn?}
+
+    L -->|Không| M[Báo lỗi QR không hợp lệ<br/>hoặc token đã hết hạn]
+    M --> G
+
+    L -->|Có| Q{Máy hiện tại có đúng<br/>máy đã kích hoạt token?}
+    Q -->|Có| R[Lưu lại token trên máy]
+    R --> Z
+    Q -->|Không| S[Báo lỗi token chỉ dùng được<br/>trên một máy]
+    S --> G
+
+    %% LUỒNG 2: ĐĂNG KÝ GÓI
+    H -->|Đăng ký gói| T[Hiển thị danh sách gói dịch vụ]
+    T --> U[Người dùng chọn gói]
+    U --> V[Người dùng nhập email nhận QR token đăng nhập]
+    V --> W[Hiển thị QR thanh toán]
+    W --> X{Thanh toán được xác nhận?}
+
+    X -->|Không| Y[Chờ thanh toán<br/>hoặc cho phép thử lại]
+    Y --> W
+
+    X -->|Có| AA[Tạo token theo gói đã mua]
+    AA --> AB[Khóa token vào máy hiện tại]
+    AB --> AC[Tạo một QR chứa token]
+    AC --> AD[Gửi QR token đăng nhập<br/>đến email người dùng]
+    AD --> AE[Lưu token trên máy]
+    AE --> AF[Người dùng bấm nút Vào app]
+    AF --> Z
+
+    Z --> ZZ([Kết thúc])

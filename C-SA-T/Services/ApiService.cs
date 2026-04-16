@@ -97,12 +97,12 @@ namespace MauiApp1.Services
             var accessToken = ExtractAccessToken(qrRaw);
             if (!string.IsNullOrWhiteSpace(accessToken))
             {
-                var validation = await RecoverAccessAsync(accessToken, qrRaw);
+                var validation = await ActivateTokenAsync(accessToken, qrRaw);
                 return new QrScanResult
                 {
                     Success = validation.Success,
                     Message = validation.Success
-                        ? "Khoi phuc token tu QR thanh cong."
+                        ? "Kich hoat token tu QR thanh cong."
                         : validation.Message,
                     AccessToken = accessToken,
                     MaThietBi = validation.MaThietBi,
@@ -116,49 +116,10 @@ namespace MauiApp1.Services
                 };
             }
 
-            var maThietBi = ExtractDeviceCode(qrRaw);
-            if (string.IsNullOrWhiteSpace(maThietBi))
-            {
-                return new QrScanResult
-                {
-                    Success = false,
-                    Message = "Khong doc duoc ma thiet bi tu QR."
-                };
-            }
-
-            var response = await _httpClient.PostAsJsonAsync("api/access/scan", new
-            {
-                MaThietBi = maThietBi,
-                QrRaw = qrRaw,
-                IdGoi = idGoi
-            });
-
-            QrScanResult? result = null;
-
-            try
-            {
-                result = await response.Content.ReadFromJsonAsync<QrScanResult>();
-            }
-            catch
-            {
-            }
-
-            if (result != null)
-            {
-                if (result.Success && !string.IsNullOrWhiteSpace(result.AccessToken))
-                {
-                    Preferences.Set("access_token", result.AccessToken);
-                    Preferences.Set("access_device_code", result.MaThietBi ?? string.Empty);
-                }
-
-                return result;
-            }
-
             return new QrScanResult
             {
-                Success = response.IsSuccessStatusCode,
-                Message = response.ReasonPhrase ?? "Khong xu ly duoc phan hoi quet QR.",
-                MaThietBi = maThietBi
+                Success = false,
+                Message = "QR khong chua token dang nhap hop le."
             };
         }
 
@@ -221,38 +182,38 @@ namespace MauiApp1.Services
             };
         }
 
-        public async Task<RecoverAccessResult> RecoverAccessAsync(string accessToken, string? qrRaw = null)
+        public async Task<ActivateTokenResult> ActivateTokenAsync(string accessToken, string? qrRaw = null)
         {
             if (string.IsNullOrWhiteSpace(accessToken))
             {
-                return new RecoverAccessResult
+                return new ActivateTokenResult
                 {
                     Success = false,
-                    Message = "Thieu access token de khoi phuc."
+                    Message = "Thieu access token de kich hoat."
                 };
             }
 
-            var response = await _httpClient.PostAsJsonAsync("api/access/recover", new
+            var response = await _httpClient.PostAsJsonAsync("api/access/token/activate", new
             {
                 AccessToken = accessToken,
                 ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
                 QrRaw = qrRaw ?? string.Empty
             });
 
-            RecoverAccessResult? result = null;
+            ActivateTokenResult? result = null;
 
             try
             {
-                result = await response.Content.ReadFromJsonAsync<RecoverAccessResult>();
+                result = await response.Content.ReadFromJsonAsync<ActivateTokenResult>();
             }
             catch
             {
             }
 
-            return result ?? new RecoverAccessResult
+            return result ?? new ActivateTokenResult
             {
                 Success = response.IsSuccessStatusCode,
-                Message = response.ReasonPhrase ?? "Khong khoi phuc duoc access token."
+                Message = response.ReasonPhrase ?? "Khong kich hoat duoc access token."
             };
         }
 
@@ -308,6 +269,9 @@ namespace MauiApp1.Services
             if (normalized.StartsWith("TEST-", StringComparison.OrdinalIgnoreCase))
                 return normalized;
 
+            if (IsLikelyAccessToken(normalized))
+                return normalized;
+
             if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
             {
                 var query = ParseQueryString(uri.Query);
@@ -319,6 +283,12 @@ namespace MauiApp1.Services
             }
 
             return null;
+        }
+
+        private static bool IsLikelyAccessToken(string value)
+        {
+            return value.Length is >= 32 and <= 128 &&
+                   value.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
         }
 
         private static Dictionary<string, string> ParseQueryString(string query)
@@ -366,7 +336,7 @@ namespace MauiApp1.Services
         public int? IdGoi { get; set; }
         public string? TenGoi { get; set; }
         public int? SoNgayHieuLuc { get; set; }
-        public string? RecoveryQrPayload { get; set; }
+        public string? QrTokenPayload { get; set; }
         public bool EmailSent { get; set; }
         public string? EmailStatusMessage { get; set; }
         public int? IdHoaDon { get; set; }
@@ -382,7 +352,7 @@ namespace MauiApp1.Services
         public string? TrangThai { get; set; }
     }
 
-    public class RecoverAccessResult : QrScanResult
+    public class ActivateTokenResult : QrScanResult
     {
     }
 

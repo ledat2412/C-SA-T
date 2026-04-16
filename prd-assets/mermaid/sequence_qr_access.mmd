@@ -1,27 +1,74 @@
 sequenceDiagram
     autonumber
-    actor User as Du khách
+    actor User as Người dùng
     participant App as MAUI App
-    participant QR as QR Scanner
-    participant AccessAPI as AccessController
-    participant SessionSvc as AccessSessionService
+    participant AccessFlow as AccessFlowService
+    participant Api as ApiService
+    participant Backend as AccessController / AccessSessionService
     participant DB as MySQL
+    participant Mail as Email Service
 
-    User->>App: Chọn quét QR tại POI
-    App->>QR: Mở camera và đọc mã
-    QR-->>App: deviceCode / maThietBi
-    App->>AccessAPI: POST /api/access/scan
-    AccessAPI->>SessionSvc: CreateFromQrAsync(request)
-    SessionSvc->>DB: Kiểm tra thiết bị + POI liên kết
+    User->>App: Mở app
+    App->>AccessFlow: ValidateCurrentAccessAsync()
 
-    alt QR hợp lệ
-        SessionSvc->>DB: Tạo phiên truy cập 30 phút
-        DB-->>SessionSvc: accessToken
-        SessionSvc-->>AccessAPI: Kết quả thành công
-        AccessAPI-->>App: accessToken + thông tin POI
-        App-->>User: Mở khóa nội dung POI trong session
-    else QR không hợp lệ / hết hạn
-        SessionSvc-->>AccessAPI: Kết quả thất bại
-        AccessAPI-->>App: 400 Bad Request
-        App-->>User: Thông báo quét QR thất bại
+    alt Có token local
+        AccessFlow->>Api: ValidateAccessAsync(accessToken)
+        Api->>Backend: GET /api/access/validate
+        Backend->>DB: Kiểm tra token, hạn dùng, thiết bị
+        DB-->>Backend: Kết quả kiểm tra
+
+        alt Token hợp lệ và đúng máy
+            Backend-->>Api: IsValid = true
+            Api-->>AccessFlow: Token hợp lệ
+            AccessFlow-->>App: Cho phép vào app
+            App-->>User: Mở nội dung chính
+        else Token không hợp lệ
+            Backend-->>Api: IsValid = false
+            Api-->>AccessFlow: Token không hợp lệ
+            AccessFlow->>AccessFlow: ClearAccess()
+            App-->>User: Hiển thị Quét QR / Đăng ký gói
+        end
+    else Không có token local
+        App-->>User: Hiển thị Quét QR / Đăng ký gói
+    end
+
+    opt Đăng ký gói
+        User->>App: Chọn gói, nhập email, xác nhận thanh toán
+        App->>AccessFlow: RegisterPackageAccessBypassAsync(email, packageId)
+        AccessFlow->>Api: RegisterPackageAccessAsync(...)
+        Api->>Backend: POST /api/access/package/register
+        Backend->>DB: Tạo token theo gói và khóa vào máy hiện tại
+        Backend->>DB: Tạo hóa đơn đã thanh toán
+        Backend->>Mail: TrySendQrTokenEmailAsync(email, tokenPayload)
+        Mail-->>Backend: Trạng thái gửi email
+        Backend-->>Api: Token + hạn dùng + QR payload
+        Api-->>AccessFlow: Kết quả đăng ký gói
+        AccessFlow->>AccessFlow: Lưu token vào Preferences
+        AccessFlow->>Api: ValidateAccessAsync(accessToken)
+        Api-->>AccessFlow: Token hợp lệ
+        AccessFlow-->>App: Kích hoạt thành công
+        App-->>User: Hiển thị QR token và nút Vào app
+        User->>App: Bấm Vào app
+        App-->>User: Mở nội dung chính
+    end
+
+    opt Quét lại QR token từ email
+        User->>App: Quét QR token đăng nhập
+        App->>Api: ScanQrAsync(qrRaw)
+        Api->>Api: Đọc accessToken từ QR
+        Api->>Backend: POST /api/access/token/activate
+        Backend->>DB: Kiểm tra token và máy đã khóa
+        DB-->>Backend: Kết quả kiểm tra
+
+        alt Token đúng máy
+            Backend-->>Api: Thành công + thông tin phiên
+            Api-->>App: QrScanResult thành công
+            App->>AccessFlow: SaveQrAccess(result)
+            AccessFlow->>AccessFlow: Lưu token vào Preferences
+            App-->>User: Mở nội dung chính
+        else Token sai máy / hết hạn
+            Backend-->>Api: Thất bại + lý do
+            Api-->>App: QrScanResult thất bại
+            App-->>User: Báo lỗi quét QR
+        end
     end

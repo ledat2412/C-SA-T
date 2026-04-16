@@ -18,8 +18,8 @@ public class PackageRegistrationPage : ContentPage
     private readonly List<PackagePlanOption> _plans =
     [
         new(1, "Goi ngay", "1 ngay truy cap cho du khach.", 1, 15000m, true),
-        new(2, "Goi 7 ngay", "7 ngay truy cap va co QR recovery sau khi xac thuc.", 7, 70000m, true),
-        new(3, "Goi thang", "30 ngay truy cap va co the khoi phuc bang QR token.", 30, 500000m, true)
+        new(2, "Goi 7 ngay", "7 ngay truy cap bang QR token dang nhap.", 7, 70000m, true),
+        new(3, "Goi thang", "30 ngay truy cap bang QR token dang nhap.", 30, 500000m, true)
     ];
 
     public PackageRegistrationPage(AccessFlowService accessFlowService)
@@ -32,7 +32,7 @@ public class PackageRegistrationPage : ContentPage
 
         _emailEntry = new Entry
         {
-            Placeholder = "Nhap gmail de nhan QR token recovery",
+            Placeholder = "Nhap gmail de nhan QR token dang nhap",
             Keyboard = Keyboard.Email,
             BackgroundColor = Colors.White,
             TextColor = MauiColor.FromArgb("#111111"),
@@ -118,7 +118,7 @@ public class PackageRegistrationPage : ContentPage
                             {
                                 new Label
                                 {
-                                    Text = "Email nhan QR recovery",
+                                    Text = "Email nhan QR token dang nhap",
                                     FontSize = 15,
                                     FontAttributes = FontAttributes.Bold,
                                     TextColor = MauiColor.FromArgb("#111111")
@@ -226,7 +226,7 @@ public class PackageRegistrationPage : ContentPage
 
                 _selectedPlan = plan;
                 _selectedPlanLabel.Text = $"Da chon: {plan.Name}";
-                _helperLabel.Text = "Bam Thanh toan de mo trang QR thanh toan. Tai trang tiep theo ban co the tick bypass de xac thuc va nhan QR recovery.";
+                _helperLabel.Text = "Bam Thanh toan de mo trang QR thanh toan. Tai trang tiep theo ban co the tick bypass de tao QR token dang nhap.";
                 RenderPackages();
                 RefreshPaymentButton();
             };

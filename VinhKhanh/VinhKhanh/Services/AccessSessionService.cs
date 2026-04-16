@@ -200,6 +200,21 @@ namespace VinhKhanh.Services
             var normalizedClientDeviceId = NormalizeClientDeviceId(clientDeviceId);
             if (trangThai == "hieu_luc" &&
                 hetHanLuc > DateTime.UtcNow &&
+                string.IsNullOrWhiteSpace(maThietBi))
+            {
+                return new ValidateAccessResponseDto
+                {
+                    IsValid = false,
+                        Message = "Token chua duoc gan voi thiet bi nao.",
+                    MaThietBi = maThietBi,
+                    BatDauLuc = batDauLuc,
+                    HetHanLuc = hetHanLuc,
+                    TrangThai = trangThai
+                };
+            }
+
+            if (trangThai == "hieu_luc" &&
+                hetHanLuc > DateTime.UtcNow &&
                 IsClientManagedDeviceCode(maThietBi))
             {
                 if (string.IsNullOrWhiteSpace(normalizedClientDeviceId))
@@ -291,11 +306,11 @@ namespace VinhKhanh.Services
                 };
             }
 
-            var deviceId = await EnsureClientDeviceAsync(conn, clientDeviceId);
             var batDauLuc = DateTime.UtcNow;
             var hetHanLuc = batDauLuc.AddDays(package.DurationDays);
             var accessToken = GenerateAccessToken();
-            var recoveryQrPayload = $"vkaccess://restore?accessToken={accessToken}";
+            var qrTokenPayload = $"vkaccess://login?token={accessToken}";
+            var deviceId = await EnsureClientDeviceAsync(conn, clientDeviceId);
 
             await ExpireActiveClientSessionsForDeviceAsync(conn, clientDeviceId);
 
@@ -310,7 +325,7 @@ namespace VinhKhanh.Services
                 sessionCmd.Parameters.AddWithValue("@idThietBi", deviceId);
                 sessionCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
                 sessionCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
-                sessionCmd.Parameters.AddWithValue("@qrRaw", recoveryQrPayload);
+                sessionCmd.Parameters.AddWithValue("@qrRaw", qrTokenPayload);
                 sessionCmd.Parameters.AddWithValue("@accessToken", accessToken);
                 sessionCmd.Parameters.AddWithValue("@batDauLuc", batDauLuc);
                 sessionCmd.Parameters.AddWithValue("@hetHanLuc", hetHanLuc);
@@ -335,18 +350,19 @@ namespace VinhKhanh.Services
 
             await TouchDeviceAsync(conn, deviceId);
 
-            var emailResult = await _emailService.TrySendRecoveryEmailAsync(
+            var emailResult = await _emailService.TrySendQrTokenEmailAsync(
                 email,
                 package.TenGoi,
                 accessToken,
-                recoveryQrPayload,
+                qrTokenPayload,
                 hetHanLuc);
 
             return new RegisterPackageAccessResponseDto
             {
                 Success = true,
-                Message = "Dang ky goi va sinh token truy cap thanh cong.",
+                Message = "Dang ky goi, kich hoat token tren may hien tai va sinh QR token dang nhap thanh cong.",
                 Email = email,
+                MaThietBi = clientDeviceId,
                 IdGoi = package.IdGoi,
                 TenGoi = package.TenGoi,
                 SoNgayHieuLuc = package.DurationDays,
@@ -354,21 +370,21 @@ namespace VinhKhanh.Services
                 BatDauLuc = batDauLuc,
                 HetHanLuc = hetHanLuc,
                 TrangThai = "hieu_luc",
-                RecoveryQrPayload = recoveryQrPayload,
+                QrTokenPayload = qrTokenPayload,
                 EmailSent = emailResult.Sent,
                 EmailStatusMessage = emailResult.Message,
                 IdHoaDon = invoiceId
             };
         }
 
-        public async Task<AccessSessionResponseDto> RecoverAccessAsync(RecoverAccessRequestDto request)
+        public async Task<AccessSessionResponseDto> ActivateTokenAsync(ActivateAccessTokenRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.AccessToken))
             {
                 return new AccessSessionResponseDto
                 {
                     Success = false,
-                    Message = "Thieu access token de khoi phuc."
+                    Message = "Thieu access token de kich hoat."
                 };
             }
 
@@ -402,7 +418,7 @@ namespace VinhKhanh.Services
                 return new AccessSessionResponseDto
                 {
                     Success = false,
-                    Message = "Khong tim thay token truy cap de khoi phuc."
+                    Message = "Khong tim thay token truy cap."
                 };
             }
 
@@ -431,7 +447,7 @@ namespace VinhKhanh.Services
                 return new AccessSessionResponseDto
                 {
                     Success = false,
-                    Message = "Token da het han, khong the khoi phuc.",
+                    Message = "Token da het han, khong the kich hoat.",
                     MaThietBi = currentDeviceCode,
                     BatDauLuc = batDauLuc,
                     HetHanLuc = hetHanLuc,
@@ -442,12 +458,12 @@ namespace VinhKhanh.Services
                 };
             }
 
-            if (!IsClientManagedDeviceCode(currentDeviceCode))
+            if (!string.Equals(trangThai, "hieu_luc", StringComparison.OrdinalIgnoreCase))
             {
                 return new AccessSessionResponseDto
                 {
                     Success = false,
-                    Message = "Token nay khong ho tro recovery giua cac thiet bi.",
+                    Message = "Token khong con hieu luc.",
                     MaThietBi = currentDeviceCode,
                     BatDauLuc = batDauLuc,
                     HetHanLuc = hetHanLuc,
@@ -458,13 +474,27 @@ namespace VinhKhanh.Services
                 };
             }
 
-            var reboundToNewDevice = !string.Equals(currentDeviceCode, clientDeviceId, StringComparison.OrdinalIgnoreCase);
-            if (reboundToNewDevice)
+            if (string.IsNullOrWhiteSpace(currentDeviceCode))
             {
                 return new AccessSessionResponseDto
                 {
                     Success = false,
-                    Message = "Token da duoc khoa vao thiet bi khac. Khong the khoi phuc tren may nay.",
+                    Message = "Token chua duoc gan voi thiet bi nao.",
+                    BatDauLuc = batDauLuc,
+                    HetHanLuc = hetHanLuc,
+                    TrangThai = trangThai,
+                    IdGoi = idGoi,
+                    TenGoi = tenGoi,
+                    SoNgayHieuLuc = soNgayHieuLuc
+                };
+            }
+
+            if (!string.Equals(currentDeviceCode, clientDeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return new AccessSessionResponseDto
+                {
+                    Success = false,
+                    Message = "Token da duoc khoa vao thiet bi khac. Token nay chi dung duoc tren mot may.",
                     MaThietBi = currentDeviceCode,
                     BatDauLuc = batDauLuc,
                     HetHanLuc = hetHanLuc,
@@ -483,7 +513,7 @@ namespace VinhKhanh.Services
             return new AccessSessionResponseDto
             {
                 Success = true,
-                Message = "Token da duoc khoi phuc tren thiet bi hien tai.",
+                Message = "Token hop le tren thiet bi hien tai.",
                 MaThietBi = clientDeviceId,
                 AccessToken = request.AccessToken.Trim(),
                 BatDauLuc = batDauLuc,

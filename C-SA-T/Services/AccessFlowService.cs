@@ -128,7 +128,7 @@ public sealed class AccessFlowService
             Success = true,
             Message = result.Message,
             AccessToken = result.AccessToken,
-            RecoveryQrPayload = result.RecoveryQrPayload,
+            QrTokenPayload = result.QrTokenPayload,
             Email = result.Email ?? email.Trim(),
             PackageId = result.IdGoi?.ToString() ?? packageId.ToString(),
             PackageName = result.TenGoi ?? string.Empty,
@@ -241,7 +241,7 @@ public sealed class PackageAccessActivationState
     public string PackageId { get; set; } = string.Empty;
     public string PackageName { get; set; } = string.Empty;
     public DateTime? ExpiresAtUtc { get; set; }
-    public string? RecoveryQrPayload { get; set; }
+    public string? QrTokenPayload { get; set; }
     public bool EmailSent { get; set; }
     public string? EmailStatusMessage { get; set; }
 }
