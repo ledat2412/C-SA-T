@@ -16,6 +16,11 @@ function account_api_url($idTaiKhoan)
     return backend_api_url('Admin/accounts') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
+function account_api_status_url($idTaiKhoan, $targetAccountId)
+{
+    return backend_api_url('Admin/accounts/' . rawurlencode((string) $targetAccountId) . '/status') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+}
+
 function account_list_url($statusFilter, $selectedAccountId = 0, $message = '', $notice = '', $action = '')
 {
     $params = array('usecase' => 'account');
@@ -488,6 +493,104 @@ function account_create_in_database($values, &$error)
     }
 }
 
+function account_update_status_in_database($currentAdminAccountId, $targetAccountId, $targetStatus, &$error)
+{
+    $error = '';
+    $normalizedStatus = strtolower(trim((string) $targetStatus));
+    if (!array_key_exists($normalizedStatus, account_status_options())) {
+        $error = 'Tình trạng tài khoản không hợp lệ.';
+        return false;
+    }
+
+    if ($currentAdminAccountId > 0 && $currentAdminAccountId === $targetAccountId && $normalizedStatus === 'khoa') {
+        $error = 'Không thể khóa chính tài khoản admin đang đăng nhập.';
+        return false;
+    }
+
+    $conn = admin_db_connection();
+    if (!$conn instanceof mysqli) {
+        $error = 'Không thể mở kết nối DB fallback.';
+        return false;
+    }
+
+    $accountStmt = $conn->prepare("
+        SELECT tk.loaiTaiKhoan, cql.idChuQuanLy
+        FROM taikhoan tk
+        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+        WHERE tk.idTaiKhoan = ?
+        LIMIT 1
+    ");
+    if (!$accountStmt) {
+        $error = $conn->error;
+        $conn->close();
+        return false;
+    }
+
+    $accountStmt->bind_param('i', $targetAccountId);
+    $accountStmt->execute();
+    $accountResult = $accountStmt->get_result();
+    $accountRow = $accountResult ? $accountResult->fetch_assoc() : null;
+    if ($accountResult) {
+        $accountResult->free();
+    }
+    $accountStmt->close();
+
+    if (!is_array($accountRow)) {
+        $error = 'Không tìm thấy tài khoản cần cập nhật.';
+        $conn->close();
+        return false;
+    }
+
+    $conn->begin_transaction();
+
+    try {
+        $updateStmt = $conn->prepare("UPDATE taikhoan SET tinhTrang = ? WHERE idTaiKhoan = ?");
+        if (!$updateStmt) {
+            throw new Exception($conn->error);
+        }
+
+        $updateStmt->bind_param('si', $normalizedStatus, $targetAccountId);
+        $updateStmt->execute();
+        $updateStmt->close();
+
+        $affectedStores = 0;
+        if (($accountRow['loaiTaiKhoan'] ?? '') === 'chu_quan_ly' && $normalizedStatus === 'khoa' && !empty($accountRow['idChuQuanLy'])) {
+            $ownerId = (int) $accountRow['idChuQuanLy'];
+            $storeStmt = $conn->prepare("
+                UPDATE gianhang
+                SET tinhTrang = CASE
+                    WHEN tinhTrang = 'dong_cua' THEN 'dong_cua'
+                    ELSE 'tam_ngung'
+                END,
+                thoiGianCapNhat = NOW()
+                WHERE idChuQuanLy = ?
+            ");
+            if (!$storeStmt) {
+                throw new Exception($conn->error);
+            }
+
+            $storeStmt->bind_param('i', $ownerId);
+            $storeStmt->execute();
+            $affectedStores = (int) $storeStmt->affected_rows;
+            $storeStmt->close();
+        }
+
+        $conn->commit();
+        $conn->close();
+
+        if (($accountRow['loaiTaiKhoan'] ?? '') === 'chu_quan_ly' && $normalizedStatus === 'khoa') {
+            return 'Cập nhật tình trạng tài khoản thành công. Đã tạm ngừng ' . $affectedStores . ' gian hàng của chủ quản lý này.';
+        }
+
+        return 'Cập nhật tình trạng tài khoản thành công.';
+    } catch (Throwable $throwable) {
+        $conn->rollback();
+        $error = $throwable->getMessage();
+        $conn->close();
+        return false;
+    }
+}
+
 $accountError = '';
 $accountNotice = $flashNotice;
 $accountMessage = $flashMessage;
@@ -539,6 +642,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
         }
     } else {
         $accountError = $validationError;
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && $_POST['account_action'] === 'update_status') {
+    $targetAccountId = isset($_POST['targetAccountId']) ? (int) $_POST['targetAccountId'] : 0;
+    $targetStatus = trim((string) ($_POST['targetStatus'] ?? ''));
+
+    if ($targetAccountId <= 0) {
+        $accountError = 'Không xác định được tài khoản cần cập nhật.';
+    } elseif (!array_key_exists($targetStatus, account_status_options())) {
+        $accountError = 'Tình trạng tài khoản không hợp lệ.';
+    } else {
+        $apiHttpCode = 0;
+        $apiError = '';
+        $apiResult = $idTaiKhoan > 0
+            ? account_request_json('PATCH', account_api_status_url($idTaiKhoan, $targetAccountId), array('tinhTrang' => $targetStatus), $apiError, $apiHttpCode)
+            : null;
+
+        if (!is_array($apiResult)) {
+            $fallbackError = '';
+            $fallbackMessage = account_update_status_in_database($idTaiKhoan, $targetAccountId, $targetStatus, $fallbackError);
+            if ($fallbackMessage !== false) {
+                $nextFilter = $targetStatus === 'khoa' ? 'locked' : 'active';
+                header('Location: ' . account_list_url($nextFilter, $targetAccountId, $fallbackMessage, 'Trang tài khoản đang dùng DB fallback vì API chưa sẵn sàng.'));
+                exit;
+            }
+
+            $accountError = $apiError !== '' ? $apiError : $fallbackError;
+            if ($apiError !== '' && $fallbackError !== '' && $fallbackError !== $apiError) {
+                $accountError .= ' | ' . $fallbackError;
+            }
+        } else {
+            $nextFilter = $targetStatus === 'khoa' ? 'locked' : 'active';
+            $successMessage = isset($apiResult['message']) && $apiResult['message'] !== '' ? (string) $apiResult['message'] : 'Cập nhật tình trạng tài khoản thành công.';
+            header('Location: ' . account_list_url($nextFilter, $targetAccountId, $successMessage));
+            exit;
+        }
     }
 }
 
@@ -839,6 +979,30 @@ if ($selectedAccount === null && $filteredCount > 0) {
               <strong><?php echo htmlspecialchars(account_detail_id($selectedAccount), ENT_QUOTES, 'UTF-8'); ?></strong>
             </div>
           </div>
+
+          <div class="section-label role-label">CẬP NHẬT TÌNH TRẠNG</div>
+          <form method="post" class="account-form account-status-form">
+            <input type="hidden" name="account_action" value="update_status" />
+            <input type="hidden" name="targetAccountId" value="<?php echo (int) $selectedAccount['idTaiKhoan']; ?>" />
+
+            <label>
+              <span>Tình trạng tài khoản</span>
+              <select name="targetStatus">
+                <?php foreach (account_status_options() as $statusValue => $statusLabel) { ?>
+                <option value="<?php echo htmlspecialchars($statusValue, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (($selectedAccount['tinhTrang'] ?? '') === $statusValue) ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8'); ?>
+                </option>
+                <?php } ?>
+              </select>
+              <?php if (($selectedAccount['loaiTaiKhoan'] ?? '') === 'chu_quan_ly') { ?>
+              <small>Nếu khóa chủ quản lý, toàn bộ gian hàng của chủ này sẽ tự chuyển sang trạng thái tạm ngừng.</small>
+              <?php } elseif ((int) ($selectedAccount['idTaiKhoan'] ?? 0) === $idTaiKhoan) { ?>
+              <small>Bạn không thể khóa chính tài khoản admin đang đăng nhập.</small>
+              <?php } ?>
+            </label>
+
+            <button class="update-btn" type="submit">Lưu tình trạng</button>
+          </form>
           <?php } else { ?>
           <div class="account-empty-side">Không có tài khoản nào trong bộ lọc hiện tại để xem chi tiết.</div>
           <?php } ?>

@@ -593,6 +593,26 @@ tbody td{
   line-height:1.6;
 }
 
+.menu-shortcut-card{
+  margin-top:18px;
+  padding:18px;
+  border-radius:18px;
+  border:1px solid #d9eff2;
+  background:linear-gradient(135deg, rgba(34,203,203,.08), rgba(113,204,255,.08));
+}
+
+.menu-shortcut-card p{
+  color:#526274;
+  font-size:14px;
+  line-height:1.6;
+  margin-bottom:14px;
+}
+
+.menu-link-btn{
+  width:100%;
+  justify-content:center;
+}
+
 @media (max-width: 1100px){
   .store-edit-grid{
     grid-template-columns:1fr;

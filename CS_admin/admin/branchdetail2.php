@@ -43,6 +43,11 @@ function store_form_request_collection_url($idTaiKhoan)
     return backend_api_url('Owner/store-requests') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
+function store_form_food_management_url($idGianHang)
+{
+    return admin_url('index1st.php?usecase=menu&idGianHang=' . (int) $idGianHang);
+}
+
 function store_form_request_db_create($idTaiKhoan, $payload, &$error)
 {
     $error = '';
@@ -89,31 +94,19 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $stmt = $conn->prepare("
         INSERT INTO yeucaugianhang
         (
-            loaiYeuCau,
             idChuQuanLy,
-            tenGianHang,
-            diaChi,
-            moTa,
-            ngonNguMoTa,
-            lat,
-            lon,
-            phiHangThang,
-            tinhTrangDeXuat,
-            trangThaiYeuCau,
-            ngayTao
+            tenDeNghi,
+            diaChiDeNghi,
+            ghiChuGui,
+            trangThai,
+            ngayGui
         )
         VALUES
         (
-            'them_gian_hang',
             ?,
             ?,
             NULLIF(?, ''),
             NULLIF(?, ''),
-            ?,
-            NULLIF(?, ''),
-            NULLIF(?, ''),
-            ?,
-            ?,
             'cho_duyet',
             NOW()
         )
@@ -127,24 +120,8 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $ten = trim((string) ($payload['ten'] ?? ''));
     $diaChi = isset($payload['diaChi']) && $payload['diaChi'] !== null ? trim((string) $payload['diaChi']) : '';
     $moTa = isset($payload['moTa']) && $payload['moTa'] !== null ? trim((string) $payload['moTa']) : '';
-    $ngonNguMoTa = isset($payload['ngonNguMoTa']) ? trim((string) $payload['ngonNguMoTa']) : 'vi';
-    $lat = isset($payload['lat']) && $payload['lat'] !== null ? (string) $payload['lat'] : '';
-    $lon = isset($payload['lon']) && $payload['lon'] !== null ? (string) $payload['lon'] : '';
-    $phiHangThang = 0;
-    $tinhTrang = isset($payload['tinhTrang']) ? trim((string) $payload['tinhTrang']) : 'dang_hoat_dong';
 
-    $stmt->bind_param(
-        'issssssds',
-        $ownerId,
-        $ten,
-        $diaChi,
-        $moTa,
-        $ngonNguMoTa,
-        $lat,
-        $lon,
-        $phiHangThang,
-        $tinhTrang
-    );
+    $stmt->bind_param('isss', $ownerId, $ten, $diaChi, $moTa);
 
     $stmt->execute();
     $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
@@ -324,6 +301,7 @@ function store_form_prepare_form_data($store)
         'lat' => isset($store['lat']) && $store['lat'] !== null ? (string) $store['lat'] : '',
         'lon' => isset($store['lon']) && $store['lon'] !== null ? (string) $store['lon'] : '',
         'phiHangThang' => isset($store['phiHangThang']) ? (string) $store['phiHangThang'] : '0',
+        'currentPhiHangThang' => isset($store['phiHangThang']) ? (string) $store['phiHangThang'] : '0',
         'tinhTrang' => store_form_normalize_status(isset($store['tinhTrang']) ? $store['tinhTrang'] : ''),
         'emailChuQuanLy' => isset($store['emailChuQuanLy']) && $store['emailChuQuanLy'] !== null ? (string) $store['emailChuQuanLy'] : '',
     );
@@ -403,6 +381,11 @@ function store_form_owner_option_label($owner)
     return implode(' - ', $parts);
 }
 
+function store_form_format_money($value)
+{
+    return number_format((float) $value, 0, ',', '.') . ' đ';
+}
+
 $flash = isset($_GET['flash']) ? (string) $_GET['flash'] : '';
 $selectedLanguage = isset($_GET['lang']) ? store_form_normalize_language($_GET['lang']) : 'vi';
 if ($flash === 'created') {
@@ -413,6 +396,8 @@ if ($flash === 'created') {
     $pageMessage = array('type' => 'success', 'text' => 'Đã gửi yêu cầu mở gian hàng mới. Vui lòng chờ admin duyệt.');
 }
 
+$isOwnerRequestMode = $isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
+$isOwnerStoreEditMode = !$isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $showOwnerEmailInput = $loaiTaiKhoan === 'admin';
 if ($showOwnerEmailInput && $idTaiKhoan > 0) {
     $ownerOptionsResult = store_form_call_json('GET', store_form_owner_options_url($idTaiKhoan), null, $ownerOptionsError);
@@ -433,6 +418,7 @@ $formData = array(
     'lat' => '',
     'lon' => '',
     'phiHangThang' => '0',
+    'currentPhiHangThang' => '0',
     'tinhTrang' => 'dang_hoat_dong',
     'emailChuQuanLy' => '',
 );
@@ -445,6 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
         'lat' => trim((string) ($_POST['lat'] ?? '')),
         'lon' => trim((string) ($_POST['lon'] ?? '')),
         'phiHangThang' => trim((string) ($_POST['phiHangThang'] ?? '0')),
+        'currentPhiHangThang' => trim((string) ($_POST['currentPhiHangThang'] ?? '0')),
         'tinhTrang' => store_form_normalize_status($_POST['tinhTrang'] ?? ''),
         'emailChuQuanLy' => trim((string) ($_POST['emailChuQuanLy'] ?? '')),
     );
@@ -468,12 +455,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
     } elseif ($imageUploadError !== '') {
         $pageMessage = array('type' => 'error', 'text' => $imageUploadError);
     } else {
+        $effectivePhiHangThang = 0;
+        if ($isOwnerRequestMode) {
+            $effectivePhiHangThang = 0;
+        } elseif ($isOwnerStoreEditMode) {
+            $effectivePhiHangThang = $formData['currentPhiHangThang'] !== '' ? (float) $formData['currentPhiHangThang'] : 0;
+        } else {
+            $effectivePhiHangThang = $formData['phiHangThang'] !== '' ? (float) $formData['phiHangThang'] : 0;
+        }
+
         $payload = array(
             'ten' => $formData['ten'],
             'diaChi' => $formData['diaChi'] !== '' ? $formData['diaChi'] : null,
-            'lat' => $formData['lat'] !== '' ? (float) $formData['lat'] : null,
-            'lon' => $formData['lon'] !== '' ? (float) $formData['lon'] : null,
-            'phiHangThang' => $formData['phiHangThang'] !== '' ? (float) $formData['phiHangThang'] : 0,
+            'lat' => !$isOwnerRequestMode && $formData['lat'] !== '' ? (float) $formData['lat'] : null,
+            'lon' => !$isOwnerRequestMode && $formData['lon'] !== '' ? (float) $formData['lon'] : null,
+            'phiHangThang' => $effectivePhiHangThang,
             'tinhTrang' => $formData['tinhTrang'],
         );
 
@@ -492,11 +488,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                     'ten' => $payload['ten'],
                     'diaChi' => $payload['diaChi'],
                     'moTa' => $formData['moTa'] !== '' ? $formData['moTa'] : null,
-                    'ngonNguMoTa' => $selectedLanguage,
-                    'lat' => $payload['lat'],
-                    'lon' => $payload['lon'],
-                    'phiHangThang' => 0,
-                    'tinhTrang' => $payload['tinhTrang'],
                 );
 
                 $requestError = '';
@@ -620,7 +611,6 @@ $ownerEmail = $store !== null
 $ownerUsername = $store !== null
     ? store_form_display_value($store['usernameChuQuanLy'] ?? '', 'Chưa có username')
     : store_form_display_value($auth['username'] ?? '', 'Chưa có username');
-$isOwnerRequestMode = $isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $pageHeading = $isOwnerRequestMode ? 'Gửi yêu cầu mở gian hàng' : ($isCreateMode ? 'Thêm gian hàng mới' : 'Chỉnh sửa thông tin gian hàng');
 $pageIntro = $isOwnerRequestMode
     ? 'Chủ quản lý sẽ gửi yêu cầu mở gian hàng mới để admin xem xét và phê duyệt trước khi tạo gian hàng thật.'
@@ -737,11 +727,16 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
               </label>
 
               <label class="form-field full-width">
-                <span>Mô tả (<?php echo htmlspecialchars(store_form_language_label($selectedLanguage), ENT_QUOTES, 'UTF-8'); ?>)</span>
+                <span><?php echo $isOwnerRequestMode ? 'Ghi chú gửi' : ('Mô tả (' . htmlspecialchars(store_form_language_label($selectedLanguage), ENT_QUOTES, 'UTF-8') . ')'); ?></span>
                 <textarea name="moTa" rows="5"><?php echo htmlspecialchars($formData['moTa'], ENT_QUOTES, 'UTF-8'); ?></textarea>
+                <?php if ($isOwnerRequestMode) { ?>
+                <small class="form-help">Chu quan ly chi gui ghi chu cho admin tham khao khi duyet yeu cau.</small>
+                <?php } else { ?>
                 <small class="form-help">Nội dung này được tải và lưu theo ngôn ngữ đang chọn ở góc trên.</small>
+                <?php } ?>
               </label>
 
+              <?php if (!$isOwnerRequestMode) { ?>
               <label class="form-field">
                 <span>Vĩ độ (Lat)</span>
                 <input type="number" step="0.000001" name="lat" value="<?php echo htmlspecialchars($formData['lat'], ENT_QUOTES, 'UTF-8'); ?>" />
@@ -760,12 +755,17 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
                   <?php } ?>
                 </select>
               </label>
+              <?php } ?>
 
               <label class="form-field">
                 <span>Phí hàng tháng</span>
                 <?php if ($isOwnerRequestMode) { ?>
                 <input type="text" value="Admin sẽ nhập khi xử lý yêu cầu" readonly />
                 <small class="form-help">Chủ quản lý không được tự đặt phí hàng tháng. Admin sẽ cập nhật mục này khi duyệt yêu cầu.</small>
+                <?php } elseif ($isOwnerStoreEditMode) { ?>
+                <input type="hidden" name="currentPhiHangThang" value="<?php echo htmlspecialchars($formData['currentPhiHangThang'] !== '' ? $formData['currentPhiHangThang'] : $formData['phiHangThang'], ENT_QUOTES, 'UTF-8'); ?>" />
+                <input type="text" value="<?php echo htmlspecialchars(store_form_format_money($formData['currentPhiHangThang'] !== '' ? $formData['currentPhiHangThang'] : $formData['phiHangThang']), ENT_QUOTES, 'UTF-8'); ?>" readonly />
+                <small class="form-help">Mức phí này do admin quản lý. Chủ gian hàng chỉ được xem, không thể chỉnh sửa trực tiếp.</small>
                 <?php } else { ?>
                 <input type="number" min="0" step="1000" name="phiHangThang" value="<?php echo htmlspecialchars($formData['phiHangThang'], ENT_QUOTES, 'UTF-8'); ?>" />
                 <?php } ?>
@@ -826,7 +826,28 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
             </div>
           </div>
 
-          <p class="panel-note"><?php echo htmlspecialchars($isCreateMode ? 'Form này đang gọi trực tiếp endpoint tạo mới của backend. Sau khi tạo xong, trang sẽ tự mở sang chế độ chỉnh sửa của gian hàng vừa tạo.' : 'Trang này hiện lưu thật các trường: tên gian hàng, địa chỉ, mô tả, tọa độ, trạng thái, phí hàng tháng và có thể đổi chủ bằng email.', ENT_QUOTES, 'UTF-8'); ?></p>
+          <?php if (!$isCreateMode) { ?>
+          <div class="menu-shortcut-card">
+            <div class="card-head">
+              <h3><i class="fa-solid fa-bowl-food"></i> Quản lý món ăn</h3>
+            </div>
+            <p>Mở danh sách món ăn của gian hàng này để thêm món mới, cập nhật giá bán và thay đổi trạng thái phục vụ.</p>
+            <a class="primary-btn link-btn menu-link-btn" href="<?php echo htmlspecialchars(store_form_food_management_url($idGianHang), ENT_QUOTES, 'UTF-8'); ?>">
+              <i class="fa-solid fa-utensils"></i>
+              <span>Quản lý món ăn</span>
+            </a>
+          </div>
+          <?php } ?>
+
+          <p class="panel-note"><?php echo htmlspecialchars(
+              $isCreateMode
+                  ? 'Form này đang gọi trực tiếp endpoint tạo mới của backend. Sau khi tạo xong, trang sẽ tự mở sang chế độ chỉnh sửa của gian hàng vừa tạo.'
+                  : ($isOwnerStoreEditMode
+                      ? 'Chủ gian hàng có thể cập nhật tên gian hàng, địa chỉ, mô tả, tọa độ và trạng thái. Riêng phí hàng tháng do admin quản lý.'
+                      : 'Trang này hiện lưu thật các trường: tên gian hàng, địa chỉ, mô tả, tọa độ, trạng thái, phí hàng tháng và có thể đổi chủ bằng email.'),
+              ENT_QUOTES,
+              'UTF-8'
+          ); ?></p>
         </div>
       </div>
     </form>

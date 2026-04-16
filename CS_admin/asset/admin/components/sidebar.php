@@ -39,12 +39,12 @@ if (!function_exists('sidebar_active_class')) {
       <span>Gian hàng</span>
     </a>
 
-    <?php if (!$sidebarIsOwner) { ?>
     <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=request'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('request', $sidebarActive); ?>" data-sidebar-item="request">
       <i class="fa-solid fa-inbox"></i>
       <span>Yêu cầu</span>
     </a>
 
+    <?php if (!$sidebarIsOwner) { ?>
     <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=account'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('account', $sidebarActive); ?>" data-sidebar-item="account">
       <i class="fa-solid fa-users"></i>
       <span>Tài khoản</span>
@@ -62,7 +62,7 @@ if (!function_exists('sidebar_active_class')) {
   <div class="sidebar-divider"></div>
   <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=account'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item settings-link<?php echo sidebar_active_class('settings', $sidebarActive); ?>" data-sidebar-item="settings">
     <i class="fa-solid fa-gear"></i>
-    <span>Settings</span>
+    <span>Cài đặt</span>
   </a>
   <div class="profile-card">
     <div class="profile-left">

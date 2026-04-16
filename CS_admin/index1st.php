@@ -29,8 +29,14 @@ $availableUseCases = array(
         'view' => __DIR__ . '/admin/branchdetail2.php',
         'styles' => array('asset/admin/css/branchdetail2-content.css'),
     ),
+    'menu' => array(
+        'title' => 'Quáº£n lÃ½ mÃ³n Äƒn',
+        'active' => 'store',
+        'view' => __DIR__ . '/admin/menu.php',
+        'styles' => array('asset/admin/css/menu-content.css'),
+    ),
     'request' => array(
-        'title' => 'Yêu cầu từ chủ gian hàng',
+        'title' => 'Yêu cầu gian hàng',
         'active' => 'request',
         'view' => __DIR__ . '/admin/request.php',
         'styles' => array('asset/admin/css/request-content.css'),
@@ -56,7 +62,7 @@ $availableUseCases = array(
 );
 
 if ($accountRole === 'chu_quan_ly') {
-    $allowedUseCases = array('store', 'branchdetail2');
+    $allowedUseCases = array('store', 'branchdetail2', 'request', 'menu');
     if (!in_array($useCase, $allowedUseCases, true)) {
         $useCase = 'store';
     }

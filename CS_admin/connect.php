@@ -1,6 +1,10 @@
 <?php
 
 if (!function_exists('admin_base_path')) {
+    // __DIR__ ở đây luôn là thư mục gốc CS_admin (nơi connect.php nằm),
+    // không phụ thuộc vào script nào đang chạy.
+    define('_ADMIN_ROOT_DIR', __DIR__);
+
     function admin_base_path()
     {
         static $basePath = null;
@@ -9,15 +13,25 @@ if (!function_exists('admin_base_path')) {
             return $basePath;
         }
 
-        $scriptName = isset($_SERVER['SCRIPT_NAME']) ? str_replace('\\', '/', (string) $_SERVER['SCRIPT_NAME']) : '';
-        $directory = str_replace('\\', '/', dirname($scriptName));
+        $docRoot = isset($_SERVER['DOCUMENT_ROOT'])
+            ? str_replace('\\', '/', realpath($_SERVER['DOCUMENT_ROOT']))
+            : '';
+        $adminDir = str_replace('\\', '/', _ADMIN_ROOT_DIR);
 
-        if ($directory === '/' || $directory === '\\' || $directory === '.') {
-            $basePath = '';
-            return $basePath;
+        if ($docRoot !== '' && strpos($adminDir, $docRoot) === 0) {
+            $relative = ltrim(substr($adminDir, strlen($docRoot)), '/');
+            $basePath = $relative !== '' ? '/' . $relative : '';
+        } else {
+            // Fallback: dùng SCRIPT_NAME nhưng bỏ phần /api/ hoặc /admin/ nếu có
+            $scriptName = isset($_SERVER['SCRIPT_NAME']) ? str_replace('\\', '/', (string) $_SERVER['SCRIPT_NAME']) : '';
+            $directory = str_replace('\\', '/', dirname($scriptName));
+            if ($directory === '/' || $directory === '\\' || $directory === '.') {
+                $basePath = '';
+            } else {
+                $basePath = rtrim($directory, '/');
+            }
         }
 
-        $basePath = rtrim($directory, '/');
         return $basePath;
     }
 }
@@ -155,32 +169,21 @@ if (!function_exists('admin_ensure_store_request_table')) {
         $sql = "
             CREATE TABLE IF NOT EXISTS yeucaugianhang (
                 idYeuCau INT NOT NULL AUTO_INCREMENT,
-                loaiYeuCau ENUM('them_gian_hang') NOT NULL DEFAULT 'them_gian_hang',
                 idChuQuanLy INT NOT NULL,
-                tenGianHang VARCHAR(150) NOT NULL,
-                diaChi VARCHAR(255) DEFAULT NULL,
-                moTa TEXT DEFAULT NULL,
-                ngonNguMoTa VARCHAR(10) NOT NULL DEFAULT 'vi',
-                lat DECIMAL(10,7) DEFAULT NULL,
-                lon DECIMAL(10,7) DEFAULT NULL,
-                phiHangThang DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-                tinhTrangDeXuat ENUM('dang_hoat_dong','tam_ngung','dong_cua') NOT NULL DEFAULT 'dang_hoat_dong',
-                trangThaiYeuCau ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
-                ghiChuXuLy TEXT DEFAULT NULL,
-                idTaiKhoanXuLy INT DEFAULT NULL,
+                tenDeNghi VARCHAR(150) NOT NULL,
+                diaChiDeNghi VARCHAR(255) DEFAULT NULL,
+                ghiChuGui TEXT DEFAULT NULL,
+                trangThai ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
                 idGianHang INT DEFAULT NULL,
-                ngayTao DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-                thoiGianXuLy DATETIME DEFAULT NULL,
+                ngayGui DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+                ngayXuLy DATETIME DEFAULT NULL,
                 PRIMARY KEY (idYeuCau),
                 KEY idx_yeucaugianhang_owner (idChuQuanLy),
-                KEY idx_yeucaugianhang_status (trangThaiYeuCau),
+                KEY idx_yeucaugianhang_status (trangThai),
                 KEY idx_yeucaugianhang_store (idGianHang),
                 CONSTRAINT fk_yeucaugianhang_owner
                     FOREIGN KEY (idChuQuanLy) REFERENCES chu_quan_ly (idChuQuanLy)
                     ON DELETE CASCADE ON UPDATE CASCADE,
-                CONSTRAINT fk_yeucaugianhang_reviewer
-                    FOREIGN KEY (idTaiKhoanXuLy) REFERENCES taikhoan (idTaiKhoan)
-                    ON DELETE SET NULL ON UPDATE CASCADE,
                 CONSTRAINT fk_yeucaugianhang_store
                     FOREIGN KEY (idGianHang) REFERENCES gianhang (idGianHang)
                     ON DELETE SET NULL ON UPDATE CASCADE
