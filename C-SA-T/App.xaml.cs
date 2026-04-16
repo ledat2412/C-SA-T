@@ -1,4 +1,5 @@
 using MauiApp1.Services;
+using MauiApp1.Utils;
 using MauiApp1.Views;
 
 namespace MauiApp1;
@@ -12,6 +13,9 @@ public partial class App : Application
         InitializeComponent();
 
         _services = services;
+
+        var savedBackendUrl = Preferences.Get(BackendUrlResolver.PreferenceKey, string.Empty);
+        BackendUrlResolver.Configure(savedBackendUrl);
 
         var savedLanguage = Preferences.Get("ui_language", "vi");
         localizationService.SetLanguage(savedLanguage);

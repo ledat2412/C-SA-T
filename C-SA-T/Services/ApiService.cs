@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 using MauiApp1.Models;
-using Microsoft.Maui.Storage;
+using MauiApp1.Utils;
 
 namespace MauiApp1.Services
 {
@@ -17,14 +17,14 @@ namespace MauiApp1.Services
 
         public async Task<AppDataResponse> GetAppDataAsync(string lang = "vi")
         {
-            var url = $"api/gianhang/appdata?lang={lang}";
+            var url = BuildApiUrl($"api/gianhang/appdata?lang={lang}");
             var result = await _httpClient.GetFromJsonAsync<AppDataResponse>(url);
             return result ?? new AppDataResponse();
         }
 
         public async Task<LoginResult> LoginAsync(string username, string password)
         {
-            var response = await _httpClient.PostAsJsonAsync("api/auth/login", new
+            var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/auth/login"), new
             {
                 Username = username,
                 MatKhau = password
@@ -125,7 +125,7 @@ namespace MauiApp1.Services
 
         public async Task<PackageAccessRegistrationResult> RegisterPackageAccessAsync(string email, int idGoi, bool bypassPayment)
         {
-            var response = await _httpClient.PostAsJsonAsync("api/access/package/register", new
+            var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/package/register"), new
             {
                 Email = email,
                 IdGoi = idGoi,
@@ -162,7 +162,8 @@ namespace MauiApp1.Services
             }
 
             var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
-            var url = $"api/access/validate?accessToken={Uri.EscapeDataString(accessToken)}&clientDeviceId={Uri.EscapeDataString(clientDeviceId)}";
+            var url = BuildApiUrl(
+                $"api/access/validate?accessToken={Uri.EscapeDataString(accessToken)}&clientDeviceId={Uri.EscapeDataString(clientDeviceId)}");
             var response = await _httpClient.GetAsync(url);
 
             ValidateAccessResult? result = null;
@@ -193,7 +194,7 @@ namespace MauiApp1.Services
                 };
             }
 
-            var response = await _httpClient.PostAsJsonAsync("api/access/token/activate", new
+            var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/token/activate"), new
             {
                 AccessToken = accessToken,
                 ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
@@ -235,6 +236,11 @@ namespace MauiApp1.Services
         private static double DegreesToRadians(double degrees)
         {
             return degrees * Math.PI / 180.0;
+        }
+
+        private static string BuildApiUrl(string relativePath)
+        {
+            return BackendUrlResolver.BuildUrl(relativePath);
         }
 
         private static string? ExtractDeviceCode(string rawValue)

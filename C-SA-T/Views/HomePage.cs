@@ -19,8 +19,11 @@ public class HomePage : ContentPage
     private Location? _userLocation;
     private readonly VerticalStackLayout _nearbySection;
     private readonly Label _heroFollowLabel;
+    private Label _headerTitleLabel = null!;
+    private Label _headerLocationLabel = null!;
     private Label _heroBadgeLabel = null!;
     private Label _heroStreetLabel = null!;
+    private Label _heroAccentLabel = null!;
     private Label _sectionNearbyLabel = null!;
     private int _followCount;
 
@@ -113,8 +116,11 @@ public class HomePage : ContentPage
 
     private void UpdateLocalizedText()
     {
+        _headerTitleLabel.Text = _loc.Get("home_header_title");
+        _headerLocationLabel.Text = _loc.Get("home_header_location");
         _heroBadgeLabel.Text = _loc.Get("hero_badge");
         _heroStreetLabel.Text = _loc.Get("hero_street");
+        _heroAccentLabel.Text = _loc.Get("home_hero_accent");
         _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
         if (_sectionNearbyLabel is not null)
             _sectionNearbyLabel.Text = _loc.Get("section_nearby");
@@ -179,7 +185,7 @@ public class HomePage : ContentPage
                 _nearbySection.Children.Add(BuildNearbySpotRow(
                     restaurant,
                     string.IsNullOrWhiteSpace(restaurant.DiaChi)
-                        ? $"G\u1EA7n b\u1EA1n • {distanceText}"
+                        ? $"{_loc.Get("home_nearby_prefix")} • {distanceText}"
                         : $"{restaurant.DiaChi} • {distanceText}",
                     imagePath));
             }
@@ -233,19 +239,28 @@ public class HomePage : ContentPage
             ColumnSpacing = 12
         };
 
+        _headerTitleLabel = new Label
+        {
+            FontSize = 32,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#0F172A"),
+            LineHeight = 1.05
+        };
+
+        _headerLocationLabel = new Label
+        {
+            FontSize = 13,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#9A3412"),
+            VerticalTextAlignment = TextAlignment.Center
+        };
+
         var left = new VerticalStackLayout
         {
             Spacing = 6,
             Children =
             {
-                new Label
-                {
-                    Text = "Khu ph\u1ED1 V\u0129nh Kh\u00E1nh",
-                    FontSize = 32,
-                    FontAttributes = FontAttributes.Bold,
-                    TextColor = Color.FromArgb("#0F172A"),
-                    LineHeight = 1.05
-                },
+                _headerTitleLabel,
                 new Border
                 {
                     StrokeThickness = 0,
@@ -266,14 +281,7 @@ public class HomePage : ContentPage
                                 Color = Color.FromArgb("#F97316"),
                                 VerticalOptions = LayoutOptions.Center
                             },
-                            new Label
-                            {
-                                Text = "Qu\u1EADn 4, TP H\u1ED3 Ch\u00ED Minh",
-                                FontSize = 13,
-                                FontAttributes = FontAttributes.Bold,
-                                TextColor = Color.FromArgb("#9A3412"),
-                                VerticalTextAlignment = TextAlignment.Center
-                            }
+                            _headerLocationLabel
                         }
                     }
                 }
@@ -367,6 +375,13 @@ public class HomePage : ContentPage
             TextColor = Colors.White
         };
 
+        _heroAccentLabel = new Label
+        {
+            FontSize = 34,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#FCA5A5")
+        };
+
         content.Children.Add(new VerticalStackLayout
         {
             Spacing = 8,
@@ -398,13 +413,7 @@ public class HomePage : ContentPage
                     }
                 },
                 _heroStreetLabel,
-                new Label
-                {
-                    Text = "V\u0129nh Kh\u00E1nh",
-                    FontSize = 34,
-                    FontAttributes = FontAttributes.Bold,
-                    TextColor = Color.FromArgb("#FCA5A5")
-                },
+                _heroAccentLabel,
                 _heroFollowLabel
             }
         });
@@ -477,7 +486,7 @@ public class HomePage : ContentPage
             {
                 new Label
                 {
-                    Text = restaurant.Ten ?? "Quán ăn",
+                    Text = string.IsNullOrWhiteSpace(restaurant.Ten) ? _loc.Get("home_restaurant_fallback") : restaurant.Ten,
                     FontSize = 16,
                     FontAttributes = FontAttributes.Bold,
                     TextColor = Color.FromArgb("#0F172A"),
@@ -555,7 +564,7 @@ public class HomePage : ContentPage
 
         await _geofenceEngine.TogglePlaybackAsync(new AudioPlaybackRequest(
             restaurant.IdGianHang,
-            string.IsNullOrWhiteSpace(restaurant.Ten) ? "Quán ăn" : restaurant.Ten,
+            string.IsNullOrWhiteSpace(restaurant.Ten) ? _loc.Get("home_restaurant_fallback") : restaurant.Ten,
             restaurant.AudioFullUrl,
             restaurant.HinhAnhFullUrl));
     }
@@ -570,7 +579,7 @@ public class HomePage : ContentPage
         if (dbPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             dbPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            return dbPath;
+            return BackendUrlResolver.BuildUrl(dbPath);
         }
 
         var normalizedPath = dbPath.Replace("\\", "/");

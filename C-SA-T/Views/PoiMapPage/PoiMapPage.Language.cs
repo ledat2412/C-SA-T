@@ -80,6 +80,7 @@ public partial class PoiMapPage
         if (translated is null)
         {
             SetDetailInfo(_currentDetailGianHang);
+            await PopulateDetailFoodImagesAsync(_currentDetailGianHang, NormalizeLanguageCode(_selectedLanguageCode));
             return;
         }
 
@@ -103,6 +104,7 @@ public partial class PoiMapPage
         }
 
         _currentDetailGianHang = translated;
+        await PopulateDetailFoodImagesAsync(translated, NormalizeLanguageCode(_selectedLanguageCode));
     }
 
     private static string NormalizeLanguageCode(string? rawCode)

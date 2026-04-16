@@ -1,5 +1,6 @@
 ﻿using MauiApp1.Models;
 using MauiApp1.Services;
+using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -23,7 +24,7 @@ namespace MauiApp1.Views
         private readonly Label _currentTimeLabel;
         private readonly Label _durationLabel;
 
-        private readonly ObservableCollection<string> _demoFoodImages = new();
+        private readonly ObservableCollection<ImageSource> _demoFoodImages = new();
         private readonly Grid _detailSheet;
 
         private double _sheetHiddenY;
@@ -495,46 +496,38 @@ namespace MauiApp1.Views
                     ? _loc.Get("fallback_description")
                     : _gianHang.MoTa;
 
-                _mainImage.Source = NormalizeImagePath(_gianHang.HinhAnhFullUrl);
+                _mainImage.Source = RemoteImageSourceFactory.Build(_gianHang.HinhAnhFullUrl);
             }
             else
             {
-                _mainImage.Source = "dotnet_bot.png";
+                _mainImage.Source = RemoteImageSourceFactory.Build(null);
             }
         }
 
-        private string NormalizeImagePath(string? dbPath)
+        private void SeedDemoFoodImages()
         {
-            if (string.IsNullOrWhiteSpace(dbPath))
-                return "dotnet_bot.png";
+            _demoFoodImages.Clear();
 
-            return dbPath;
+            var imagePaths = _gianHang?.MonAns?
+                .Where(item =>
+                    !string.IsNullOrWhiteSpace(item.HinhAnhFullUrl) &&
+                    (string.IsNullOrWhiteSpace(item.TinhTrang) ||
+                     string.Equals(item.TinhTrang, "con_ban", StringComparison.OrdinalIgnoreCase)))
+                .Select(item => item.HinhAnhFullUrl!)
+                .Distinct()
+                .Take(6)
+                .ToList();
+
+            if (imagePaths is not null && imagePaths.Count > 0)
+            {
+                foreach (var imagePath in imagePaths)
+                    _demoFoodImages.Add(RemoteImageSourceFactory.Build(imagePath));
+
+                return;
+            }
+
+            _demoFoodImages.Add(RemoteImageSourceFactory.Build(null));
         }
-
-    private void SeedDemoFoodImages()
-    {
-        _demoFoodImages.Clear();
-
-        var imagePaths = _gianHang?.MonAns?
-            .Where(item =>
-                !string.IsNullOrWhiteSpace(item.HinhAnhFullUrl) &&
-                (string.IsNullOrWhiteSpace(item.TinhTrang) ||
-                 string.Equals(item.TinhTrang, "con_ban", StringComparison.OrdinalIgnoreCase)))
-            .Select(item => item.HinhAnhFullUrl!)
-            .Distinct()
-            .Take(6)
-            .ToList();
-
-        if (imagePaths is not null && imagePaths.Count > 0)
-        {
-            foreach (var imagePath in imagePaths)
-                _demoFoodImages.Add(imagePath);
-
-            return;
-        }
-
-        _demoFoodImages.Add("dotnet_bot.png");
-    }
 
         private void OnPlayPauseClicked(object? sender, EventArgs e)
         {

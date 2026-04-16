@@ -12,6 +12,11 @@ public class AccessEntryPage : ContentPage
     private readonly Label _subtitleLabel;
     private readonly ActivityIndicator _loading;
     private readonly VerticalStackLayout _optionsLayout;
+    private readonly Label _badgeLabel;
+    private readonly Label _qrOptionTitleLabel;
+    private readonly Label _qrOptionDescriptionLabel;
+    private readonly Label _packageOptionTitleLabel;
+    private readonly Label _packageOptionDescriptionLabel;
     private bool _isChecking;
 
     public AccessEntryPage(AccessFlowService accessFlowService, LocalizationService localizationService)
@@ -25,7 +30,6 @@ public class AccessEntryPage : ContentPage
 
         _statusLabel = new Label
         {
-            Text = "Dang kiem tra truy cap...",
             FontSize = 28,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#111111")
@@ -33,7 +37,6 @@ public class AccessEntryPage : ContentPage
 
         _subtitleLabel = new Label
         {
-            Text = "App se validate access token local truoc khi vao he thong.",
             FontSize = 14,
             TextColor = Color.FromArgb("#6B7280"),
             LineBreakMode = LineBreakMode.WordWrap
@@ -53,8 +56,8 @@ public class AccessEntryPage : ContentPage
             Children =
             {
                 BuildOptionCard(
-                    "Quet QR",
-                    "Quet ma QR tai thiet bi de nhan access token va mo khoa noi dung.",
+                    out _qrOptionTitleLabel,
+                    out _qrOptionDescriptionLabel,
                     async () =>
                     {
                         var qrPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<QrScanPage>();
@@ -62,8 +65,8 @@ public class AccessEntryPage : ContentPage
                             await Navigation.PushAsync(qrPage);
                     }),
                 BuildOptionCard(
-                    "Dang ky goi",
-                    "Chon goi dich vu, den trang thanh toan QR, tick bypass de nhan QR token dang nhap qua email.",
+                    out _packageOptionTitleLabel,
+                    out _packageOptionDescriptionLabel,
                     async () =>
                     {
                         var packagePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PackageRegistrationPage>();
@@ -88,9 +91,8 @@ public class AccessEntryPage : ContentPage
                         StrokeShape = new RoundRectangle { CornerRadius = 999 },
                         Padding = new Thickness(12, 7),
                         HorizontalOptions = LayoutOptions.Start,
-                        Content = new Label
+                        Content = _badgeLabel = new Label
                         {
-                            Text = "Access Flow",
                             FontSize = 12,
                             FontAttributes = FontAttributes.Bold,
                             TextColor = Color.FromArgb("#9A3412")
@@ -103,6 +105,8 @@ public class AccessEntryPage : ContentPage
                 }
             }
         };
+
+        UpdateLocalizedText();
     }
 
     protected override async void OnAppearing()
@@ -122,16 +126,16 @@ public class AccessEntryPage : ContentPage
         _loading.IsVisible = true;
         _loading.IsRunning = true;
         _optionsLayout.IsVisible = false;
-        _statusLabel.Text = "Du khach mo app";
-        _subtitleLabel.Text = "Dang kiem tra accessToken trong local va validate phien truy cap.";
+        _statusLabel.Text = GetText("opening_title");
+        _subtitleLabel.Text = GetText("opening_desc");
 
         var validation = await _accessFlowService.ValidateCurrentAccessAsync();
         if (validation.IsValid)
         {
-            _statusLabel.Text = "Token hop le";
+            _statusLabel.Text = GetText("valid_title");
             _subtitleLabel.Text = validation.ExpiresAtUtc.HasValue
-                ? $"Token con han den {validation.ExpiresAtUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}."
-                : "Token hop le, dang vao chuc nang chinh.";
+                ? string.Format(GetText("valid_desc_with_expiry"), validation.ExpiresAtUtc.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm"))
+                : GetText("valid_desc");
 
             await Task.Delay(450);
             if (Application.Current is App app)
@@ -141,15 +145,113 @@ public class AccessEntryPage : ContentPage
 
         _loading.IsRunning = false;
         _loading.IsVisible = false;
-        _statusLabel.Text = "Chon cach truy cap";
+        _statusLabel.Text = GetText("choose_title");
         _subtitleLabel.Text = string.IsNullOrWhiteSpace(validation.Message)
-            ? "Ban co the quet QR hoac dang ky goi dich vu de vao app."
-            : $"{validation.Message} Ban co the quet QR hoac dang ky goi dich vu de vao app.";
+            ? GetText("choose_desc")
+            : string.Format(GetText("choose_desc_with_reason"), validation.Message);
         _optionsLayout.IsVisible = true;
     }
 
-    private static View BuildOptionCard(string title, string description, Func<Task> onTap)
+    private void UpdateLocalizedText()
     {
+        _badgeLabel.Text = GetText("badge");
+        _qrOptionTitleLabel.Text = GetText("qr_title");
+        _qrOptionDescriptionLabel.Text = GetText("qr_desc");
+        _packageOptionTitleLabel.Text = GetText("package_title");
+        _packageOptionDescriptionLabel.Text = GetText("package_desc");
+    }
+
+    private string GetText(string key)
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => key switch
+            {
+                "badge" => "Access Flow",
+                "opening_title" => "Opening app",
+                "opening_desc" => "Checking the local access token before entering the system.",
+                "valid_title" => "Valid token",
+                "valid_desc" => "Token is valid. Opening the main experience.",
+                "valid_desc_with_expiry" => "Token is valid until {0}.",
+                "choose_title" => "Choose access method",
+                "choose_desc" => "You can scan a QR code or register a package to enter the app.",
+                "choose_desc_with_reason" => "{0} You can scan a QR code or register a package to enter the app.",
+                "qr_title" => "Scan QR",
+                "qr_desc" => "Scan a QR code on this device to receive an access token and unlock content.",
+                "package_title" => "Register package",
+                "package_desc" => "Choose a service package, open the QR payment page, then use bypass to receive a login QR token by email.",
+                _ => key
+            },
+            "ko" => key switch
+            {
+                "badge" => "Access Flow",
+                "opening_title" => "앱 여는 중",
+                "opening_desc" => "시스템 진입 전에 로컬 access token을 확인하는 중입니다.",
+                "valid_title" => "유효한 토큰",
+                "valid_desc" => "토큰이 유효합니다. 메인 화면으로 이동합니다.",
+                "valid_desc_with_expiry" => "토큰은 {0} 까지 유효합니다.",
+                "choose_title" => "접속 방법 선택",
+                "choose_desc" => "QR을 스캔하거나 패키지를 등록하여 앱에 들어갈 수 있습니다.",
+                "choose_desc_with_reason" => "{0} QR을 스캔하거나 패키지를 등록하여 앱에 들어갈 수 있습니다.",
+                "qr_title" => "QR 스캔",
+                "qr_desc" => "이 기기에서 QR 코드를 스캔해 access token을 받고 콘텐츠를 엽니다.",
+                "package_title" => "패키지 등록",
+                "package_desc" => "서비스 패키지를 선택하고 QR 결제 페이지로 이동한 뒤 bypass로 로그인 QR 토큰을 이메일로 받습니다.",
+                _ => key
+            },
+            "ja" => key switch
+            {
+                "badge" => "Access Flow",
+                "opening_title" => "アプリを開いています",
+                "opening_desc" => "システムに入る前にローカルのaccess tokenを確認しています。",
+                "valid_title" => "有効なトークン",
+                "valid_desc" => "トークンは有効です。メイン画面を開きます。",
+                "valid_desc_with_expiry" => "トークンの有効期限は {0} です。",
+                "choose_title" => "アクセス方法を選択",
+                "choose_desc" => "QRをスキャンするか、パッケージ登録でアプリに入れます。",
+                "choose_desc_with_reason" => "{0} QRをスキャンするか、パッケージ登録でアプリに入れます。",
+                "qr_title" => "QRスキャン",
+                "qr_desc" => "この端末でQRコードを読み取り、access tokenを受け取ってコンテンツを開きます。",
+                "package_title" => "パッケージ登録",
+                "package_desc" => "サービスパッケージを選び、QR決済ページへ進んで bypass でログイン用QRトークンをメール受信します。",
+                _ => key
+            },
+            _ => key switch
+            {
+                "badge" => "Access Flow",
+                "opening_title" => "Du khach mo app",
+                "opening_desc" => "Dang kiem tra access token local truoc khi vao he thong.",
+                "valid_title" => "Token hop le",
+                "valid_desc" => "Token hop le, dang vao chuc nang chinh.",
+                "valid_desc_with_expiry" => "Token con han den {0}.",
+                "choose_title" => "Chon cach truy cap",
+                "choose_desc" => "Ban co the quet QR hoac dang ky goi dich vu de vao app.",
+                "choose_desc_with_reason" => "{0} Ban co the quet QR hoac dang ky goi dich vu de vao app.",
+                "qr_title" => "Quet QR",
+                "qr_desc" => "Quet ma QR tren thiet bi de nhan access token va mo khoa noi dung.",
+                "package_title" => "Dang ky goi",
+                "package_desc" => "Chon goi dich vu, mo trang thanh toan QR va dung bypass de nhan QR token dang nhap qua email.",
+                _ => key
+            }
+        };
+    }
+
+    private static View BuildOptionCard(out Label titleLabel, out Label descriptionLabel, Func<Task> onTap)
+    {
+        titleLabel = new Label
+        {
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#111111")
+        };
+
+        descriptionLabel = new Label
+        {
+            FontSize = 13,
+            TextColor = Color.FromArgb("#6B7280"),
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
         var card = new Border
         {
             StrokeThickness = 1,
@@ -162,20 +264,8 @@ public class AccessEntryPage : ContentPage
                 Spacing = 8,
                 Children =
                 {
-                    new Label
-                    {
-                        Text = title,
-                        FontSize = 18,
-                        FontAttributes = FontAttributes.Bold,
-                        TextColor = Color.FromArgb("#111111")
-                    },
-                    new Label
-                    {
-                        Text = description,
-                        FontSize = 13,
-                        TextColor = Color.FromArgb("#6B7280"),
-                        LineBreakMode = LineBreakMode.WordWrap
-                    }
+                    titleLabel,
+                    descriptionLabel
                 }
             }
         };

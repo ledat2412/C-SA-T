@@ -26,9 +26,6 @@
                 if (string.IsNullOrWhiteSpace(imagePath))
                     return null;
 
-                if (imagePath.StartsWith("http://") || imagePath.StartsWith("https://"))
-                    return imagePath;
-
                 return global::MauiApp1.Utils.BackendUrlResolver.BuildUrl(imagePath);
             }
         }
@@ -39,9 +36,6 @@
             {
                 if (string.IsNullOrWhiteSpace(AudioURL))
                     return null;
-
-                if (AudioURL.StartsWith("http://") || AudioURL.StartsWith("https://"))
-                    return AudioURL;
 
                 return global::MauiApp1.Utils.BackendUrlResolver.BuildUrl(AudioURL);
             }

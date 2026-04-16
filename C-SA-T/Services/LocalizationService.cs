@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace MauiApp1.Services;
 
 public class LocalizationService
@@ -13,7 +15,13 @@ public class LocalizationService
         var c = code?.Trim().ToLowerInvariant() ?? "vi";
         if (_currentLanguage == c) return;
         _currentLanguage = c;
+        ApplyCulture(c);
         LanguageChanged?.Invoke();
+    }
+
+    public LocalizationService()
+    {
+        ApplyCulture(_currentLanguage);
     }
 
     public string Get(string key)
@@ -21,6 +29,23 @@ public class LocalizationService
         if (_strings.TryGetValue(_currentLanguage, out var d) && d.TryGetValue(key, out var v)) return v;
         if (_strings.TryGetValue("vi", out var vi) && vi.TryGetValue(key, out var f)) return f;
         return key;
+    }
+
+    private static void ApplyCulture(string languageCode)
+    {
+        var cultureName = languageCode switch
+        {
+            "en" => "en-US",
+            "ko" => "ko-KR",
+            "ja" => "ja-JP",
+            _ => "vi-VN"
+        };
+
+        var culture = CultureInfo.GetCultureInfo(cultureName);
+        CultureInfo.DefaultThreadCurrentCulture = culture;
+        CultureInfo.DefaultThreadCurrentUICulture = culture;
+        CultureInfo.CurrentCulture = culture;
+        CultureInfo.CurrentUICulture = culture;
     }
 
     private static readonly Dictionary<string, Dictionary<string, string>> _strings = new()
@@ -70,9 +95,18 @@ public class LocalizationService
             ["hero_badge"] = "Bắt đầu khám phá",
             ["hero_street"] = "Phố Ẩm Thực",
             ["hero_follow"] = "Đang theo dõi {0} điểm",
+            ["home_header_title"] = "Khu phố Vĩnh Khánh",
+            ["home_header_location"] = "Quận 4, TP Hồ Chí Minh",
+            ["home_hero_accent"] = "Vĩnh Khánh",
+            ["home_nearby_prefix"] = "Gần bạn",
+            ["home_restaurant_fallback"] = "Quán ăn",
             ["section_nearby"] = "Điểm nổi bật gần bạn",
             ["section_see_all"] = "Xem tất cả",
             ["no_data"] = "Chưa có dữ liệu địa điểm",
+            ["search_title"] = "Tìm kiếm",
+            ["search_results"] = "{0} kết quả cho \"{1}\"",
+            ["search_results_empty"] = "Không thấy kết quả cho \"{0}\"",
+            ["poi_load_error"] = "Không tải được dữ liệu POI từ DB.\n{0}",
             ["explore_view_detail"] = "Xem chi tiết",
             ["search_match_name"] = "Khớp tên quán",
             ["search_match_address"] = "Khớp địa chỉ",
@@ -130,9 +164,18 @@ public class LocalizationService
             ["hero_badge"] = "Start exploring",
             ["hero_street"] = "Food Street",
             ["hero_follow"] = "Tracking {0} spots",
+            ["home_header_title"] = "Vinh Khanh Quarter",
+            ["home_header_location"] = "District 4, Ho Chi Minh City",
+            ["home_hero_accent"] = "Vinh Khanh",
+            ["home_nearby_prefix"] = "Near you",
+            ["home_restaurant_fallback"] = "Food stall",
             ["section_nearby"] = "Highlights near you",
             ["section_see_all"] = "See all",
             ["no_data"] = "No location data yet",
+            ["search_title"] = "Search",
+            ["search_results"] = "{0} results for \"{1}\"",
+            ["search_results_empty"] = "No results for \"{0}\"",
+            ["poi_load_error"] = "Could not load POI data from the database.\n{0}",
             ["explore_view_detail"] = "View detail",
             ["search_match_name"] = "Name match",
             ["search_match_address"] = "Address match",
@@ -190,9 +233,18 @@ public class LocalizationService
             ["hero_badge"] = "탐색 시작",
             ["hero_street"] = "푸드 스트리트",
             ["hero_follow"] = "{0}곳 추적 중",
+            ["home_header_title"] = "빈칸 거리",
+            ["home_header_location"] = "호치민시 4군",
+            ["home_hero_accent"] = "빈칸",
+            ["home_nearby_prefix"] = "내 주변",
+            ["home_restaurant_fallback"] = "음식점",
             ["section_nearby"] = "주변 인기 명소",
             ["section_see_all"] = "전체 보기",
             ["no_data"] = "위치 데이터 없음",
+            ["search_title"] = "검색",
+            ["search_results"] = "\"{1}\"에 대한 결과 {0}개",
+            ["search_results_empty"] = "\"{0}\"에 대한 결과가 없습니다",
+            ["poi_load_error"] = "DB에서 POI 데이터를 불러오지 못했습니다.\n{0}",
             ["explore_view_detail"] = "자세히 보기",
             ["search_match_name"] = "이름 일치",
             ["search_match_address"] = "주소 일치",
@@ -250,9 +302,18 @@ public class LocalizationService
             ["hero_badge"] = "探索を始める",
             ["hero_street"] = "グルメストリート",
             ["hero_follow"] = "{0}スポットを追跡中",
+            ["home_header_title"] = "ヴィンカイン通り",
+            ["home_header_location"] = "ホーチミン市4区",
+            ["home_hero_accent"] = "ヴィンカイン",
+            ["home_nearby_prefix"] = "近く",
+            ["home_restaurant_fallback"] = "飲食店",
             ["section_nearby"] = "近くのおすすめスポット",
             ["section_see_all"] = "すべて見る",
             ["no_data"] = "位置データなし",
+            ["search_title"] = "検索",
+            ["search_results"] = "\"{1}\" の検索結果 {0}件",
+            ["search_results_empty"] = "\"{0}\" の結果が見つかりません",
+            ["poi_load_error"] = "DBからPOIデータを読み込めませんでした。\n{0}",
             ["explore_view_detail"] = "詳細を見る",
             ["search_match_name"] = "名前一致",
             ["search_match_address"] = "住所一致",

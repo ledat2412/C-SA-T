@@ -19,7 +19,7 @@ public partial class PoiMapPage
         if (dbPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             dbPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            return dbPath;
+            return BuildFullUrl(dbPath) ?? "mypham.jpg";
         }
 
         var normalizedPath = dbPath.Replace("\\", "/");

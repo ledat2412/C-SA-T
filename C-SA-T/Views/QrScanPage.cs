@@ -16,6 +16,9 @@ public class QrScanPage : ContentPage
     private readonly ApiService _apiService;
     private readonly AccessFlowService _accessFlowService;
     private readonly LocalizationService _loc;
+    private readonly Label _titleLabel;
+    private readonly Label _subtitleLabel;
+    private readonly Label _backLabel;
     private readonly CameraBarcodeReaderView? _cameraView = null;
     private readonly Label _statusLabel;
     private readonly Label _hintLabel;
@@ -35,7 +38,7 @@ public class QrScanPage : ContentPage
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = MauiColor.FromArgb("#FFF7F1");
 
-        var titleLabel = new Label
+        _titleLabel = new Label
         {
             Text = GetText("title"),
             FontSize = 26,
@@ -43,7 +46,7 @@ public class QrScanPage : ContentPage
             TextColor = MauiColor.FromArgb("#111111")
         };
 
-        var subtitleLabel = new Label
+        _subtitleLabel = new Label
         {
             Text = GetText("subtitle"),
             FontSize = 14,
@@ -116,7 +119,7 @@ public class QrScanPage : ContentPage
             BackgroundColor = Colors.White,
             StrokeShape = new RoundRectangle { CornerRadius = 18 },
             Padding = new Thickness(14, 10),
-            Content = new Label
+            Content = _backLabel = new Label
             {
                 Text = GetText("back"),
                 FontSize = 13,
@@ -220,8 +223,8 @@ public class QrScanPage : ContentPage
                         Children =
                         {
                             backButton,
-                            titleLabel,
-                            subtitleLabel,
+                            _titleLabel,
+                            _subtitleLabel,
                             new Border
                             {
                                 StrokeThickness = 1,
@@ -386,6 +389,9 @@ public class QrScanPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
+            _titleLabel.Text = GetText("title");
+            _subtitleLabel.Text = GetText("subtitle");
+            _backLabel.Text = GetText("back");
             _torchButton.Text = _cameraView?.IsTorchOn == true ? GetText("torch_off") : GetText("torch_on");
             _rescanButton.Text = GetText("rescan");
             _uploadButton.Text = GetText("upload");
@@ -438,7 +444,7 @@ public class QrScanPage : ContentPage
                 _statusLabel.Text = GetText("failed");
                 _hintLabel.Text = GetText("upload_no_qr");
                 _resultLabel.Text = $"{GetText("picked_file")}: {file.FileName}";
-                await DisplayAlertAsync(GetText("failed"), GetText("upload_no_qr"), "OK");
+                await DisplayAlertAsync(GetText("failed"), GetText("upload_no_qr"), _loc.Get("alert_ok"));
                 return;
             }
 
@@ -448,7 +454,7 @@ public class QrScanPage : ContentPage
         {
             _statusLabel.Text = GetText("failed");
             _hintLabel.Text = ex.Message;
-            await DisplayAlertAsync(GetText("failed"), ex.Message, "OK");
+            await DisplayAlertAsync(GetText("failed"), ex.Message, _loc.Get("alert_ok"));
         }
     }
 
@@ -503,7 +509,7 @@ public class QrScanPage : ContentPage
                 await DisplayAlertAsync(
                     result.Success ? GetText("success") : GetText("failed"),
                     result.Message,
-                    "OK");
+                    _loc.Get("alert_ok"));
 
                 if (result.Success && Navigation.NavigationStack.OfType<AccessEntryPage>().Any())
                     await Navigation.PopAsync();
@@ -548,6 +554,68 @@ public class QrScanPage : ContentPage
                 "status" => "Status",
                 "expires" => "Expires",
                 "token" => "Access token",
+                _ => key
+            },
+            "ko" => key switch
+            {
+                "title" => "QR 스캔",
+                "subtitle" => "QR 코드를 카메라에 맞춰 접근 권한을 활성화하세요.",
+                "ready" => "카메라 준비 완료",
+                "hint" => "주황색 프레임 안에 QR을 맞춰 주세요.",
+                "processing" => "QR 처리 중",
+                "processing_desc" => "스캔 결과를 서버로 보내는 중입니다.",
+                "success" => "성공",
+                "failed" => "스캔 실패",
+                "unsupported" => "이 기기는 QR 스캔을 지원하지 않습니다",
+                "unsupported_desc" => "카메라를 지원하는 Android 기기 또는 에뮬레이터에서 이 페이지를 열어 주세요.",
+                "camera_denied" => "카메라 권한이 거부되었습니다",
+                "camera_denied_desc" => "QR 코드를 스캔하려면 카메라 권한을 허용해 주세요.",
+                "torch_on" => "손전등 켜기",
+                "torch_off" => "손전등 끄기",
+                "rescan" => "다시 스캔",
+                "upload" => "QR 이미지 업로드",
+                "upload_picker_title" => "QR 이미지 선택",
+                "upload_no_qr" => "선택한 이미지에서 QR 코드를 찾지 못했습니다.",
+                "image_loading" => "이미지에서 QR 읽는 중",
+                "picked_file" => "선택한 파일",
+                "back" => "뒤로",
+                "result_empty" => "아직 스캔한 QR 결과가 없습니다.",
+                "qr_value" => "QR 값",
+                "device_code" => "기기 코드",
+                "status" => "상태",
+                "expires" => "만료 시각",
+                "token" => "액세스 토큰",
+                _ => key
+            },
+            "ja" => key switch
+            {
+                "title" => "QRをスキャン",
+                "subtitle" => "QRコードをカメラに向けてアクセスを有効化します。",
+                "ready" => "カメラの準備ができました",
+                "hint" => "オレンジ色の枠の中にQRを収めてください。",
+                "processing" => "QRを処理中",
+                "processing_desc" => "スキャン結果をサーバーに送信しています。",
+                "success" => "成功",
+                "failed" => "スキャン失敗",
+                "unsupported" => "この端末はQRスキャンに対応していません",
+                "unsupported_desc" => "カメラ対応のAndroid端末またはエミュレーターで開いてください。",
+                "camera_denied" => "カメラ権限が拒否されました",
+                "camera_denied_desc" => "QRコードを読み取るにはカメラ権限を許可してください。",
+                "torch_on" => "ライトをオン",
+                "torch_off" => "ライトをオフ",
+                "rescan" => "再スキャン",
+                "upload" => "QR画像をアップロード",
+                "upload_picker_title" => "QR画像を選択",
+                "upload_no_qr" => "選択した画像からQRコードを検出できませんでした。",
+                "image_loading" => "画像からQRを読み取り中",
+                "picked_file" => "選択したファイル",
+                "back" => "戻る",
+                "result_empty" => "まだQRをスキャンしていません。",
+                "qr_value" => "QR値",
+                "device_code" => "端末コード",
+                "status" => "状態",
+                "expires" => "有効期限",
+                "token" => "アクセストークン",
                 _ => key
             },
             _ => key switch

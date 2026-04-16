@@ -1,6 +1,7 @@
 using System.Linq;
 using MauiApp1.Models;
 using MauiApp1.Services;
+using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiApp1.Views;
@@ -9,6 +10,8 @@ public class GianHangFoodGalleryPage : ContentPage
 {
     private readonly GianHang _gianHang;
     private readonly MonAnService _monAnService;
+    private readonly LocalizationService _loc;
+    private readonly string _menuLanguageCode;
     private readonly string _heroImage;
 
     private readonly Label _heroSubtitleLabel;
@@ -25,10 +28,17 @@ public class GianHangFoodGalleryPage : ContentPage
 
     private bool _isLoaded;
 
-    public GianHangFoodGalleryPage(GianHang gianHang, MonAnService monAnService, string? heroImage)
+    public GianHangFoodGalleryPage(
+        GianHang gianHang,
+        MonAnService monAnService,
+        LocalizationService localizationService,
+        string? heroImage,
+        string? menuLanguageCode = null)
     {
         _gianHang = gianHang;
         _monAnService = monAnService;
+        _loc = localizationService;
+        _menuLanguageCode = string.IsNullOrWhiteSpace(menuLanguageCode) ? _loc.CurrentLanguage : menuLanguageCode;
         _heroImage = string.IsNullOrWhiteSpace(heroImage)
             ? (_gianHang.HinhAnhFullUrl ?? "dotnet_bot.png")
             : heroImage;
@@ -52,15 +62,15 @@ public class GianHangFoodGalleryPage : ContentPage
 
         _menuActionLabel = new Label
         {
-            Text = "0 mon",
+            Text = string.Format(GetText("menu_count"), 0),
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#FF6B00"),
             VerticalTextAlignment = TextAlignment.End
         };
 
-        _featuredHeader = BuildSectionTitle("Mon noi bat", (Label?)null);
-        _menuHeader = BuildSectionTitle("Thuc don", _menuActionLabel);
+        _featuredHeader = BuildSectionTitle(GetText("featured"), (Label?)null);
+        _menuHeader = BuildSectionTitle(GetText("menu"), _menuActionLabel);
 
         _featuredCard = new Border
         {
@@ -69,7 +79,7 @@ public class GianHangFoodGalleryPage : ContentPage
             Padding = 0,
             BackgroundColor = Colors.White,
             IsVisible = false,
-            Content = CreateDishCard("Món nổi bật", "Mô tả đang cập nhật", 0, true)
+            Content = CreateDishCard(GetText("featured_placeholder"), GetText("dish_desc_placeholder"), 0, true)
         };
 
         _statusLabel = new Label
@@ -114,11 +124,11 @@ public class GianHangFoodGalleryPage : ContentPage
                     _featuredHeader,
                     _featuredCard,
                     _statusCard,
-                    BuildSectionTitle("Món chính phổ biến", "Xem tất cả"),
+                    BuildSectionTitle(GetText("popular"), GetText("view_all")),
                     _popularList,
                     new Label
                     {
-                        Text = "Đồ uống đặc sắc",
+                        Text = GetText("drinks"),
                         FontSize = 32,
                         FontAttributes = FontAttributes.Bold,
                         TextColor = Color.FromArgb("#1F1F1F")
@@ -137,7 +147,7 @@ public class GianHangFoodGalleryPage : ContentPage
         Grid.SetRow(scroll, 1);
 
         Content = layout;
-        ShowStatus("Dang tai thuc don tu backend...");
+        ShowStatus(GetText("loading"));
     }
 
     protected override async void OnAppearing()
@@ -156,7 +166,7 @@ public class GianHangFoodGalleryPage : ContentPage
         catch (Exception ex)
         {
             _isLoaded = false;
-            ShowStatus("Khong tai duoc thuc don cua gian hang nay.");
+            ShowStatus(GetText("load_failed"));
             System.Diagnostics.Debug.WriteLine($"[GianHangFoodGalleryPage] Load menu error: {ex.Message}");
         }
     }
@@ -177,7 +187,7 @@ public class GianHangFoodGalleryPage : ContentPage
 
         var title = new Label
         {
-            Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Thuc don" : _gianHang.Ten,
+            Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? GetText("menu") : _gianHang.Ten,
             FontSize = 24,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#1F1F1F"),
@@ -261,7 +271,7 @@ public class GianHangFoodGalleryPage : ContentPage
                                     HorizontalOptions = LayoutOptions.Start,
                                     Content = new Label
                                     {
-                                        Text = "THUC DON GIAN HANG",
+                                        Text = GetText("hero_badge"),
                                         FontSize = 11,
                                         FontAttributes = FontAttributes.Bold,
                                         TextColor = Colors.White
@@ -269,7 +279,7 @@ public class GianHangFoodGalleryPage : ContentPage
                                 },
                                 new Label
                                 {
-                                    Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Nhà hàng" : _gianHang.Ten,
+                                    Text = string.IsNullOrWhiteSpace(_gianHang.Ten) ? GetText("store_fallback") : _gianHang.Ten,
                                     FontSize = 36,
                                     FontAttributes = FontAttributes.Bold,
                                     TextColor = Colors.White
@@ -372,7 +382,7 @@ public class GianHangFoodGalleryPage : ContentPage
                 {
                     new Label
                     {
-                        Text = "Du lieu thuc don",
+                        Text = GetText("summary_title"),
                         FontSize = 12,
                         FontAttributes = FontAttributes.Bold,
                         TextColor = Color.FromArgb("#FF6B00")
@@ -385,14 +395,14 @@ public class GianHangFoodGalleryPage : ContentPage
 
     private async Task LoadMenuAsync()
     {
-        var items = FilterMenuItems(await _monAnService.GetByGianHangAsync(_gianHang.IdGianHang));
+        var items = FilterMenuItems(await _monAnService.GetByGianHangAsync(_gianHang.IdGianHang, _menuLanguageCode));
 
         if (items.Count == 0 && _gianHang.MonAns.Count > 0)
             items = FilterMenuItems(_gianHang.MonAns);
 
         _summaryLabel.Text = BuildSummaryText(items.Count);
         _heroSubtitleLabel.Text = BuildHeroSubtitle(items.Count);
-        _menuActionLabel.Text = $"{items.Count} mon";
+        _menuActionLabel.Text = string.Format(GetText("menu_count"), items.Count);
 
         _popularList.Children.Clear();
         _drinkRow.Children.Clear();
@@ -401,7 +411,7 @@ public class GianHangFoodGalleryPage : ContentPage
         {
             _featuredHeader.IsVisible = false;
             _featuredCard.IsVisible = false;
-            ShowStatus("Gian hang nay chua co mon nao dang ban tren backend.");
+            ShowStatus(GetText("no_items"));
             return;
         }
 
@@ -421,7 +431,7 @@ public class GianHangFoodGalleryPage : ContentPage
         }
 
         if (_popularList.Children.Count == 0)
-            ShowStatus("Gian hang hien co 1 mon dang ban.");
+            ShowStatus(GetText("one_item"));
     }
 
     private View CreateDishCard(string? name, string? description, decimal price, bool large)
@@ -503,14 +513,14 @@ public class GianHangFoodGalleryPage : ContentPage
                     },
                     new Label
                     {
-                        Text = string.IsNullOrWhiteSpace(name) ? "Món ăn" : name,
+                        Text = string.IsNullOrWhiteSpace(name) ? GetText("dish_fallback") : name,
                         FontSize = 16,
                         FontAttributes = FontAttributes.Bold,
                         TextColor = Color.FromArgb("#1F1F1F")
                     },
                     new Label
                     {
-                        Text = string.IsNullOrWhiteSpace(description) ? "Món ngon đặc trưng của gian hàng." : description,
+                        Text = string.IsNullOrWhiteSpace(description) ? GetText("dish_desc_fallback") : description,
                         FontSize = 13,
                         TextColor = Color.FromArgb("#707070"),
                         LineBreakMode = LineBreakMode.TailTruncation,
@@ -555,7 +565,7 @@ public class GianHangFoodGalleryPage : ContentPage
                     },
                     new Label
                     {
-                        Text = string.IsNullOrWhiteSpace(name) ? "Đồ uống" : name,
+                        Text = string.IsNullOrWhiteSpace(name) ? GetText("drink_fallback") : name,
                         FontSize = 13,
                         FontAttributes = FontAttributes.Bold,
                         HorizontalTextAlignment = TextAlignment.Center,
@@ -602,10 +612,10 @@ public class GianHangFoodGalleryPage : ContentPage
     private string BuildSummaryText(int itemCount)
     {
         if (itemCount <= 0)
-            return "Chua nhan duoc mon dang ban cho gian hang nay.";
+            return GetText("summary_empty");
 
-        var storeName = string.IsNullOrWhiteSpace(_gianHang.Ten) ? "Gian hang" : _gianHang.Ten;
-        return $"{storeName} hien co {itemCount} mon dang ban duoc dong bo tu backend.";
+        var storeName = string.IsNullOrWhiteSpace(_gianHang.Ten) ? GetText("store_generic") : _gianHang.Ten;
+        return string.Format(GetText("summary_count"), storeName, itemCount);
     }
 
     private string BuildHeroSubtitle(int itemCount)
@@ -615,7 +625,9 @@ public class GianHangFoodGalleryPage : ContentPage
         if (!string.IsNullOrWhiteSpace(_gianHang.DiaChi))
             parts.Add(_gianHang.DiaChi!);
 
-        parts.Add(itemCount <= 0 ? "Chua co mon dang ban" : $"{itemCount} mon dang ban");
+        parts.Add(itemCount <= 0
+            ? GetText("hero_empty")
+            : string.Format(GetText("hero_count"), itemCount));
         return string.Join(" | ", parts);
     }
 
@@ -639,15 +651,121 @@ public class GianHangFoodGalleryPage : ContentPage
 
     private static ImageSource BuildImageSource(string? imagePath)
     {
-        if (string.IsNullOrWhiteSpace(imagePath))
-            return ImageSource.FromFile("dotnet_bot.png");
+        return RemoteImageSourceFactory.Build(imagePath);
+    }
 
-        if (Uri.TryCreate(imagePath, UriKind.Absolute, out var uri) &&
-            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+    private string GetText(string key)
+    {
+        return _loc.CurrentLanguage switch
         {
-            return ImageSource.FromUri(uri);
-        }
-
-        return ImageSource.FromFile(imagePath);
+            "en" => key switch
+            {
+                "menu_count" => "{0} dishes",
+                "featured" => "Featured",
+                "menu" => "Menu",
+                "featured_placeholder" => "Featured dish",
+                "dish_desc_placeholder" => "Description is being updated",
+                "popular" => "Popular mains",
+                "view_all" => "View all",
+                "drinks" => "Signature drinks",
+                "loading" => "Loading menu from backend...",
+                "load_failed" => "Could not load this stall's menu.",
+                "hero_badge" => "STALL MENU",
+                "store_fallback" => "Restaurant",
+                "summary_title" => "Menu data",
+                "no_items" => "This stall has no dishes currently available on the backend.",
+                "one_item" => "This stall currently has 1 available dish.",
+                "dish_fallback" => "Dish",
+                "dish_desc_fallback" => "A signature dish from this stall.",
+                "drink_fallback" => "Drink",
+                "summary_empty" => "No available dishes were received for this stall.",
+                "store_generic" => "Stall",
+                "summary_count" => "{0} currently has {1} available dishes synced from the backend.",
+                "hero_empty" => "No dishes available",
+                "hero_count" => "{0} dishes available",
+                _ => key
+            },
+            "ko" => key switch
+            {
+                "menu_count" => "메뉴 {0}개",
+                "featured" => "추천 메뉴",
+                "menu" => "메뉴",
+                "featured_placeholder" => "추천 메뉴",
+                "dish_desc_placeholder" => "설명 업데이트 중",
+                "popular" => "인기 메인 메뉴",
+                "view_all" => "전체 보기",
+                "drinks" => "추천 음료",
+                "loading" => "백엔드에서 메뉴를 불러오는 중...",
+                "load_failed" => "이 가게의 메뉴를 불러오지 못했습니다.",
+                "hero_badge" => "가게 메뉴",
+                "store_fallback" => "식당",
+                "summary_title" => "메뉴 데이터",
+                "no_items" => "이 가게에는 현재 판매 중인 메뉴가 없습니다.",
+                "one_item" => "이 가게는 현재 판매 중인 메뉴가 1개입니다.",
+                "dish_fallback" => "음식",
+                "dish_desc_fallback" => "가게의 대표 메뉴입니다.",
+                "drink_fallback" => "음료",
+                "summary_empty" => "이 가게의 판매 중인 메뉴를 아직 받지 못했습니다.",
+                "store_generic" => "가게",
+                "summary_count" => "{0}에는 현재 백엔드와 동기화된 판매 메뉴가 {1}개 있습니다.",
+                "hero_empty" => "판매 중인 메뉴 없음",
+                "hero_count" => "판매 중인 메뉴 {0}개",
+                _ => key
+            },
+            "ja" => key switch
+            {
+                "menu_count" => "{0}品",
+                "featured" => "おすすめ",
+                "menu" => "メニュー",
+                "featured_placeholder" => "おすすめ料理",
+                "dish_desc_placeholder" => "説明を更新中です",
+                "popular" => "人気メイン料理",
+                "view_all" => "すべて見る",
+                "drinks" => "おすすめドリンク",
+                "loading" => "バックエンドからメニューを読み込み中...",
+                "load_failed" => "この店舗のメニューを読み込めませんでした。",
+                "hero_badge" => "店舗メニュー",
+                "store_fallback" => "レストラン",
+                "summary_title" => "メニューデータ",
+                "no_items" => "この店舗には現在販売中の料理がありません。",
+                "one_item" => "この店舗には現在販売中の料理が1品あります。",
+                "dish_fallback" => "料理",
+                "dish_desc_fallback" => "この店舗の定番料理です。",
+                "drink_fallback" => "ドリンク",
+                "summary_empty" => "この店舗の販売中メニューをまだ受信していません。",
+                "store_generic" => "店舗",
+                "summary_count" => "{0} には現在、バックエンドと同期された販売中メニューが {1} 品あります。",
+                "hero_empty" => "販売中メニューなし",
+                "hero_count" => "販売中 {0}品",
+                _ => key
+            },
+            _ => key switch
+            {
+                "menu_count" => "{0} mon",
+                "featured" => "Mon noi bat",
+                "menu" => "Thuc don",
+                "featured_placeholder" => "Mon noi bat",
+                "dish_desc_placeholder" => "Mo ta dang cap nhat",
+                "popular" => "Mon chinh pho bien",
+                "view_all" => "Xem tat ca",
+                "drinks" => "Do uong dac sac",
+                "loading" => "Dang tai thuc don tu backend...",
+                "load_failed" => "Khong tai duoc thuc don cua gian hang nay.",
+                "hero_badge" => "THUC DON GIAN HANG",
+                "store_fallback" => "Nha hang",
+                "summary_title" => "Du lieu thuc don",
+                "no_items" => "Gian hang nay chua co mon nao dang ban tren backend.",
+                "one_item" => "Gian hang hien co 1 mon dang ban.",
+                "dish_fallback" => "Mon an",
+                "dish_desc_fallback" => "Mon ngon dac trung cua gian hang.",
+                "drink_fallback" => "Do uong",
+                "summary_empty" => "Chua nhan duoc mon dang ban cho gian hang nay.",
+                "store_generic" => "Gian hang",
+                "summary_count" => "{0} hien co {1} mon dang ban duoc dong bo tu backend.",
+                "hero_empty" => "Chua co mon dang ban",
+                "hero_count" => "{0} mon dang ban",
+                _ => key
+            }
+        };
     }
 }

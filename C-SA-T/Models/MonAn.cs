@@ -29,9 +29,6 @@
                 if (string.IsNullOrWhiteSpace(HinhAnh))
                     return null;
 
-                if (HinhAnh.StartsWith("http://") || HinhAnh.StartsWith("https://"))
-                    return HinhAnh;
-
                 return global::MauiApp1.Utils.BackendUrlResolver.BuildUrl(HinhAnh);
             }
         }

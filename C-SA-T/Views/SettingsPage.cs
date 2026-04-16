@@ -1,5 +1,6 @@
 using MauiApp1.Controls;
 using MauiApp1.Services;
+using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiApp1.Views;
@@ -10,12 +11,19 @@ public class SettingsPage : ContentPage
     private readonly AccessFlowService _accessFlowService;
     private Label _titleLabel = null!;
     private Label _langSectionLabel = null!;
+    private Label _backendSectionLabel = null!;
+    private Label _backendSectionDescLabel = null!;
+    private Entry _backendUrlEntry = null!;
+    private Label _backendStatusLabel = null!;
+    private Button _backendSaveButton = null!;
     private Label _qrSectionLabel = null!;
     private Label _qrSectionDescLabel = null!;
     private Label _resetSectionLabel = null!;
     private Label _resetSectionDescLabel = null!;
+    private Label _resetActionLabel = null!;
     private Label _deleteTokenSectionLabel = null!;
     private Label _deleteTokenSectionDescLabel = null!;
+    private Label _deleteTokenActionLabel = null!;
     private HorizontalStackLayout _chipGrid = null!;
 
     private static readonly (string Code, string NativeName)[] _languages =
@@ -75,6 +83,66 @@ public class SettingsPage : ContentPage
             {
                 Spacing = 10,
                 Children = { _langSectionLabel, _chipGrid }
+            }
+        };
+
+        _backendSectionLabel = new Label
+        {
+            FontSize = 15,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#111111")
+        };
+
+        _backendSectionDescLabel = new Label
+        {
+            FontSize = 13,
+            TextColor = Color.FromArgb("#6B7280"),
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        _backendUrlEntry = new Entry
+        {
+            Text = Preferences.Get(BackendUrlResolver.PreferenceKey, string.Empty),
+            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
+            Keyboard = Keyboard.Url,
+            TextColor = Color.FromArgb("#111111"),
+            PlaceholderColor = Color.FromArgb("#9CA3AF")
+        };
+
+        _backendStatusLabel = new Label
+        {
+            FontSize = 12,
+            TextColor = Color.FromArgb("#9A3412"),
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        _backendSaveButton = new Button
+        {
+            HeightRequest = 42,
+            CornerRadius = 12,
+            BackgroundColor = Color.FromArgb("#FF6B00"),
+            TextColor = Colors.White,
+            FontAttributes = FontAttributes.Bold
+        };
+        _backendSaveButton.Clicked += async (_, __) => await SaveBackendUrlAsync();
+
+        var backendCard = new Border
+        {
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            Stroke = Color.FromArgb("#F0E6DC"),
+            BackgroundColor = Colors.White,
+            Padding = new Thickness(16, 14),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 10,
+                Children =
+                {
+                    _backendSectionLabel,
+                    _backendSectionDescLabel,
+                    _backendUrlEntry,
+                    _backendStatusLabel,
+                    _backendSaveButton
+                }
             }
         };
 
@@ -162,7 +230,7 @@ public class SettingsPage : ContentPage
             {
                 Spacing = 20,
                 Padding = new Thickness(16, 52, 16, 28),
-                Children = { _titleLabel, languageCard, qrCard, resetCard, deleteTokenCard }
+                Children = { _titleLabel, languageCard, backendCard, qrCard, resetCard, deleteTokenCard }
             }
         };
 
@@ -235,17 +303,53 @@ public class SettingsPage : ContentPage
         RenderLanguageChips();
     }
 
+    private Task SaveBackendUrlAsync()
+    {
+        var rawValue = _backendUrlEntry.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            Preferences.Remove(BackendUrlResolver.PreferenceKey);
+            BackendUrlResolver.Configure(null);
+            _backendStatusLabel.TextColor = Color.FromArgb("#9A3412");
+            _backendStatusLabel.Text = GetBackendClearedMessage();
+            return Task.CompletedTask;
+        }
+
+        var normalized = BackendUrlResolver.NormalizeOverrideBaseUrl(rawValue);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            _backendStatusLabel.TextColor = Color.FromArgb("#B91C1C");
+            _backendStatusLabel.Text = GetBackendInvalidMessage();
+            return Task.CompletedTask;
+        }
+
+        Preferences.Set(BackendUrlResolver.PreferenceKey, normalized);
+        BackendUrlResolver.Configure(normalized);
+        _backendUrlEntry.Text = normalized;
+        _backendStatusLabel.TextColor = Color.FromArgb("#166534");
+        _backendStatusLabel.Text = string.Format(GetBackendSavedMessage(), normalized);
+        return Task.CompletedTask;
+    }
+
     private void UpdateLocalizedText()
     {
         Title = _loc.Get("settings_title");
         _titleLabel.Text = _loc.Get("settings_title");
         _langSectionLabel.Text = _loc.Get("settings_language_title");
+        _backendSectionLabel.Text = GetBackendLabel();
+        _backendSectionDescLabel.Text = GetBackendDescription();
+        _backendUrlEntry.Placeholder = GetBackendPlaceholder();
+        _backendSaveButton.Text = GetBackendSaveText();
+        if (string.IsNullOrWhiteSpace(_backendStatusLabel.Text))
+            _backendStatusLabel.Text = GetBackendHint();
         _qrSectionLabel.Text = GetQrLabel();
         _qrSectionDescLabel.Text = GetQrDescription();
         _resetSectionLabel.Text = GetResetLabel();
         _resetSectionDescLabel.Text = GetResetDescription();
+        _resetActionLabel.Text = GetDeleteActionText();
         _deleteTokenSectionLabel.Text = GetDeleteTokenLabel();
         _deleteTokenSectionDescLabel.Text = GetDeleteTokenDescription();
+        _deleteTokenActionLabel.Text = GetDeleteActionText();
         RenderLanguageChips();
     }
 
@@ -362,16 +466,15 @@ public class SettingsPage : ContentPage
         row.Children.Add(textWrap);
         row.SetColumn(textWrap, 1);
 
-        var actionLabel = new Label
+        _resetActionLabel = new Label
         {
-            Text = "Xoa",
             FontSize = 14,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#DC2626"),
             VerticalTextAlignment = TextAlignment.Center
         };
-        row.Children.Add(actionLabel);
-        row.SetColumn(actionLabel, 2);
+        row.Children.Add(_resetActionLabel);
+        row.SetColumn(_resetActionLabel, 2);
 
         var tap = new TapGestureRecognizer();
         tap.Tapped += async (_, __) => await ResetAccessAsync();
@@ -425,16 +528,15 @@ public class SettingsPage : ContentPage
         row.Children.Add(textWrap);
         row.SetColumn(textWrap, 1);
 
-        var actionLabel = new Label
+        _deleteTokenActionLabel = new Label
         {
-            Text = "Xoa",
             FontSize = 14,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#B91C1C"),
             VerticalTextAlignment = TextAlignment.Center
         };
-        row.Children.Add(actionLabel);
-        row.SetColumn(actionLabel, 2);
+        row.Children.Add(_deleteTokenActionLabel);
+        row.SetColumn(_deleteTokenActionLabel, 2);
 
         var tap = new TapGestureRecognizer();
         tap.Tapped += async (_, __) => await DeleteTokenOnDeviceAsync();
@@ -446,10 +548,10 @@ public class SettingsPage : ContentPage
     private async Task ResetAccessAsync()
     {
         var confirmed = await DisplayAlertAsync(
-            "Reset truy cap",
-            "Xoa token truy cap hien tai de quay lai man hinh chon goi va quet QR?",
-            "Xoa token",
-            "Huy");
+            GetResetConfirmTitle(),
+            GetResetConfirmMessage(),
+            GetDeleteTokenConfirmButtonText(),
+            GetCancelText());
 
         if (!confirmed)
             return;
@@ -463,16 +565,102 @@ public class SettingsPage : ContentPage
     private async Task DeleteTokenOnDeviceAsync()
     {
         var confirmed = await DisplayAlertAsync(
-            "Xoa token tren may",
-            "Chi xoa access token local tren thiet bi nay de ban test lai luong kich hoat?",
-            "Xoa token",
-            "Huy");
+            GetDeleteTokenConfirmTitle(),
+            GetDeleteTokenConfirmMessage(),
+            GetDeleteTokenConfirmButtonText(),
+            GetCancelText());
 
         if (!confirmed)
             return;
 
         _accessFlowService.ClearAccess();
-        await DisplayAlertAsync("Hoan tat", "Da xoa token tren may nay.", "OK");
+        await DisplayAlertAsync(GetDoneTitle(), GetDeleteTokenDoneMessage(), _loc.Get("alert_ok"));
+    }
+
+    private string GetBackendLabel()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Backend URL",
+            "ko" => "백엔드 URL",
+            "ja" => "バックエンドURL",
+            _ => "URL backend"
+        };
+    }
+
+    private string GetBackendDescription()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Use this when Android cannot reach localhost. Emulator usually uses https://10.0.2.2:7123/, while a real device should use your PC LAN IP.",
+            "ko" => "Android가 localhost에 접근하지 못할 때 사용합니다. 에뮬레이터는 보통 https://10.0.2.2:7123/ 를, 실제 기기는 PC의 LAN IP를 사용해야 합니다.",
+            "ja" => "Android が localhost に接続できない場合に使います。エミュレーターは通常 https://10.0.2.2:7123/、実機は PC の LAN IP を使ってください。",
+            _ => "Dung khi Android khong truy cap duoc localhost. Emulator thuong dung https://10.0.2.2:7123/, con may that can dung IP LAN cua may tinh."
+        };
+    }
+
+    private string GetBackendPlaceholder()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "https://192.168.x.x:7123/",
+            _ => "https://192.168.x.x:7123/"
+        };
+    }
+
+    private string GetBackendSaveText()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Save backend URL",
+            "ko" => "백엔드 URL 저장",
+            "ja" => "バックエンドURLを保存",
+            _ => "Luu URL backend"
+        };
+    }
+
+    private string GetBackendHint()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Leave blank to use the default URL for the current platform.",
+            "ko" => "비워 두면 현재 플랫폼의 기본 URL을 사용합니다.",
+            "ja" => "空欄のままなら現在のプラットフォーム既定URLを使います。",
+            _ => "De trong de dung URL mac dinh theo tung nen tang."
+        };
+    }
+
+    private string GetBackendSavedMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Saved backend URL: {0}",
+            "ko" => "백엔드 URL 저장됨: {0}",
+            "ja" => "バックエンドURLを保存しました: {0}",
+            _ => "Da luu URL backend: {0}"
+        };
+    }
+
+    private string GetBackendClearedMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Removed custom backend URL. The app will use the platform default.",
+            "ko" => "사용자 지정 백엔드 URL을 제거했습니다. 앱은 플랫폼 기본값을 사용합니다.",
+            "ja" => "カスタムのバックエンドURLを削除しました。アプリは既定値を使います。",
+            _ => "Da xoa URL backend tuy chinh. App se quay ve URL mac dinh."
+        };
+    }
+
+    private string GetBackendInvalidMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Invalid URL. Use a full http:// or https:// address.",
+            "ko" => "잘못된 URL입니다. http:// 또는 https:// 전체 주소를 입력하세요.",
+            "ja" => "無効なURLです。http:// または https:// から始まる完全なURLを入力してください。",
+            _ => "URL khong hop le. Hay nhap day du dia chi http:// hoac https://."
+        };
     }
 
     private string GetQrLabel()
@@ -480,6 +668,8 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Scan QR",
+            "ko" => "QR 스캔",
+            "ja" => "QRをスキャン",
             _ => "Quet QR"
         };
     }
@@ -489,6 +679,8 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Open the QR scanner to activate access from a login token.",
+            "ko" => "로그인 QR 토큰으로 접근 권한을 활성화하려면 스캐너를 엽니다.",
+            "ja" => "ログイン用QRトークンからアクセスを有効化するにはスキャナーを開きます。",
             _ => "Mo man hinh quet QR de truy cap bang QR token dang nhap."
         };
     }
@@ -498,6 +690,8 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Reset access",
+            "ko" => "접근 초기화",
+            "ja" => "アクセスをリセット",
             _ => "Reset truy cap"
         };
     }
@@ -507,6 +701,8 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Clear the local token so you can test package purchase and QR token login again.",
+            "ko" => "로컬 토큰을 지워 패키지 구매와 QR 로그인 흐름을 다시 테스트할 수 있습니다.",
+            "ja" => "ローカルトークンを削除して、パッケージ購入とQRログインの流れを再テストできます。",
             _ => "Xoa token local de ban test lai luong chon goi, thanh toan va QR token dang nhap."
         };
     }
@@ -516,6 +712,8 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Delete token on device",
+            "ko" => "기기 토큰 삭제",
+            "ja" => "端末のトークンを削除",
             _ => "Xoa token tren may"
         };
     }
@@ -525,7 +723,108 @@ public class SettingsPage : ContentPage
         return _loc.CurrentLanguage switch
         {
             "en" => "Delete only the local token on this device without changing server data.",
+            "ko" => "서버 데이터는 건드리지 않고 이 기기의 로컬 토큰만 삭제합니다.",
+            "ja" => "サーバーデータは変更せず、この端末のローカルトークンだけ削除します。",
             _ => "Chi xoa token local tren may nay, khong dong vao du lieu token o backend."
+        };
+    }
+
+    private string GetDeleteActionText()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Delete",
+            "ko" => "삭제",
+            "ja" => "削除",
+            _ => "Xoa"
+        };
+    }
+
+    private string GetResetConfirmTitle()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Reset access",
+            "ko" => "접근 초기화",
+            "ja" => "アクセスをリセット",
+            _ => "Reset truy cap"
+        };
+    }
+
+    private string GetResetConfirmMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Remove the current access token and return to the screen for choosing a package or scanning a QR code?",
+            "ko" => "현재 접근 토큰을 지우고 패키지 선택 또는 QR 스캔 화면으로 돌아가시겠습니까?",
+            "ja" => "現在のアクセストークンを削除して、パッケージ選択またはQRスキャン画面に戻りますか？",
+            _ => "Xoa token truy cap hien tai de quay lai man hinh chon goi va quet QR?"
+        };
+    }
+
+    private string GetDeleteTokenConfirmTitle()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Delete token on device",
+            "ko" => "기기 토큰 삭제",
+            "ja" => "端末のトークンを削除",
+            _ => "Xoa token tren may"
+        };
+    }
+
+    private string GetDeleteTokenConfirmMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Delete only the local access token on this device so you can test activation again?",
+            "ko" => "이 기기의 로컬 접근 토큰만 삭제해서 활성화 흐름을 다시 테스트하시겠습니까?",
+            "ja" => "この端末のローカルアクセストークンだけ削除して、再度アクティベーションを試しますか？",
+            _ => "Chi xoa access token local tren thiet bi nay de ban test lai luong kich hoat?"
+        };
+    }
+
+    private string GetDeleteTokenConfirmButtonText()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Delete token",
+            "ko" => "토큰 삭제",
+            "ja" => "トークンを削除",
+            _ => "Xoa token"
+        };
+    }
+
+    private string GetCancelText()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Cancel",
+            "ko" => "취소",
+            "ja" => "キャンセル",
+            _ => "Huy"
+        };
+    }
+
+    private string GetDoneTitle()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "Done",
+            "ko" => "완료",
+            "ja" => "完了",
+            _ => "Hoan tat"
+        };
+    }
+
+    private string GetDeleteTokenDoneMessage()
+    {
+        return _loc.CurrentLanguage switch
+        {
+            "en" => "The token on this device has been removed.",
+            "ko" => "이 기기의 토큰을 삭제했습니다.",
+            "ja" => "この端末のトークンを削除しました。",
+            _ => "Da xoa token tren may nay."
         };
     }
 }

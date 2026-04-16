@@ -58,6 +58,7 @@ public partial class PoiMapPage : ContentPage
     private Label _languageSectionLabel = null!;
     private Label _audioSectionLabel = null!;
     private Label _foodImagesSectionLabel = null!;
+    private HorizontalStackLayout _foodImagesRow = null!;
     private Button _closeButton = null!;
 
     private readonly LocalizationService _loc;
@@ -521,7 +522,7 @@ public partial class PoiMapPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync(_loc.Get("alert_error"), $"Không tải được dữ liệu POI từ DB.\n{ex.Message}", _loc.Get("alert_ok"));
+            await DisplayAlertAsync(_loc.Get("alert_error"), string.Format(_loc.Get("poi_load_error"), ex.Message), _loc.Get("alert_ok"));
         }
         finally
         {
@@ -591,10 +592,10 @@ public partial class PoiMapPage : ContentPage
                 .Select(x => x.Poi)
                 .ToList();
 
-            _titleLabel.Text = "Tìm kiếm";
+            _titleLabel.Text = _loc.Get("search_title");
             _subtitleLabel.Text = results.Any()
-                ? $"{results.Count()} kết quả cho \"{_activeSearchQuery}\""
-                : $"Không thấy kết quả cho \"{_activeSearchQuery}\"";
+                ? string.Format(_loc.Get("search_results"), results.Count(), _activeSearchQuery)
+                : string.Format(_loc.Get("search_results_empty"), _activeSearchQuery);
         }
 
         foreach (var poi in results)
@@ -1046,15 +1047,13 @@ public partial class PoiMapPage : ContentPage
             Margin = new Thickness(16, 0, 16, 0)
         };
 
-        var foodImages = new HorizontalStackLayout
+        _foodImagesRow = new HorizontalStackLayout
         {
             Spacing = 12,
             Padding = new Thickness(16, 0, 16, 0),
             Children =
             {
-                CreateDemoFoodImage(),
-                CreateDemoFoodImage(),
-                CreateDemoFoodImage()
+                CreateFoodImageCard(null)
             }
         };
 
@@ -1071,7 +1070,7 @@ public partial class PoiMapPage : ContentPage
                     languageCard,
                     audioCard,
                     _foodImagesSectionLabel,
-                    foodImages,
+                    _foodImagesRow,
                     new VerticalStackLayout
                     {
                         Padding = new Thickness(16, 0, 16, 0),
@@ -1124,7 +1123,7 @@ public partial class PoiMapPage : ContentPage
         };
     }
 
-    private View CreateDemoFoodImage()
+    private View CreateFoodImageCard(string? imagePath)
     {
         return new Border
         {
@@ -1134,7 +1133,7 @@ public partial class PoiMapPage : ContentPage
             WidthRequest = 140,
             Content = new Image
             {
-                Source = "dotnet_bot.png",
+                Source = BuildImageSource(imagePath),
                 Aspect = Aspect.AspectFill
             }
         };
@@ -1517,7 +1516,9 @@ public partial class PoiMapPage : ContentPage
             var page = new GianHangFoodGalleryPage(
                 _currentDetailGianHang,
                 _monAnService,
-                NormalizeImagePath(_currentDetailGianHang.HinhAnhFullUrl));
+                _loc,
+                NormalizeImagePath(_currentDetailGianHang.HinhAnhFullUrl),
+                NormalizeLanguageCode(_selectedLanguageCode));
 
             var isMenuLayerOpened = false;
             var menuOpenedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1723,6 +1724,48 @@ public partial class PoiMapPage : ContentPage
         _detailTitle.Text = string.IsNullOrWhiteSpace(gianHang.Ten) ? _loc.Get("fallback_name") : gianHang.Ten;
         _detailAddress.Text = string.IsNullOrWhiteSpace(gianHang.DiaChi) ? _loc.Get("fallback_address") : gianHang.DiaChi;
         _detailDescription.Text = string.IsNullOrWhiteSpace(gianHang.MoTa) ? _loc.Get("fallback_description") : gianHang.MoTa;
+    }
+
+    private async Task PopulateDetailFoodImagesAsync(GianHang gianHang, string? lang = null)
+    {
+        if (_foodImagesRow is null)
+            return;
+
+        var requestedLang = string.IsNullOrWhiteSpace(lang)
+            ? NormalizeLanguageCode(_selectedLanguageCode)
+            : NormalizeLanguageCode(lang);
+
+        List<MonAn> items;
+        try
+        {
+            items = await _monAnService.GetByGianHangAsync(gianHang.IdGianHang, requestedLang);
+        }
+        catch
+        {
+            items = new List<MonAn>();
+        }
+
+        if (items.Count == 0 && gianHang.MonAns.Count > 0)
+            items = gianHang.MonAns;
+
+        var visibleItems = items
+            .Where(item => item is not null)
+            .Where(item =>
+                string.IsNullOrWhiteSpace(item.TinhTrang) ||
+                string.Equals(item.TinhTrang, "con_ban", StringComparison.OrdinalIgnoreCase))
+            .Take(6)
+            .ToList();
+
+        _foodImagesRow.Children.Clear();
+
+        if (visibleItems.Count == 0)
+        {
+            _foodImagesRow.Children.Add(CreateFoodImageCard(null));
+            return;
+        }
+
+        foreach (var item in visibleItems)
+            _foodImagesRow.Children.Add(CreateFoodImageCard(item.HinhAnhFullUrl));
     }
 
     private void UpdateLocalizedText()

@@ -1,4 +1,5 @@
 using MauiApp1.Services;
+using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiApp1.Controls;
@@ -212,21 +213,7 @@ public sealed class AudioPlaybackBanner : ContentView
 
     private static ImageSource BuildImageSource(string? imageUrl)
     {
-        if (string.IsNullOrWhiteSpace(imageUrl))
-            return "dotnet_bot.png";
-
-        if (imageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            imageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            return new UriImageSource
-            {
-                Uri = new Uri(imageUrl),
-                CachingEnabled = true,
-                CacheValidity = TimeSpan.FromHours(6)
-            };
-        }
-
-        return imageUrl;
+        return RemoteImageSourceFactory.Build(imageUrl);
     }
 
     private static View BuildStopIcon()
