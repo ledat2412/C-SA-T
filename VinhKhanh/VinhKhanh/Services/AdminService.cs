@@ -258,6 +258,86 @@ namespace VinhKhanh.Services
             return await GetAccountByIdAsync(insertedAccountId) ?? throw new InvalidOperationException("Khong tao duoc tai khoan moi.");
         }
 
+        public async Task<OperationResultDto> UpdateAccountStatusAsync(int currentAdminAccountId, int targetAccountId, string tinhTrang)
+        {
+            if (targetAccountId <= 0)
+                throw new ArgumentException("ID tai khoan khong hop le.");
+
+            var normalizedStatus = NormalizeAccountStatus(tinhTrang);
+            if (currentAdminAccountId == targetAccountId && normalizedStatus == "khoa")
+                throw new InvalidOperationException("Khong the khoa chinh tai khoan admin dang dang nhap.");
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await using var transaction = await conn.BeginTransactionAsync();
+
+            const string getAccountSql = @"
+                SELECT tk.idTaiKhoan, tk.loaiTaiKhoan, cql.idChuQuanLy
+                FROM taikhoan tk
+                LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+                WHERE tk.idTaiKhoan = @idTaiKhoan
+                LIMIT 1;";
+
+            string loaiTaiKhoan;
+            int? idChuQuanLy = null;
+
+            using (var getAccountCmd = new MySqlCommand(getAccountSql, conn, transaction))
+            {
+                getAccountCmd.Parameters.AddWithValue("@idTaiKhoan", targetAccountId);
+                using var reader = await getAccountCmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync())
+                {
+                    return new OperationResultDto
+                    {
+                        Success = false,
+                        Message = "Khong tim thay tai khoan can cap nhat."
+                    };
+                }
+
+                loaiTaiKhoan = reader["loaiTaiKhoan"]?.ToString() ?? string.Empty;
+                idChuQuanLy = reader["idChuQuanLy"] == DBNull.Value ? null : Convert.ToInt32(reader["idChuQuanLy"]);
+            }
+
+            const string updateAccountSql = @"
+                UPDATE taikhoan
+                SET tinhTrang = @tinhTrang
+                WHERE idTaiKhoan = @idTaiKhoan;";
+
+            using (var updateAccountCmd = new MySqlCommand(updateAccountSql, conn, transaction))
+            {
+                updateAccountCmd.Parameters.AddWithValue("@tinhTrang", normalizedStatus);
+                updateAccountCmd.Parameters.AddWithValue("@idTaiKhoan", targetAccountId);
+                await updateAccountCmd.ExecuteNonQueryAsync();
+            }
+
+            var affectedStoreCount = 0;
+            if (loaiTaiKhoan == "chu_quan_ly" && idChuQuanLy.HasValue && normalizedStatus == "khoa")
+            {
+                const string updateStoresSql = @"
+                    UPDATE gianhang
+                    SET tinhTrang = CASE
+                        WHEN tinhTrang = 'dong_cua' THEN 'dong_cua'
+                        ELSE 'tam_ngung'
+                    END,
+                    thoiGianCapNhat = NOW()
+                    WHERE idChuQuanLy = @idChuQuanLy;";
+
+                using var updateStoresCmd = new MySqlCommand(updateStoresSql, conn, transaction);
+                updateStoresCmd.Parameters.AddWithValue("@idChuQuanLy", idChuQuanLy.Value);
+                affectedStoreCount = await updateStoresCmd.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+
+            return new OperationResultDto
+            {
+                Success = true,
+                Message = loaiTaiKhoan == "chu_quan_ly" && normalizedStatus == "khoa"
+                    ? $"Cap nhat tinh trang tai khoan thanh cong. Da tam ngung {affectedStoreCount} gian hang cua chu quan ly nay."
+                    : "Cap nhat tinh trang tai khoan thanh cong."
+            };
+        }
+
         public async Task<List<AdminServicePackageDto>> GetServicePackagesAsync()
         {
             using var conn = _db.GetConnection();

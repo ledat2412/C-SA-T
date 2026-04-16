@@ -90,6 +90,38 @@ namespace VinhKhanh.Services
             return await GetOwnerStoreByIdAsync(idGianHang, conn);
         }
 
+        public async Task<OwnerStoreDto?> UpdateStoreByOwnerAsync(int idGianHang, UpsertStoreRequestDto request)
+        {
+            ValidateStoreRequestForOwner(request);
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+                UPDATE gianhang
+                SET ten = @ten,
+                    diaChi = @diaChi,
+                    lat = @lat,
+                    lon = @lon,
+                    tinhTrang = @tinhTrang,
+                    thoiGianCapNhat = NOW()
+                WHERE idGianHang = @idGianHang;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+            cmd.Parameters.AddWithValue("@ten", request.Ten);
+            cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrang));
+
+            var rows = await cmd.ExecuteNonQueryAsync();
+            if (rows <= 0)
+                return null;
+
+            return await GetOwnerStoreByIdAsync(idGianHang, conn);
+        }
+
         public async Task<OperationResultDto> UpdateStoreStatusAsync(int idGianHang, string tinhTrang)
         {
             var status = NormalizeStoreStatus(tinhTrang);
@@ -198,10 +230,22 @@ namespace VinhKhanh.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                SELECT idMonAn, idGianHang, ten, donGia, tinhTrang
-                FROM monan
-                WHERE idGianHang = @idGianHang
-                ORDER BY idMonAn;";
+                SELECT
+                    ma.idMonAn,
+                    ma.idGianHang,
+                    ma.ten,
+                    ma.donGia,
+                    ma.tinhTrang,
+                    (
+                        SELECT ham.duongDan
+                        FROM hinhanhmonan ham
+                        WHERE ham.idMonAn = ma.idMonAn
+                        ORDER BY ham.idHinhAnh
+                        LIMIT 1
+                    ) AS hinhAnh
+                FROM monan ma
+                WHERE ma.idGianHang = @idGianHang
+                ORDER BY ma.idMonAn;";
 
             using var cmd = new MySqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
@@ -216,11 +260,100 @@ namespace VinhKhanh.Services
                     IdGianHang = reader.GetInt32("idGianHang"),
                     Ten = reader["ten"]?.ToString() ?? string.Empty,
                     DonGia = reader.GetDecimal("donGia"),
-                    TinhTrang = reader["tinhTrang"]?.ToString()
+                    TinhTrang = reader["tinhTrang"]?.ToString(),
+                    HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString())
                 });
             }
 
             return list;
+        }
+
+        public async Task<string?> SaveFoodImageAsync(int idMonAn, IFormFile image, IWebHostEnvironment env)
+        {
+            if (image == null || image.Length <= 0)
+                throw new ArgumentException("File anh khong hop le.");
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string existsSql = @"
+                SELECT COUNT(*)
+                FROM monan
+                WHERE idMonAn = @idMonAn;";
+
+            using (var existsCmd = new MySqlCommand(existsSql, conn))
+            {
+                existsCmd.Parameters.AddWithValue("@idMonAn", idMonAn);
+                var exists = Convert.ToInt32(await existsCmd.ExecuteScalarAsync());
+                if (exists <= 0)
+                    return null;
+            }
+
+            int? existingImageId = null;
+            string? existingImagePath = null;
+
+            const string currentImageSql = @"
+                SELECT idHinhAnh, duongDan
+                FROM hinhanhmonan
+                WHERE idMonAn = @idMonAn
+                ORDER BY idHinhAnh
+                LIMIT 1;";
+
+            using (var currentImageCmd = new MySqlCommand(currentImageSql, conn))
+            {
+                currentImageCmd.Parameters.AddWithValue("@idMonAn", idMonAn);
+                using var reader = await currentImageCmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    existingImageId = reader.GetInt32("idHinhAnh");
+                    existingImagePath = reader["duongDan"]?.ToString();
+                }
+            }
+
+            var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
+            var targetFolder = Path.Combine(webRoot, "images", "foods");
+            Directory.CreateDirectory(targetFolder);
+
+            var extension = Path.GetExtension(image.FileName);
+            if (string.IsNullOrWhiteSpace(extension) || extension.Length > 10)
+                extension = ".jpg";
+
+            var fileName = $"food_{idMonAn}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{extension.ToLowerInvariant()}";
+            var fullPath = Path.Combine(targetFolder, fileName);
+            var dbPath = $"images/foods/{fileName}";
+
+            using (var stream = File.Create(fullPath))
+            {
+                await image.CopyToAsync(stream);
+            }
+
+            if (existingImageId.HasValue)
+            {
+                const string updateImageSql = @"
+                    UPDATE hinhanhmonan
+                    SET duongDan = @duongDan
+                    WHERE idHinhAnh = @idHinhAnh;";
+
+                using var updateImageCmd = new MySqlCommand(updateImageSql, conn);
+                updateImageCmd.Parameters.AddWithValue("@duongDan", dbPath);
+                updateImageCmd.Parameters.AddWithValue("@idHinhAnh", existingImageId.Value);
+                await updateImageCmd.ExecuteNonQueryAsync();
+            }
+            else
+            {
+                const string insertImageSql = @"
+                    INSERT INTO hinhanhmonan (idMonAn, duongDan)
+                    VALUES (@idMonAn, @duongDan);";
+
+                using var insertImageCmd = new MySqlCommand(insertImageSql, conn);
+                insertImageCmd.Parameters.AddWithValue("@idMonAn", idMonAn);
+                insertImageCmd.Parameters.AddWithValue("@duongDan", dbPath);
+                await insertImageCmd.ExecuteNonQueryAsync();
+            }
+
+            DeleteManagedFoodImageIfNeeded(existingImagePath, webRoot, dbPath);
+
+            return NormalizeImagePathForWeb(dbPath);
         }
 
         public async Task<StoreDetailDto?> GetStoreByIdAsync(int idGianHang, string lang = "vi")
@@ -425,9 +558,22 @@ namespace VinhKhanh.Services
         private async Task<MonAnDto> GetFoodByIdAsync(int idMonAn, MySqlConnection conn)
         {
             const string sql = @"
-                SELECT idMonAn, idGianHang, ten, donGia, tinhTrang, thoiGianCapNhat
-                FROM monan
-                WHERE idMonAn = @idMonAn
+                SELECT
+                    ma.idMonAn,
+                    ma.idGianHang,
+                    ma.ten,
+                    ma.donGia,
+                    ma.tinhTrang,
+                    ma.thoiGianCapNhat,
+                    (
+                        SELECT ham.duongDan
+                        FROM hinhanhmonan ham
+                        WHERE ham.idMonAn = ma.idMonAn
+                        ORDER BY ham.idHinhAnh
+                        LIMIT 1
+                    ) AS hinhAnh
+                FROM monan ma
+                WHERE ma.idMonAn = @idMonAn
                 LIMIT 1;";
 
             using var cmd = new MySqlCommand(sql, conn);
@@ -442,7 +588,8 @@ namespace VinhKhanh.Services
                 IdGianHang = reader.GetInt32("idGianHang"),
                 Ten = reader["ten"]?.ToString() ?? string.Empty,
                 DonGia = reader.GetDecimal("donGia"),
-                TinhTrang = reader["tinhTrang"]?.ToString()
+                TinhTrang = reader["tinhTrang"]?.ToString(),
+                HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString())
             };
         }
 
@@ -452,6 +599,13 @@ namespace VinhKhanh.Services
                 throw new ArgumentException("Ten gian hang khong duoc rong.");
             if (request.PhiHangThang < 0)
                 throw new ArgumentException("Phi hang thang khong hop le.");
+            NormalizeStoreStatus(request.TinhTrang);
+        }
+
+        private static void ValidateStoreRequestForOwner(UpsertStoreRequestDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Ten))
+                throw new ArgumentException("Ten gian hang khong duoc rong.");
             NormalizeStoreStatus(request.TinhTrang);
         }
 
@@ -514,6 +668,26 @@ namespace VinhKhanh.Services
                 return;
 
             var managedRoot = Path.GetFullPath(Path.Combine(webRoot, "images", "stores"));
+            var candidatePath = Path.GetFullPath(Path.Combine(webRoot, normalizedPath));
+
+            if (!candidatePath.StartsWith(managedRoot, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (File.Exists(candidatePath))
+                File.Delete(candidatePath);
+        }
+
+        private static void DeleteManagedFoodImageIfNeeded(string? existingPath, string webRoot, string replacementDbPath)
+        {
+            if (string.IsNullOrWhiteSpace(existingPath))
+                return;
+
+            var normalizedPath = existingPath.Trim().TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            var replacementPath = replacementDbPath.Replace('/', Path.DirectorySeparatorChar);
+            if (string.Equals(normalizedPath, replacementPath, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var managedRoot = Path.GetFullPath(Path.Combine(webRoot, "images", "foods"));
             var candidatePath = Path.GetFullPath(Path.Combine(webRoot, normalizedPath));
 
             if (!candidatePath.StartsWith(managedRoot, StringComparison.OrdinalIgnoreCase))

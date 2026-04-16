@@ -6,13 +6,6 @@ namespace VinhKhanh.Services
 {
     public class StoreRequestService
     {
-        private static readonly HashSet<string> StoreStatuses = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "dang_hoat_dong",
-            "tam_ngung",
-            "dong_cua"
-        };
-
         private static readonly HashSet<string> RequestStatuses = new(StringComparer.OrdinalIgnoreCase)
         {
             "cho_duyet",
@@ -34,56 +27,12 @@ namespace VinhKhanh.Services
             await EnsureStoreRequestTableAsync(conn);
 
             var normalizedStatus = NormalizeOptionalRequestStatus(status);
-
-            var sql = @"
-                SELECT
-                    ycg.idYeuCau,
-                    ycg.loaiYeuCau,
-                    ycg.idChuQuanLy,
-                    cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-                    cql.hoTen AS hoTenChuQuanLy,
-                    tk.username AS usernameChuQuanLy,
-                    tk.email AS emailChuQuanLy,
-                    ycg.tenGianHang,
-                    ycg.diaChi,
-                    ycg.moTa,
-                    ycg.ngonNguMoTa,
-                    ycg.lat,
-                    ycg.lon,
-                    ycg.phiHangThang,
-                    ycg.tinhTrangDeXuat,
-                    ycg.trangThaiYeuCau,
-                    ycg.ghiChuXuLy,
-                    ycg.idTaiKhoanXuLy,
-                    COALESCE(adx.hoTen, tkx.username, tkx.email) AS tenNguoiXuLy,
-                    ycg.idGianHang,
-                    ycg.ngayTao,
-                    ycg.thoiGianXuLy
-                FROM yeucaugianhang ycg
-                INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
-                INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-                LEFT JOIN taikhoan tkx ON tkx.idTaiKhoan = ycg.idTaiKhoanXuLy
-                LEFT JOIN admin adx ON adx.idTaiKhoan = tkx.idTaiKhoan";
-
-            if (!string.IsNullOrWhiteSpace(normalizedStatus))
-            {
-                sql += " WHERE ycg.trangThaiYeuCau = @trangThaiYeuCau";
-            }
-
-            sql += @"
-                ORDER BY
-                    CASE ycg.trangThaiYeuCau
-                        WHEN 'cho_duyet' THEN 0
-                        WHEN 'da_duyet' THEN 1
-                        ELSE 2
-                    END,
-                    ycg.ngayTao DESC,
-                    ycg.idYeuCau DESC;";
+            var sql = BuildRequestQuery(includeStatusFilter: !string.IsNullOrWhiteSpace(normalizedStatus), filterByOwner: false);
 
             using var cmd = new MySqlCommand(sql, conn);
             if (!string.IsNullOrWhiteSpace(normalizedStatus))
             {
-                cmd.Parameters.AddWithValue("@trangThaiYeuCau", normalizedStatus);
+                cmd.Parameters.AddWithValue("@trangThai", normalizedStatus);
             }
 
             using var reader = await cmd.ExecuteReaderAsync();
@@ -102,39 +51,7 @@ namespace VinhKhanh.Services
             await conn.OpenAsync();
             await EnsureStoreRequestTableAsync(conn);
 
-            const string sql = @"
-                SELECT
-                    ycg.idYeuCau,
-                    ycg.loaiYeuCau,
-                    ycg.idChuQuanLy,
-                    cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-                    cql.hoTen AS hoTenChuQuanLy,
-                    tk.username AS usernameChuQuanLy,
-                    tk.email AS emailChuQuanLy,
-                    ycg.tenGianHang,
-                    ycg.diaChi,
-                    ycg.moTa,
-                    ycg.ngonNguMoTa,
-                    ycg.lat,
-                    ycg.lon,
-                    ycg.phiHangThang,
-                    ycg.tinhTrangDeXuat,
-                    ycg.trangThaiYeuCau,
-                    ycg.ghiChuXuLy,
-                    ycg.idTaiKhoanXuLy,
-                    COALESCE(adx.hoTen, tkx.username, tkx.email) AS tenNguoiXuLy,
-                    ycg.idGianHang,
-                    ycg.ngayTao,
-                    ycg.thoiGianXuLy
-                FROM yeucaugianhang ycg
-                INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
-                INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-                LEFT JOIN taikhoan tkx ON tkx.idTaiKhoan = ycg.idTaiKhoanXuLy
-                LEFT JOIN admin adx ON adx.idTaiKhoan = tkx.idTaiKhoan
-                WHERE cql.idTaiKhoan = @idTaiKhoan
-                ORDER BY ycg.ngayTao DESC, ycg.idYeuCau DESC;";
-
-            using var cmd = new MySqlCommand(sql, conn);
+            using var cmd = new MySqlCommand(BuildRequestQuery(includeStatusFilter: false, filterByOwner: true), conn);
             cmd.Parameters.AddWithValue("@idTaiKhoan", idTaiKhoan);
 
             using var reader = await cmd.ExecuteReaderAsync();
@@ -162,31 +79,19 @@ namespace VinhKhanh.Services
             const string sql = @"
                 INSERT INTO yeucaugianhang
                 (
-                    loaiYeuCau,
                     idChuQuanLy,
-                    tenGianHang,
-                    diaChi,
-                    moTa,
-                    ngonNguMoTa,
-                    lat,
-                    lon,
-                    phiHangThang,
-                    tinhTrangDeXuat,
-                    trangThaiYeuCau,
-                    ngayTao
+                    tenDeNghi,
+                    diaChiDeNghi,
+                    ghiChuGui,
+                    trangThai,
+                    ngayGui
                 )
                 VALUES
                 (
-                    'them_gian_hang',
                     @idChuQuanLy,
-                    @tenGianHang,
-                    @diaChi,
-                    @moTa,
-                    @ngonNguMoTa,
-                    @lat,
-                    @lon,
-                    @phiHangThang,
-                    @tinhTrangDeXuat,
+                    @tenDeNghi,
+                    @diaChiDeNghi,
+                    @ghiChuGui,
                     'cho_duyet',
                     NOW()
                 );
@@ -194,14 +99,9 @@ namespace VinhKhanh.Services
 
             using var cmd = new MySqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@idChuQuanLy", ownerId);
-            cmd.Parameters.AddWithValue("@tenGianHang", request.Ten.Trim());
-            cmd.Parameters.AddWithValue("@diaChi", string.IsNullOrWhiteSpace(request.DiaChi) ? DBNull.Value : request.DiaChi.Trim());
-            cmd.Parameters.AddWithValue("@moTa", string.IsNullOrWhiteSpace(request.MoTa) ? DBNull.Value : request.MoTa.Trim());
-            cmd.Parameters.AddWithValue("@ngonNguMoTa", NormalizeLanguageCode(request.NgonNguMoTa));
-            cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@phiHangThang", 0m);
-            cmd.Parameters.AddWithValue("@tinhTrangDeXuat", NormalizeStoreStatus(request.TinhTrang));
+            cmd.Parameters.AddWithValue("@tenDeNghi", request.Ten.Trim());
+            cmd.Parameters.AddWithValue("@diaChiDeNghi", string.IsNullOrWhiteSpace(request.DiaChi) ? DBNull.Value : request.DiaChi.Trim());
+            cmd.Parameters.AddWithValue("@ghiChuGui", string.IsNullOrWhiteSpace(request.MoTa) ? DBNull.Value : request.MoTa.Trim());
 
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
             return await GetRequestByIdAsync(newId, conn)
@@ -210,9 +110,11 @@ namespace VinhKhanh.Services
 
         public async Task<StoreRequestDto?> ReviewRequestAsync(int idYeuCau, int reviewerAccountId, ReviewStoreRequestDto request)
         {
+            _ = reviewerAccountId;
+
             var requestStatus = NormalizeReviewDecision(request.TrangThaiYeuCau);
-            var reviewerNote = string.IsNullOrWhiteSpace(request.GhiChuXuLy) ? null : request.GhiChuXuLy.Trim();
             var reviewedFee = NormalizeReviewedFee(request.PhiHangThang, requestStatus);
+            var reviewedCoordinates = NormalizeReviewedCoordinates(request.Lat, request.Lon, requestStatus);
 
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
@@ -226,44 +128,32 @@ namespace VinhKhanh.Services
                 return null;
             }
 
-            if (!string.Equals(currentRequest.TrangThaiYeuCau, "cho_duyet", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(currentRequest.TrangThai, "cho_duyet", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Yeu cau nay da duoc xu ly truoc do.");
 
             int? createdStoreId = null;
             if (string.Equals(requestStatus, "da_duyet", StringComparison.OrdinalIgnoreCase))
             {
-                currentRequest.PhiHangThang = reviewedFee!.Value;
-                createdStoreId = await CreateStoreFromRequestAsync(currentRequest, conn, transaction);
-
-                if (!string.IsNullOrWhiteSpace(currentRequest.MoTa))
-                {
-                    await UpsertStoreDescriptionAsync(
-                        createdStoreId.Value,
-                        currentRequest.TenGianHang,
-                        currentRequest.MoTa!,
-                        currentRequest.NgonNguMoTa,
-                        conn,
-                        transaction
-                    );
-                }
+                createdStoreId = await CreateStoreFromRequestAsync(
+                    currentRequest,
+                    reviewedFee!.Value,
+                    reviewedCoordinates!.Lat,
+                    reviewedCoordinates.Lon,
+                    conn,
+                    transaction
+                );
             }
 
             const string updateSql = @"
                 UPDATE yeucaugianhang
-                SET trangThaiYeuCau = @trangThaiYeuCau,
-                    ghiChuXuLy = @ghiChuXuLy,
-                    idTaiKhoanXuLy = @idTaiKhoanXuLy,
-                    phiHangThang = COALESCE(@phiHangThang, phiHangThang),
+                SET trangThai = @trangThai,
                     idGianHang = COALESCE(@idGianHang, idGianHang),
-                    thoiGianXuLy = NOW()
+                    ngayXuLy = NOW()
                 WHERE idYeuCau = @idYeuCau;";
 
             using (var updateCmd = new MySqlCommand(updateSql, conn, transaction))
             {
-                updateCmd.Parameters.AddWithValue("@trangThaiYeuCau", requestStatus);
-                updateCmd.Parameters.AddWithValue("@ghiChuXuLy", (object?)reviewerNote ?? DBNull.Value);
-                updateCmd.Parameters.AddWithValue("@idTaiKhoanXuLy", reviewerAccountId);
-                updateCmd.Parameters.AddWithValue("@phiHangThang", reviewedFee.HasValue ? reviewedFee.Value : DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@trangThai", requestStatus);
                 updateCmd.Parameters.AddWithValue("@idGianHang", createdStoreId.HasValue ? createdStoreId.Value : DBNull.Value);
                 updateCmd.Parameters.AddWithValue("@idYeuCau", idYeuCau);
                 await updateCmd.ExecuteNonQueryAsync();
@@ -271,6 +161,66 @@ namespace VinhKhanh.Services
 
             await transaction.CommitAsync();
             return await GetRequestByIdAsync(idYeuCau, conn);
+        }
+
+        private static string BuildRequestQuery(bool includeStatusFilter, bool filterByOwner)
+        {
+            var sql = @"
+                SELECT
+                    ycg.idYeuCau,
+                    'them_gian_hang' AS loaiYeuCau,
+                    ycg.idChuQuanLy,
+                    cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
+                    cql.hoTen AS hoTenChuQuanLy,
+                    tk.username AS usernameChuQuanLy,
+                    tk.email AS emailChuQuanLy,
+                    ycg.tenDeNghi AS tenGianHang,
+                    ycg.diaChiDeNghi AS diaChi,
+                    ycg.ghiChuGui AS moTa,
+                    'vi' AS ngonNguMoTa,
+                    gh.lat AS lat,
+                    gh.lon AS lon,
+                    gh.phiHangThang AS phiHangThang,
+                    COALESCE(gh.tinhTrang, 'dang_hoat_dong') AS tinhTrangDeXuat,
+                    ycg.trangThai AS trangThaiYeuCau,
+                    NULL AS ghiChuXuLy,
+                    NULL AS idTaiKhoanXuLy,
+                    NULL AS tenNguoiXuLy,
+                    ycg.idGianHang,
+                    ycg.ngayGui AS ngayTao,
+                    ycg.ngayXuLy AS thoiGianXuLy
+                FROM yeucaugianhang ycg
+                INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
+                INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+                LEFT JOIN gianhang gh ON gh.idGianHang = ycg.idGianHang";
+
+            var conditions = new List<string>();
+            if (includeStatusFilter)
+            {
+                conditions.Add("ycg.trangThai = @trangThai");
+            }
+
+            if (filterByOwner)
+            {
+                conditions.Add("cql.idTaiKhoan = @idTaiKhoan");
+            }
+
+            if (conditions.Count > 0)
+            {
+                sql += Environment.NewLine + " WHERE " + string.Join(" AND ", conditions);
+            }
+
+            sql += @"
+                ORDER BY
+                    CASE ycg.trangThai
+                        WHEN 'cho_duyet' THEN 0
+                        WHEN 'da_duyet' THEN 1
+                        ELSE 2
+                    END,
+                    ycg.ngayGui DESC,
+                    ycg.idYeuCau DESC;";
+
+            return sql;
         }
 
         private static StoreRequestDto MapStoreRequest(MySqlDataReader reader)
@@ -304,37 +254,8 @@ namespace VinhKhanh.Services
 
         private async Task<StoreRequestDto?> GetRequestByIdAsync(int idYeuCau, MySqlConnection conn)
         {
-            const string sql = @"
-                SELECT
-                    ycg.idYeuCau,
-                    ycg.loaiYeuCau,
-                    ycg.idChuQuanLy,
-                    cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-                    cql.hoTen AS hoTenChuQuanLy,
-                    tk.username AS usernameChuQuanLy,
-                    tk.email AS emailChuQuanLy,
-                    ycg.tenGianHang,
-                    ycg.diaChi,
-                    ycg.moTa,
-                    ycg.ngonNguMoTa,
-                    ycg.lat,
-                    ycg.lon,
-                    ycg.phiHangThang,
-                    ycg.tinhTrangDeXuat,
-                    ycg.trangThaiYeuCau,
-                    ycg.ghiChuXuLy,
-                    ycg.idTaiKhoanXuLy,
-                    COALESCE(adx.hoTen, tkx.username, tkx.email) AS tenNguoiXuLy,
-                    ycg.idGianHang,
-                    ycg.ngayTao,
-                    ycg.thoiGianXuLy
-                FROM yeucaugianhang ycg
-                INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
-                INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-                LEFT JOIN taikhoan tkx ON tkx.idTaiKhoan = ycg.idTaiKhoanXuLy
-                LEFT JOIN admin adx ON adx.idTaiKhoan = tkx.idTaiKhoan
-                WHERE ycg.idYeuCau = @idYeuCau
-                LIMIT 1;";
+            var sql = BuildRequestQuery(includeStatusFilter: false, filterByOwner: false)
+                .Replace(" ORDER BY", " WHERE ycg.idYeuCau = @idYeuCau ORDER BY", StringComparison.Ordinal);
 
             using var cmd = new MySqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@idYeuCau", idYeuCau);
@@ -352,15 +273,10 @@ namespace VinhKhanh.Services
                 SELECT
                     idYeuCau,
                     idChuQuanLy,
-                    tenGianHang,
-                    diaChi,
-                    moTa,
-                    ngonNguMoTa,
-                    lat,
-                    lon,
-                    phiHangThang,
-                    tinhTrangDeXuat,
-                    trangThaiYeuCau
+                    tenDeNghi,
+                    diaChiDeNghi,
+                    ghiChuGui,
+                    trangThai
                 FROM yeucaugianhang
                 WHERE idYeuCau = @idYeuCau
                 LIMIT 1
@@ -377,15 +293,10 @@ namespace VinhKhanh.Services
             {
                 IdYeuCau = reader.GetInt32("idYeuCau"),
                 IdChuQuanLy = reader.GetInt32("idChuQuanLy"),
-                TenGianHang = reader["tenGianHang"]?.ToString() ?? string.Empty,
-                DiaChi = reader["diaChi"] == DBNull.Value ? null : reader["diaChi"]?.ToString(),
-                MoTa = reader["moTa"] == DBNull.Value ? null : reader["moTa"]?.ToString(),
-                NgonNguMoTa = reader["ngonNguMoTa"]?.ToString() ?? "vi",
-                Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]),
-                Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
-                PhiHangThang = reader["phiHangThang"] == DBNull.Value ? 0 : Convert.ToDecimal(reader["phiHangThang"]),
-                TinhTrangDeXuat = reader["tinhTrangDeXuat"]?.ToString() ?? "dang_hoat_dong",
-                TrangThaiYeuCau = reader["trangThaiYeuCau"]?.ToString() ?? "cho_duyet"
+                TenDeNghi = reader["tenDeNghi"]?.ToString() ?? string.Empty,
+                DiaChiDeNghi = reader["diaChiDeNghi"] == DBNull.Value ? null : reader["diaChiDeNghi"]?.ToString(),
+                GhiChuGui = reader["ghiChuGui"] == DBNull.Value ? null : reader["ghiChuGui"]?.ToString(),
+                TrangThai = reader["trangThai"]?.ToString() ?? "cho_duyet"
             };
         }
 
@@ -403,7 +314,13 @@ namespace VinhKhanh.Services
             return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
         }
 
-        private async Task<int> CreateStoreFromRequestAsync(EditableStoreRequestRow request, MySqlConnection conn, MySqlTransaction transaction)
+        private static async Task<int> CreateStoreFromRequestAsync(
+            EditableStoreRequestRow request,
+            decimal phiHangThang,
+            double lat,
+            double lon,
+            MySqlConnection conn,
+            MySqlTransaction transaction)
         {
             const string sql = @"
                 INSERT INTO gianhang
@@ -425,7 +342,7 @@ namespace VinhKhanh.Services
                     @diaChi,
                     @lat,
                     @lon,
-                    @tinhTrang,
+                    'dang_hoat_dong',
                     @phiHangThang,
                     NOW(),
                     NOW()
@@ -434,83 +351,19 @@ namespace VinhKhanh.Services
 
             using var cmd = new MySqlCommand(sql, conn, transaction);
             cmd.Parameters.AddWithValue("@idChuQuanLy", request.IdChuQuanLy);
-            cmd.Parameters.AddWithValue("@ten", request.TenGianHang);
-            cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrangDeXuat));
-            cmd.Parameters.AddWithValue("@phiHangThang", request.PhiHangThang);
+            cmd.Parameters.AddWithValue("@ten", request.TenDeNghi);
+            cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChiDeNghi ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@lat", lat);
+            cmd.Parameters.AddWithValue("@lon", lon);
+            cmd.Parameters.AddWithValue("@phiHangThang", phiHangThang);
 
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        }
-
-        private static async Task UpsertStoreDescriptionAsync(
-            int idGianHang,
-            string tenGianHang,
-            string moTa,
-            string ngonNguMoTa,
-            MySqlConnection conn,
-            MySqlTransaction transaction)
-        {
-            var languageCode = NormalizeLanguageCode(ngonNguMoTa);
-            var languageId = await ResolveLanguageIdAsync(languageCode, conn, transaction)
-                ?? await ResolveLanguageIdAsync("vi", conn, transaction);
-
-            if (!languageId.HasValue)
-                return;
-
-            const string sql = @"
-                INSERT INTO gianhangngonngu (idGianHang, idNgonNgu, ten, audioURL, moTa)
-                VALUES (@idGianHang, @idNgonNgu, @ten, NULL, @moTa)
-                ON DUPLICATE KEY UPDATE
-                    ten = VALUES(ten),
-                    moTa = VALUES(moTa),
-                    audioURL = NULL;";
-
-            using var cmd = new MySqlCommand(sql, conn, transaction);
-            cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-            cmd.Parameters.AddWithValue("@idNgonNgu", languageId.Value);
-            cmd.Parameters.AddWithValue("@ten", tenGianHang);
-            cmd.Parameters.AddWithValue("@moTa", moTa);
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        private static async Task<int?> ResolveLanguageIdAsync(string languageCode, MySqlConnection conn, MySqlTransaction transaction)
-        {
-            const string sql = @"
-                SELECT idNgonNgu
-                FROM ngonngu
-                WHERE maNgonNgu = @languageCode
-                LIMIT 1;";
-
-            using var cmd = new MySqlCommand(sql, conn, transaction);
-            cmd.Parameters.AddWithValue("@languageCode", languageCode);
-            var result = await cmd.ExecuteScalarAsync();
-            return result == null || result == DBNull.Value ? null : Convert.ToInt32(result);
         }
 
         private static void ValidateCreateRequest(CreateStoreRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.Ten))
                 throw new ArgumentException("Ten gian hang khong duoc rong.");
-
-            if (request.PhiHangThang < 0)
-                throw new ArgumentException("Phi hang thang khong hop le.");
-
-            NormalizeStoreStatus(request.TinhTrang);
-            NormalizeLanguageCode(request.NgonNguMoTa);
-        }
-
-        private static string NormalizeStoreStatus(string? status)
-        {
-            var normalized = string.IsNullOrWhiteSpace(status)
-                ? "dang_hoat_dong"
-                : status.Trim().ToLowerInvariant();
-
-            if (!StoreStatuses.Contains(normalized))
-                throw new ArgumentException("Tinh trang gian hang khong hop le.");
-
-            return normalized;
         }
 
         private static string NormalizeOptionalRequestStatus(string? status)
@@ -554,11 +407,19 @@ namespace VinhKhanh.Services
             return phiHangThang.Value;
         }
 
-        private static string NormalizeLanguageCode(string? languageCode)
+        private static ReviewedCoordinates? NormalizeReviewedCoordinates(double? lat, double? lon, string requestStatus)
         {
-            return string.IsNullOrWhiteSpace(languageCode)
-                ? "vi"
-                : languageCode.Trim().ToLowerInvariant();
+            if (!string.Equals(requestStatus, "da_duyet", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!lat.HasValue || !lon.HasValue)
+                throw new ArgumentException("Admin phai nhap day du vi do va kinh do truoc khi phe duyet.");
+
+            return new ReviewedCoordinates
+            {
+                Lat = lat.Value,
+                Lon = lon.Value
+            };
         }
 
         private static async Task EnsureStoreRequestTableAsync(MySqlConnection conn)
@@ -566,32 +427,21 @@ namespace VinhKhanh.Services
             const string sql = @"
                 CREATE TABLE IF NOT EXISTS yeucaugianhang (
                     idYeuCau INT NOT NULL AUTO_INCREMENT,
-                    loaiYeuCau ENUM('them_gian_hang') NOT NULL DEFAULT 'them_gian_hang',
                     idChuQuanLy INT NOT NULL,
-                    tenGianHang VARCHAR(150) NOT NULL,
-                    diaChi VARCHAR(255) DEFAULT NULL,
-                    moTa TEXT DEFAULT NULL,
-                    ngonNguMoTa VARCHAR(10) NOT NULL DEFAULT 'vi',
-                    lat DECIMAL(10,7) DEFAULT NULL,
-                    lon DECIMAL(10,7) DEFAULT NULL,
-                    phiHangThang DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-                    tinhTrangDeXuat ENUM('dang_hoat_dong','tam_ngung','dong_cua') NOT NULL DEFAULT 'dang_hoat_dong',
-                    trangThaiYeuCau ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
-                    ghiChuXuLy TEXT DEFAULT NULL,
-                    idTaiKhoanXuLy INT DEFAULT NULL,
+                    tenDeNghi VARCHAR(150) NOT NULL,
+                    diaChiDeNghi VARCHAR(255) DEFAULT NULL,
+                    ghiChuGui TEXT DEFAULT NULL,
+                    trangThai ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
                     idGianHang INT DEFAULT NULL,
-                    ngayTao DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-                    thoiGianXuLy DATETIME DEFAULT NULL,
+                    ngayGui DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+                    ngayXuLy DATETIME DEFAULT NULL,
                     PRIMARY KEY (idYeuCau),
                     KEY idx_yeucaugianhang_owner (idChuQuanLy),
-                    KEY idx_yeucaugianhang_status (trangThaiYeuCau),
+                    KEY idx_yeucaugianhang_status (trangThai),
                     KEY idx_yeucaugianhang_store (idGianHang),
                     CONSTRAINT fk_yeucaugianhang_owner
                         FOREIGN KEY (idChuQuanLy) REFERENCES chu_quan_ly (idChuQuanLy)
                         ON DELETE CASCADE ON UPDATE CASCADE,
-                    CONSTRAINT fk_yeucaugianhang_reviewer
-                        FOREIGN KEY (idTaiKhoanXuLy) REFERENCES taikhoan (idTaiKhoan)
-                        ON DELETE SET NULL ON UPDATE CASCADE,
                     CONSTRAINT fk_yeucaugianhang_store
                         FOREIGN KEY (idGianHang) REFERENCES gianhang (idGianHang)
                         ON DELETE SET NULL ON UPDATE CASCADE
@@ -605,15 +455,16 @@ namespace VinhKhanh.Services
         {
             public int IdYeuCau { get; set; }
             public int IdChuQuanLy { get; set; }
-            public string TenGianHang { get; set; } = string.Empty;
-            public string? DiaChi { get; set; }
-            public string? MoTa { get; set; }
-            public string NgonNguMoTa { get; set; } = "vi";
-            public double? Lat { get; set; }
-            public double? Lon { get; set; }
-            public decimal PhiHangThang { get; set; }
-            public string TinhTrangDeXuat { get; set; } = "dang_hoat_dong";
-            public string TrangThaiYeuCau { get; set; } = "cho_duyet";
+            public string TenDeNghi { get; set; } = string.Empty;
+            public string? DiaChiDeNghi { get; set; }
+            public string? GhiChuGui { get; set; }
+            public string TrangThai { get; set; } = "cho_duyet";
+        }
+
+        private sealed class ReviewedCoordinates
+        {
+            public double Lat { get; set; }
+            public double Lon { get; set; }
         }
     }
 }

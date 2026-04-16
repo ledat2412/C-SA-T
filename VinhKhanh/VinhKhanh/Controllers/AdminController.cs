@@ -131,6 +131,30 @@ namespace VinhKhanh.Controllers
             }
         }
 
+        [HttpPatch("accounts/{targetAccountId}/status")]
+        public async Task<IActionResult> UpdateAccountStatus(int targetAccountId, [FromQuery] int idTaiKhoan, [FromBody] UpdateAccountStatusRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            try
+            {
+                var result = await _adminService.UpdateAccountStatusAsync(idTaiKhoan, targetAccountId, request.TinhTrang);
+                if (!result.Success)
+                    return NotFound(result);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpGet("service-packages")]
         public async Task<IActionResult> GetServicePackages([FromQuery] int idTaiKhoan)
         {
@@ -303,6 +327,27 @@ namespace VinhKhanh.Controllers
                 return NotFound(result);
 
             return Ok(result);
+        }
+
+        [HttpPost("foods/{idMonAn}/image")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadFoodImage(int idMonAn, [FromQuery] int idTaiKhoan, [FromForm] UploadFoodImageRequestDto request, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+            if (request.Image == null || request.Image.Length <= 0)
+                return BadRequest(new OperationResultDto { Success = false, Message = "Vui long chon anh hop le." });
+
+            var imagePath = await storeManagementService.SaveFoodImageAsync(idMonAn, request.Image, env);
+            if (imagePath == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay mon an." });
+
+            return Ok(new
+            {
+                success = true,
+                message = "Cap nhat anh mon an thanh cong.",
+                imagePath
+            });
         }
 
         private async Task<int?> ResolveOwnerIdAsync(UpsertStoreRequestDto request)

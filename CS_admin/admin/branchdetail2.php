@@ -385,7 +385,11 @@ function store_form_format_money($value)
 {
     return number_format((float) $value, 0, ',', '.') . ' đ';
 }
+<<<<<<< HEAD
 
+=======
+
+>>>>>>> 065c556 (Update admin and backend features)
 $flash = isset($_GET['flash']) ? (string) $_GET['flash'] : '';
 $selectedLanguage = isset($_GET['lang']) ? store_form_normalize_language($_GET['lang']) : 'vi';
 if ($flash === 'created') {
@@ -395,7 +399,11 @@ if ($flash === 'created') {
 } elseif ($flash === 'request_sent') {
     $pageMessage = array('type' => 'success', 'text' => 'Đã gửi yêu cầu mở gian hàng mới. Vui lòng chờ admin duyệt.');
 }
+<<<<<<< HEAD
 
+=======
+
+>>>>>>> 065c556 (Update admin and backend features)
 $isOwnerRequestMode = $isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $isOwnerStoreEditMode = !$isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $showOwnerEmailInput = $loaiTaiKhoan === 'admin';
@@ -547,6 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                 }
             }
         } else {
+<<<<<<< HEAD
             $updateError = '';
             $updateResult = store_form_call_json('PUT', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), $payload, $updateError);
 
@@ -611,6 +620,72 @@ $ownerEmail = $store !== null
 $ownerUsername = $store !== null
     ? store_form_display_value($store['usernameChuQuanLy'] ?? '', 'Chưa có username')
     : store_form_display_value($auth['username'] ?? '', 'Chưa có username');
+=======
+            $updateError = '';
+            $updateResult = store_form_call_json('PUT', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), $payload, $updateError);
+
+            if ($updateResult === null) {
+                $pageMessage = array('type' => 'error', 'text' => 'Lưu thông tin gian hàng thất bại: ' . $updateError);
+            } else {
+                $descriptionError = '';
+                $descriptionResult = store_form_call_json(
+                    'PUT',
+                    store_form_description_url($idGianHang),
+                    array('languageCode' => $selectedLanguage, 'moTa' => $formData['moTa']),
+                    $descriptionError
+                );
+
+                $imageError = '';
+                $imageResult = null;
+                if ($hasUploadedImage) {
+                    $imageResult = store_form_call_file_upload(
+                        store_form_image_upload_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang),
+                        'image',
+                        $uploadedImage,
+                        $imageError
+                    );
+                }
+
+                if ($descriptionResult === null || ($hasUploadedImage && $imageResult === null)) {
+                    $pageMessage = array('type' => 'warning', 'text' => 'Đã lưu thông tin chính nhưng mô tả chưa cập nhật được: ' . $descriptionError);
+                } else {
+                    $pageMessage = array('type' => 'success', 'text' => 'Đã lưu thông tin gian hàng xuống cơ sở dữ liệu.');
+                }
+            }
+        }
+    }
+}
+
+if (!$isCreateMode) {
+    if ($idGianHang <= 0) {
+        $pageError = 'Không xác định được gian hàng cần chỉnh sửa.';
+    } else {
+        $detailError = '';
+        $detailResult = store_form_call_json('GET', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError);
+
+        if (is_array($detailResult)) {
+            $store = $detailResult;
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $pageMessage === null || $pageMessage['type'] !== 'error') {
+                $formData = store_form_prepare_form_data($store);
+            }
+        } elseif ($pageError === '') {
+            $pageError = 'Không tải được thông tin gian hàng: ' . $detailError;
+        }
+    }
+}
+
+$statusMeta = store_form_status_meta($formData['tinhTrang']);
+$imageUrl = $store !== null && !empty($store['hinhAnh']) ? store_form_image_url($store['hinhAnh']) : '';
+$ownerName = $store !== null
+    ? store_form_display_value($store['tenChuQuanLy'] ?? '', 'Chưa gán chủ gian hàng')
+    : ($showOwnerEmailInput ? 'Sẽ cập nhật theo email bạn nhập' : store_form_display_value($auth['hoTen'] ?? ($auth['username'] ?? ''), 'Chủ gian hàng hiện tại'));
+$ownerEmail = $store !== null
+    ? store_form_display_value($store['emailChuQuanLy'] ?? '', 'Chưa có email')
+    : ($showOwnerEmailInput ? store_form_display_value($formData['emailChuQuanLy'], 'Nhập email để gán chủ') : store_form_display_value($auth['email'] ?? '', 'Chưa có email'));
+$ownerUsername = $store !== null
+    ? store_form_display_value($store['usernameChuQuanLy'] ?? '', 'Chưa có username')
+    : store_form_display_value($auth['username'] ?? '', 'Chưa có username');
+>>>>>>> 065c556 (Update admin and backend features)
 $pageHeading = $isOwnerRequestMode ? 'Gửi yêu cầu mở gian hàng' : ($isCreateMode ? 'Thêm gian hàng mới' : 'Chỉnh sửa thông tin gian hàng');
 $pageIntro = $isOwnerRequestMode
     ? 'Chủ quản lý sẽ gửi yêu cầu mở gian hàng mới để admin xem xét và phê duyệt trước khi tạo gian hàng thật.'
@@ -619,6 +694,7 @@ $pageIntro = $isOwnerRequestMode
         : 'Cập nhật trực tiếp dữ liệu gian hàng đang lưu trên hệ thống quản trị. Admin có thể đổi chủ gian hàng bằng email.');
 $pageIntro .= ' Đang xem: ' . store_form_language_label($selectedLanguage) . '.';
 $submitLabel = $isOwnerRequestMode ? 'Gửi yêu cầu' : ($isCreateMode ? 'Tạo gian hàng' : 'Lưu thay đổi');
+<<<<<<< HEAD
 $formAction = $isCreateMode
     ? admin_url('index1st.php?usecase=branchdetail2&mode=create&lang=' . rawurlencode($selectedLanguage))
     : admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . (int) $idGianHang . '&lang=' . rawurlencode($selectedLanguage));
@@ -727,6 +803,116 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
               </label>
 
               <label class="form-field full-width">
+=======
+$formAction = $isCreateMode
+    ? admin_url('index1st.php?usecase=branchdetail2&mode=create&lang=' . rawurlencode($selectedLanguage))
+    : admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . (int) $idGianHang . '&lang=' . rawurlencode($selectedLanguage));
+$displayStoreName = $store !== null && !empty($store['tenHienThi'])
+    ? (string) $store['tenHienThi']
+    : $formData['ten'];
+?>
+<main class="main-content">
+  <section class="branch-page">
+    <div class="page-head">
+      <div>
+        <h2><?php echo htmlspecialchars($pageHeading, ENT_QUOTES, 'UTF-8'); ?></h2>
+        <p><?php echo htmlspecialchars($pageIntro, ENT_QUOTES, 'UTF-8'); ?></p>
+      </div>
+
+      <div class="page-head-actions">
+        <form class="language-switcher" method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
+          <input type="hidden" name="usecase" value="branchdetail2" />
+          <?php if ($isCreateMode) { ?>
+          <input type="hidden" name="mode" value="create" />
+          <?php } else { ?>
+          <input type="hidden" name="idGianHang" value="<?php echo (int) $idGianHang; ?>" />
+          <?php } ?>
+          <label for="store-language-select">Ngôn ngữ xem</label>
+          <select id="store-language-select" name="lang" onchange="this.form.submit()">
+            <?php foreach (store_form_language_options() as $languageCode => $languageLabel) { ?>
+            <option value="<?php echo htmlspecialchars($languageCode, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $selectedLanguage === $languageCode ? 'selected' : ''; ?>><?php echo htmlspecialchars($languageLabel, ENT_QUOTES, 'UTF-8'); ?></option>
+            <?php } ?>
+          </select>
+        </form>
+        <a class="secondary-btn link-btn" href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=store'), ENT_QUOTES, 'UTF-8'); ?>">Quay lại danh sách</a>
+        <?php if ($pageError === '') { ?>
+        <button class="primary-btn" type="submit" form="store-edit-form">
+          <i class="fa-solid fa-floppy-disk"></i>
+          <span><?php echo htmlspecialchars($submitLabel, ENT_QUOTES, 'UTF-8'); ?></span>
+        </button>
+        <?php } ?>
+      </div>
+    </div>
+
+    <?php if ($pageMessage !== null) { ?>
+    <div class="store-edit-alert <?php echo htmlspecialchars($pageMessage['type'], ENT_QUOTES, 'UTF-8'); ?>">
+      <?php echo htmlspecialchars($pageMessage['text'], ENT_QUOTES, 'UTF-8'); ?>
+    </div>
+    <?php } ?>
+
+    <?php if ($pageError !== '') { ?>
+    <div class="store-edit-alert error">
+      <?php echo htmlspecialchars($pageError, ENT_QUOTES, 'UTF-8'); ?>
+    </div>
+    <?php } else { ?>
+    <form id="store-edit-form" method="post" action="<?php echo htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8'); ?>" enctype="multipart/form-data">
+      <input type="hidden" name="store_form_submit" value="1" />
+
+      <div class="stats-row">
+        <div class="panel stat-card">
+          <p class="stat-label">Mã gian hàng</p>
+          <h3><?php echo $isCreateMode ? 'Tạo mới' : '#GH-' . str_pad((string) $idGianHang, 3, '0', STR_PAD_LEFT); ?></h3>
+        </div>
+
+        <div class="panel stat-card">
+          <p class="stat-label">Trạng thái hiện tại</p>
+          <h3 class="accent"><?php echo htmlspecialchars($statusMeta['label'], ENT_QUOTES, 'UTF-8'); ?></h3>
+        </div>
+
+        <div class="panel stat-card">
+          <p class="stat-label"><?php echo $isCreateMode ? 'Tình trạng lưu' : 'Cập nhật lần cuối'; ?></p>
+          <h3 class="success-text"><?php echo htmlspecialchars($isCreateMode ? 'Chưa lưu' : store_form_format_datetime($store['thoiGianCapNhat'] ?? null), ENT_QUOTES, 'UTF-8'); ?></h3>
+        </div>
+      </div>
+
+      <div class="bottom-grid store-edit-grid">
+        <div class="panel form-panel">
+          <div class="card-head">
+            <h3><i class="fa-solid fa-store"></i> Thông tin lưu xuống DB</h3>
+          </div>
+
+          <div class="store-form">
+            <div class="form-grid">
+              <label class="form-field full-width">
+                <span>Tên gian hàng</span>
+                <input type="text" name="ten" value="<?php echo htmlspecialchars($formData['ten'], ENT_QUOTES, 'UTF-8'); ?>" required />
+              </label>
+
+              <?php if ($showOwnerEmailInput) { ?>
+              <label class="form-field full-width">
+                <span>Email chủ quản lý</span>
+                <input type="email" name="emailChuQuanLy" list="owner-email-options" value="<?php echo htmlspecialchars($formData['emailChuQuanLy'], ENT_QUOTES, 'UTF-8'); ?>" placeholder="owner@example.com" required />
+                <small class="form-help">Nhập email tài khoản của chủ gian hàng. Khi lưu, hệ thống sẽ tự đổi `idChuQuanLy` theo email này.</small>
+                <?php if ($ownerOptionsError !== '') { ?>
+                <small class="form-help warning">Không tải được gợi ý email chủ gian hàng. Bạn vẫn có thể nhập email trực tiếp.</small>
+                <?php } ?>
+              </label>
+              <?php if (count($ownerOptions) > 0) { ?>
+              <datalist id="owner-email-options">
+                <?php foreach ($ownerOptions as $ownerOption) { ?>
+                <option value="<?php echo htmlspecialchars((string) $ownerOption['email'], ENT_QUOTES, 'UTF-8'); ?>" label="<?php echo htmlspecialchars(store_form_owner_option_label($ownerOption), ENT_QUOTES, 'UTF-8'); ?>"></option>
+                <?php } ?>
+              </datalist>
+              <?php } ?>
+              <?php } ?>
+
+              <label class="form-field full-width">
+                <span>Địa chỉ</span>
+                <input type="text" name="diaChi" value="<?php echo htmlspecialchars($formData['diaChi'], ENT_QUOTES, 'UTF-8'); ?>" />
+              </label>
+
+              <label class="form-field full-width">
+>>>>>>> 065c556 (Update admin and backend features)
                 <span><?php echo $isOwnerRequestMode ? 'Ghi chú gửi' : ('Mô tả (' . htmlspecialchars(store_form_language_label($selectedLanguage), ENT_QUOTES, 'UTF-8') . ')'); ?></span>
                 <textarea name="moTa" rows="5"><?php echo htmlspecialchars($formData['moTa'], ENT_QUOTES, 'UTF-8'); ?></textarea>
                 <?php if ($isOwnerRequestMode) { ?>
@@ -734,8 +920,13 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
                 <?php } else { ?>
                 <small class="form-help">Nội dung này được tải và lưu theo ngôn ngữ đang chọn ở góc trên.</small>
                 <?php } ?>
+<<<<<<< HEAD
               </label>
 
+=======
+              </label>
+
+>>>>>>> 065c556 (Update admin and backend features)
               <?php if (!$isOwnerRequestMode) { ?>
               <label class="form-field">
                 <span>Vĩ độ (Lat)</span>

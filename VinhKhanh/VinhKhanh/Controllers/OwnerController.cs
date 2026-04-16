@@ -93,7 +93,7 @@ namespace VinhKhanh.Controllers
             if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
                 return ForbiddenResult();
 
-            var result = await storeManagementService.UpdateStoreAsync(idGianHang, request);
+            var result = await storeManagementService.UpdateStoreByOwnerAsync(idGianHang, request);
             if (result == null)
                 return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
 
@@ -178,6 +178,27 @@ namespace VinhKhanh.Controllers
                 return NotFound(result);
 
             return Ok(result);
+        }
+
+        [HttpPost("foods/{idMonAn}/image")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadFoodImage(int idMonAn, [FromQuery] int idTaiKhoan, [FromForm] UploadFoodImageRequestDto request, [FromServices] StoreManagementService storeManagementService, [FromServices] IWebHostEnvironment env)
+        {
+            if (!await _accountAccessService.IsFoodOwnedByAccountAsync(idTaiKhoan, idMonAn))
+                return ForbiddenResult();
+            if (request.Image == null || request.Image.Length <= 0)
+                return BadRequest(new OperationResultDto { Success = false, Message = "Vui long chon anh hop le." });
+
+            var imagePath = await storeManagementService.SaveFoodImageAsync(idMonAn, request.Image, env);
+            if (imagePath == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay mon an." });
+
+            return Ok(new
+            {
+                success = true,
+                message = "Cap nhat anh mon an thanh cong.",
+                imagePath
+            });
         }
     }
 }
