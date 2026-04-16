@@ -99,7 +99,7 @@ public class HomePage : ContentPage
         localizationService.LanguageChanged += OnLanguageChanged;
         UpdateLocalizedText();
 
-        Loaded += async (_, __) => await LoadNearbyRestaurants();
+        Appearing += async (_, __) => await LoadNearbyRestaurants();
     }
 
     private void OnLanguageChanged()

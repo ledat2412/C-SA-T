@@ -280,6 +280,25 @@ function store_form_normalize_status($status)
     return in_array($status, $allowed, true) ? $status : 'dang_hoat_dong';
 }
 
+function store_form_coordinate_error($value, $min, $max, $label, $required)
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return $required ? $label . ' khong duoc de trong khi gian hang dang hoat dong.' : '';
+    }
+
+    if (!is_numeric($value)) {
+        return $label . ' khong hop le.';
+    }
+
+    $number = (float) $value;
+    if ($number < $min || $number > $max) {
+        return $label . ' phai nam trong khoang ' . $min . ' den ' . $max . '.';
+    }
+
+    return '';
+}
+
 function store_form_status_meta($status)
 {
     $status = store_form_normalize_status($status);
@@ -446,12 +465,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
         }
     }
 
+    $requiresCoordinates = !$isOwnerRequestMode && $formData['tinhTrang'] === 'dang_hoat_dong';
+    $latError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lat'], -90, 90, 'Vi do', $requiresCoordinates) : '';
+    $lonError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lon'], -180, 180, 'Kinh do', $requiresCoordinates) : '';
+
     if ($formData['ten'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng không được để trống.');
     } elseif ($idTaiKhoan <= 0) {
         $pageMessage = array('type' => 'error', 'text' => 'Phiên đăng nhập không hợp lệ, không thể lưu dữ liệu.');
     } elseif ($showOwnerEmailInput && $formData['emailChuQuanLy'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Admin cần nhập email của chủ gian hàng.');
+    } elseif ($latError !== '') {
+        $pageMessage = array('type' => 'error', 'text' => $latError);
+    } elseif ($lonError !== '') {
+        $pageMessage = array('type' => 'error', 'text' => $lonError);
     } elseif ($imageUploadError !== '') {
         $pageMessage = array('type' => 'error', 'text' => $imageUploadError);
     } else {
@@ -739,12 +766,12 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
               <?php if (!$isOwnerRequestMode) { ?>
               <label class="form-field">
                 <span>Vĩ độ (Lat)</span>
-                <input type="number" step="0.000001" name="lat" value="<?php echo htmlspecialchars($formData['lat'], ENT_QUOTES, 'UTF-8'); ?>" />
+                <input type="number" min="-90" max="90" step="0.000001" name="lat" value="<?php echo htmlspecialchars($formData['lat'], ENT_QUOTES, 'UTF-8'); ?>" />
               </label>
 
               <label class="form-field">
                 <span>Kinh độ (Lon)</span>
-                <input type="number" step="0.000001" name="lon" value="<?php echo htmlspecialchars($formData['lon'], ENT_QUOTES, 'UTF-8'); ?>" />
+                <input type="number" min="-180" max="180" step="0.000001" name="lon" value="<?php echo htmlspecialchars($formData['lon'], ENT_QUOTES, 'UTF-8'); ?>" />
               </label>
 
               <label class="form-field">

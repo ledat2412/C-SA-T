@@ -240,6 +240,9 @@ public partial class PoiMapPage : ContentPage
 
             SyncDetailAudioUi(_geofenceEngine.PlaybackState);
 
+            if (_isInitialLoadCompleted)
+                await LoadRealPoisAsync();
+
             await EnsureExploreSheetVisibleAsync();
             await ShowCurrentLocationMarkerAsync(centerOnUser: false);
             await InitializeGeofenceAsync();

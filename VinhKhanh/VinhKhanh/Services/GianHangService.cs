@@ -64,6 +64,8 @@ namespace VinhKhanh.Services
                     ON ghnn.idGianHang = gh.idGianHang
                     AND ghnn.idNgonNgu = nn.idNgonNgu
                 WHERE gh.tinhTrang = 'dang_hoat_dong'
+                  AND gh.lat BETWEEN -90 AND 90
+                  AND gh.lon BETWEEN -180 AND 180
                 ORDER BY gh.idGianHang;";
 
             using var cmd = new MySqlCommand(sql, conn);

@@ -36,15 +36,15 @@ namespace MauiApp1.Services
             lang = string.IsNullOrWhiteSpace(lang) ? "vi" : lang.Trim().ToLowerInvariant();
             var cacheKey = $"appdata_{lang}";
 
-            if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
-                return memoryData;
-
-            if (forceRefresh)
+            if (forceRefresh || Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
             {
                 var refreshed = await TryFetchAndCacheFromApiAsync(lang, cacheKey);
                 if (refreshed is not null)
                     return refreshed;
             }
+
+            if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
+                return memoryData;
 
             var freshCached = await TryReadCachedResponseAsync(cacheKey, AppDataCacheMaxAge);
             if (freshCached is not null)

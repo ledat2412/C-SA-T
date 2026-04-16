@@ -129,6 +129,41 @@ namespace VinhKhanh.Services
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
+            if (string.Equals(status, "dang_hoat_dong", StringComparison.OrdinalIgnoreCase))
+            {
+                const string coordinateSql = @"
+                    SELECT lat, lon
+                    FROM gianhang
+                    WHERE idGianHang = @idGianHang
+                    LIMIT 1;";
+
+                using var coordinateCmd = new MySqlCommand(coordinateSql, conn);
+                coordinateCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+
+                using var reader = await coordinateCmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync())
+                {
+                    return new OperationResultDto
+                    {
+                        Success = false,
+                        Message = "Khong tim thay gian hang."
+                    };
+                }
+
+                double? lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]);
+                double? lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]);
+                await reader.CloseAsync();
+
+                if (!HasValidCoordinates(lat, lon))
+                {
+                    return new OperationResultDto
+                    {
+                        Success = false,
+                        Message = "Khong the kich hoat gian hang khi toa do khong hop le. Lat phai tu -90 den 90, lon phai tu -180 den 180."
+                    };
+                }
+            }
+
             const string sql = @"
                 UPDATE gianhang
                 SET tinhTrang = @tinhTrang,
@@ -599,14 +634,16 @@ namespace VinhKhanh.Services
                 throw new ArgumentException("Ten gian hang khong duoc rong.");
             if (request.PhiHangThang < 0)
                 throw new ArgumentException("Phi hang thang khong hop le.");
-            NormalizeStoreStatus(request.TinhTrang);
+            var status = NormalizeStoreStatus(request.TinhTrang);
+            ValidateStoreCoordinates(request, requireCoordinates: status == "dang_hoat_dong");
         }
 
         private static void ValidateStoreRequestForOwner(UpsertStoreRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.Ten))
                 throw new ArgumentException("Ten gian hang khong duoc rong.");
-            NormalizeStoreStatus(request.TinhTrang);
+            var status = NormalizeStoreStatus(request.TinhTrang);
+            ValidateStoreCoordinates(request, requireCoordinates: status == "dang_hoat_dong");
         }
 
         private static void ValidateFoodRequest(UpsertFoodRequestDto request)
@@ -625,6 +662,23 @@ namespace VinhKhanh.Services
             if (string.IsNullOrWhiteSpace(status) || !StoreStatuses.Contains(status))
                 throw new ArgumentException("Tinh trang gian hang khong hop le.");
             return status.Trim().ToLowerInvariant();
+        }
+
+        private static void ValidateStoreCoordinates(UpsertStoreRequestDto request, bool requireCoordinates)
+        {
+            if (requireCoordinates && (!request.Lat.HasValue || !request.Lon.HasValue))
+                throw new ArgumentException("Gian hang dang hoat dong phai co toa do lat/lon.");
+
+            if (request.Lat.HasValue && (request.Lat.Value < -90 || request.Lat.Value > 90))
+                throw new ArgumentException("Vi do phai nam trong khoang -90 den 90.");
+
+            if (request.Lon.HasValue && (request.Lon.Value < -180 || request.Lon.Value > 180))
+                throw new ArgumentException("Kinh do phai nam trong khoang -180 den 180.");
+        }
+
+        private static bool HasValidCoordinates(double? lat, double? lon)
+        {
+            return lat is >= -90 and <= 90 && lon is >= -180 and <= 180;
         }
 
         private static string NormalizeFoodStatus(string status)
