@@ -33,6 +33,7 @@ public partial class PoiMapPage : ContentPage
     private readonly Map _map;
     private readonly View _footer;
     private readonly Grid _topBar;
+    private readonly MapActionButton _currentLocationButton;
 
     private const string DefaultLanguageCode = "vi";
 
@@ -177,6 +178,7 @@ public partial class PoiMapPage : ContentPage
 
         _bottomSheet = CreateBottomSheet();
         _detailSheet = CreateDetailSheet();
+        _currentLocationButton = CreateCurrentLocationButton();
         _footer = new AppBottomBar(
             BottomBarTab.Explore,
             localizationService,
@@ -258,12 +260,42 @@ public partial class PoiMapPage : ContentPage
 
         root.Children.Add(_map);
         root.Children.Add(_topBar);
+        root.Children.Add(_currentLocationButton);
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_footer);
         root.Children.Add(new AudioPlaybackBanner(_geofenceEngine, _loc));
 
         return root;
+    }
+
+    private MapActionButton CreateCurrentLocationButton()
+    {
+        var button = new MapActionButton(BuildCurrentLocationIcon())
+        {
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            Margin = new Thickness(0, 84, 16, 0),
+            ZIndex = 21
+        };
+
+        button.Clicked += async (_, __) => await CenterOnCurrentLocationAsync();
+
+        return button;
+    }
+
+    private async Task CenterOnCurrentLocationAsync()
+    {
+        _currentLocationButton.SetBusy(true);
+
+        try
+        {
+            await ShowCurrentLocationMarkerAsync(centerOnUser: true);
+        }
+        finally
+        {
+            _currentLocationButton.SetBusy(false);
+        }
     }
 
     private Grid CreateTopBar()
@@ -1167,6 +1199,75 @@ public partial class PoiMapPage : ContentPage
                     X2 = 18,
                     Y2 = 18,
                     Stroke = new SolidColorBrush(Color.FromArgb("#94A3B8")),
+                    StrokeThickness = 1.8
+                }
+            }
+        };
+    }
+
+    private View BuildCurrentLocationIcon()
+    {
+        var stroke = new SolidColorBrush(Color.FromArgb("#EA580C"));
+
+        return new Grid
+        {
+            WidthRequest = 24,
+            HeightRequest = 24,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Ellipse
+                {
+                    WidthRequest = 14,
+                    HeightRequest = 14,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Ellipse
+                {
+                    WidthRequest = 5,
+                    HeightRequest = 5,
+                    Fill = stroke,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Line
+                {
+                    X1 = 12,
+                    Y1 = 0,
+                    X2 = 12,
+                    Y2 = 5,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 12,
+                    Y1 = 19,
+                    X2 = 12,
+                    Y2 = 24,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 0,
+                    Y1 = 12,
+                    X2 = 5,
+                    Y2 = 12,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 19,
+                    Y1 = 12,
+                    X2 = 24,
+                    Y2 = 12,
+                    Stroke = stroke,
                     StrokeThickness = 1.8
                 }
             }

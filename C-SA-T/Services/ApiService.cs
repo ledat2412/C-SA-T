@@ -85,69 +85,91 @@ namespace MauiApp1.Services
 
         public async Task<QrScanResult> ScanQrAsync(string qrRaw, int? idGoi = null)
         {
-            if (string.IsNullOrWhiteSpace(qrRaw))
+            try
+            {
+                if (string.IsNullOrWhiteSpace(qrRaw))
+                {
+                    return new QrScanResult
+                    {
+                        Success = false,
+                        Message = "QR rong, vui long thu lai."
+                    };
+                }
+
+                var accessToken = ExtractAccessToken(qrRaw);
+                if (!string.IsNullOrWhiteSpace(accessToken))
+                {
+                    var validation = await ActivateTokenAsync(accessToken, qrRaw);
+                    return new QrScanResult
+                    {
+                        Success = validation.Success,
+                        Message = validation.Success
+                            ? "Kich hoat token tu QR thanh cong."
+                            : validation.Message,
+                        AccessToken = accessToken,
+                        MaThietBi = validation.MaThietBi,
+                        HetHanLuc = validation.HetHanLuc,
+                        BatDauLuc = validation.BatDauLuc,
+                        TrangThai = validation.TrangThai,
+                        IdGoi = validation.IdGoi,
+                        TenGoi = validation.TenGoi,
+                        SoNgayHieuLuc = validation.SoNgayHieuLuc,
+                        EmailStatusMessage = validation.Message
+                    };
+                }
+
+                return new QrScanResult
+                {
+                    Success = false,
+                    Message = "QR khong chua token dang nhap hop le."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
             {
                 return new QrScanResult
                 {
                     Success = false,
-                    Message = "QR rong, vui long thu lai."
+                    Message = BuildNetworkErrorMessage(ex)
                 };
             }
-
-            var accessToken = ExtractAccessToken(qrRaw);
-            if (!string.IsNullOrWhiteSpace(accessToken))
-            {
-                var validation = await ActivateTokenAsync(accessToken, qrRaw);
-                return new QrScanResult
-                {
-                    Success = validation.Success,
-                    Message = validation.Success
-                        ? "Kich hoat token tu QR thanh cong."
-                        : validation.Message,
-                    AccessToken = accessToken,
-                    MaThietBi = validation.MaThietBi,
-                    HetHanLuc = validation.HetHanLuc,
-                    BatDauLuc = validation.BatDauLuc,
-                    TrangThai = validation.TrangThai,
-                    IdGoi = validation.IdGoi,
-                    TenGoi = validation.TenGoi,
-                    SoNgayHieuLuc = validation.SoNgayHieuLuc,
-                    EmailStatusMessage = validation.Message
-                };
-            }
-
-            return new QrScanResult
-            {
-                Success = false,
-                Message = "QR khong chua token dang nhap hop le."
-            };
         }
 
         public async Task<PackageAccessRegistrationResult> RegisterPackageAccessAsync(string email, int idGoi, bool bypassPayment)
         {
-            var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/package/register"), new
-            {
-                Email = email,
-                IdGoi = idGoi,
-                BypassPayment = bypassPayment,
-                ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId()
-            });
-
-            PackageAccessRegistrationResult? result = null;
-
             try
             {
-                result = await response.Content.ReadFromJsonAsync<PackageAccessRegistrationResult>();
-            }
-            catch
-            {
-            }
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/package/register"), new
+                {
+                    Email = email,
+                    IdGoi = idGoi,
+                    BypassPayment = bypassPayment,
+                    ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId()
+                });
 
-            return result ?? new PackageAccessRegistrationResult
+                PackageAccessRegistrationResult? result = null;
+
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<PackageAccessRegistrationResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new PackageAccessRegistrationResult
+                {
+                    Success = response.IsSuccessStatusCode,
+                    Message = response.ReasonPhrase ?? "Khong dang ky duoc goi dich vu."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
             {
-                Success = response.IsSuccessStatusCode,
-                Message = response.ReasonPhrase ?? "Khong dang ky duoc goi dich vu."
-            };
+                return new PackageAccessRegistrationResult
+                {
+                    Success = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
         }
 
         public async Task<ValidateAccessResult> ValidateAccessAsync(string accessToken)
@@ -161,26 +183,37 @@ namespace MauiApp1.Services
                 };
             }
 
-            var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
-            var url = BuildApiUrl(
-                $"api/access/validate?accessToken={Uri.EscapeDataString(accessToken)}&clientDeviceId={Uri.EscapeDataString(clientDeviceId)}");
-            var response = await _httpClient.GetAsync(url);
-
-            ValidateAccessResult? result = null;
-
             try
             {
-                result = await response.Content.ReadFromJsonAsync<ValidateAccessResult>();
-            }
-            catch
-            {
-            }
+                var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
+                var url = BuildApiUrl(
+                    $"api/access/validate?accessToken={Uri.EscapeDataString(accessToken)}&clientDeviceId={Uri.EscapeDataString(clientDeviceId)}");
+                var response = await _httpClient.GetAsync(url);
 
-            return result ?? new ValidateAccessResult
+                ValidateAccessResult? result = null;
+
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<ValidateAccessResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new ValidateAccessResult
+                {
+                    IsValid = false,
+                    Message = response.ReasonPhrase ?? "Khong validate duoc access token."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
             {
-                IsValid = false,
-                Message = response.ReasonPhrase ?? "Khong validate duoc access token."
-            };
+                return new ValidateAccessResult
+                {
+                    IsValid = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
         }
 
         public async Task<ActivateTokenResult> ActivateTokenAsync(string accessToken, string? qrRaw = null)
@@ -194,28 +227,39 @@ namespace MauiApp1.Services
                 };
             }
 
-            var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/token/activate"), new
-            {
-                AccessToken = accessToken,
-                ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
-                QrRaw = qrRaw ?? string.Empty
-            });
-
-            ActivateTokenResult? result = null;
-
             try
             {
-                result = await response.Content.ReadFromJsonAsync<ActivateTokenResult>();
-            }
-            catch
-            {
-            }
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/token/activate"), new
+                {
+                    AccessToken = accessToken,
+                    ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
+                    QrRaw = qrRaw ?? string.Empty
+                });
 
-            return result ?? new ActivateTokenResult
+                ActivateTokenResult? result = null;
+
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<ActivateTokenResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new ActivateTokenResult
+                {
+                    Success = response.IsSuccessStatusCode,
+                    Message = response.ReasonPhrase ?? "Khong kich hoat duoc access token."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
             {
-                Success = response.IsSuccessStatusCode,
-                Message = response.ReasonPhrase ?? "Khong kich hoat duoc access token."
-            };
+                return new ActivateTokenResult
+                {
+                    Success = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
         }
 
         private static double CalculateDistanceMeters(double lat1, double lon1, double lat2, double lon2)
@@ -289,6 +333,20 @@ namespace MauiApp1.Services
             }
 
             return null;
+        }
+
+        private static bool IsNetworkException(Exception ex)
+        {
+            return ex is HttpRequestException ||
+                   ex is TaskCanceledException ||
+                   ex.InnerException is not null && IsNetworkException(ex.InnerException);
+        }
+
+        private static string BuildNetworkErrorMessage(Exception ex)
+        {
+            var baseUrl = BackendUrlResolver.GetBaseUrl();
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            return $"Khong ket noi duoc backend ({baseUrl}). Hay chay project VinhKhanh API va thu lai. Chi tiet: {detail}";
         }
 
         private static bool IsLikelyAccessToken(string value)

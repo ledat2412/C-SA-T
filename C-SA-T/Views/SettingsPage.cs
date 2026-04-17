@@ -1,6 +1,5 @@
 using MauiApp1.Controls;
 using MauiApp1.Services;
-using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiApp1.Views;
@@ -11,11 +10,6 @@ public class SettingsPage : ContentPage
     private readonly AccessFlowService _accessFlowService;
     private Label _titleLabel = null!;
     private Label _langSectionLabel = null!;
-    private Label _backendSectionLabel = null!;
-    private Label _backendSectionDescLabel = null!;
-    private Entry _backendUrlEntry = null!;
-    private Label _backendStatusLabel = null!;
-    private Button _backendSaveButton = null!;
     private Label _qrSectionLabel = null!;
     private Label _qrSectionDescLabel = null!;
     private Label _resetSectionLabel = null!;
@@ -83,66 +77,6 @@ public class SettingsPage : ContentPage
             {
                 Spacing = 10,
                 Children = { _langSectionLabel, _chipGrid }
-            }
-        };
-
-        _backendSectionLabel = new Label
-        {
-            FontSize = 15,
-            FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#111111")
-        };
-
-        _backendSectionDescLabel = new Label
-        {
-            FontSize = 13,
-            TextColor = Color.FromArgb("#6B7280"),
-            LineBreakMode = LineBreakMode.WordWrap
-        };
-
-        _backendUrlEntry = new Entry
-        {
-            Text = Preferences.Get(BackendUrlResolver.PreferenceKey, string.Empty),
-            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
-            Keyboard = Keyboard.Url,
-            TextColor = Color.FromArgb("#111111"),
-            PlaceholderColor = Color.FromArgb("#9CA3AF")
-        };
-
-        _backendStatusLabel = new Label
-        {
-            FontSize = 12,
-            TextColor = Color.FromArgb("#9A3412"),
-            LineBreakMode = LineBreakMode.WordWrap
-        };
-
-        _backendSaveButton = new Button
-        {
-            HeightRequest = 42,
-            CornerRadius = 12,
-            BackgroundColor = Color.FromArgb("#FF6B00"),
-            TextColor = Colors.White,
-            FontAttributes = FontAttributes.Bold
-        };
-        _backendSaveButton.Clicked += async (_, __) => await SaveBackendUrlAsync();
-
-        var backendCard = new Border
-        {
-            StrokeShape = new RoundRectangle { CornerRadius = 16 },
-            Stroke = Color.FromArgb("#F0E6DC"),
-            BackgroundColor = Colors.White,
-            Padding = new Thickness(16, 14),
-            Content = new VerticalStackLayout
-            {
-                Spacing = 10,
-                Children =
-                {
-                    _backendSectionLabel,
-                    _backendSectionDescLabel,
-                    _backendUrlEntry,
-                    _backendStatusLabel,
-                    _backendSaveButton
-                }
             }
         };
 
@@ -230,7 +164,7 @@ public class SettingsPage : ContentPage
             {
                 Spacing = 20,
                 Padding = new Thickness(16, 52, 16, 28),
-                Children = { _titleLabel, languageCard, backendCard, qrCard, resetCard, deleteTokenCard }
+                Children = { _titleLabel, languageCard, qrCard, resetCard, deleteTokenCard }
             }
         };
 
@@ -303,45 +237,11 @@ public class SettingsPage : ContentPage
         RenderLanguageChips();
     }
 
-    private Task SaveBackendUrlAsync()
-    {
-        var rawValue = _backendUrlEntry.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(rawValue))
-        {
-            Preferences.Remove(BackendUrlResolver.PreferenceKey);
-            BackendUrlResolver.Configure(null);
-            _backendStatusLabel.TextColor = Color.FromArgb("#9A3412");
-            _backendStatusLabel.Text = GetBackendClearedMessage();
-            return Task.CompletedTask;
-        }
-
-        var normalized = BackendUrlResolver.NormalizeOverrideBaseUrl(rawValue);
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            _backendStatusLabel.TextColor = Color.FromArgb("#B91C1C");
-            _backendStatusLabel.Text = GetBackendInvalidMessage();
-            return Task.CompletedTask;
-        }
-
-        Preferences.Set(BackendUrlResolver.PreferenceKey, normalized);
-        BackendUrlResolver.Configure(normalized);
-        _backendUrlEntry.Text = normalized;
-        _backendStatusLabel.TextColor = Color.FromArgb("#166534");
-        _backendStatusLabel.Text = string.Format(GetBackendSavedMessage(), normalized);
-        return Task.CompletedTask;
-    }
-
     private void UpdateLocalizedText()
     {
         Title = _loc.Get("settings_title");
         _titleLabel.Text = _loc.Get("settings_title");
         _langSectionLabel.Text = _loc.Get("settings_language_title");
-        _backendSectionLabel.Text = GetBackendLabel();
-        _backendSectionDescLabel.Text = GetBackendDescription();
-        _backendUrlEntry.Placeholder = GetBackendPlaceholder();
-        _backendSaveButton.Text = GetBackendSaveText();
-        if (string.IsNullOrWhiteSpace(_backendStatusLabel.Text))
-            _backendStatusLabel.Text = GetBackendHint();
         _qrSectionLabel.Text = GetQrLabel();
         _qrSectionDescLabel.Text = GetQrDescription();
         _resetSectionLabel.Text = GetResetLabel();
