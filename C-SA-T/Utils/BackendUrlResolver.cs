@@ -7,7 +7,7 @@ public static class BackendUrlResolver
     public const string PreferenceKey = "backend_base_url";
 
     private const string EmulatorBaseUrl = "https://10.0.2.2:7123/";
-    private const string AndroidDeviceFallbackBaseUrl = "https://127.0.0.1:7123/";
+    private const string AndroidDeviceFallbackBaseUrl = "https://rudder-lake-yelp.ngrok-free.dev/";
     private const string DesktopBaseUrl = "https://localhost:7123/";
 
     private static string? _configuredBaseUrl;
