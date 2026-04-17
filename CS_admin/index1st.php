@@ -53,6 +53,12 @@ $availableUseCases = array(
         'view' => __DIR__ . '/admin/service.php',
         'styles' => array('asset/admin/css/service-content.css'),
     ),
+    'device' => array(
+        'title' => 'Quản lý thiết bị',
+        'active' => 'device',
+        'view' => __DIR__ . '/admin/device.php',
+        'styles' => array('asset/admin/css/device-content.css'),
+    ),
     'report' => array(
         'title' => 'Báo cáo',
         'active' => 'report',

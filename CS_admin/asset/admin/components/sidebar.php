@@ -54,6 +54,11 @@ if (!function_exists('sidebar_active_class')) {
       <i class="fa-solid fa-layer-group"></i>
       <span>Dịch vụ</span>
     </a>
+
+    <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=device'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('device', $sidebarActive); ?>" data-sidebar-item="device">
+      <i class="fa-solid fa-mobile-screen-button"></i>
+      <span>Thiết bị</span>
+    </a>
     <?php } ?>
   </nav>
 </div>

@@ -661,5 +661,71 @@ namespace VinhKhanh.Services
 
             return "/" + cleanPath;
         }
+
+        public async Task<List<AdminDeviceDto>> GetDevicesAsync()
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+                SELECT
+                    tb.idThietBi,
+                    tb.maThietBi,
+                    tb.daKichHoat,
+                    tb.thoiGianKichHoat,
+                    tb.lanCuoiHoatDong,
+                    tb.trangThai,
+                    tb.idTaiKhoan,
+                    COALESCE(ad.hoTen, cql.hoTen) AS tenChuSoHuu,
+                    tk.email AS emailChuSoHuu
+                FROM thietbi tb
+                LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
+                LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
+                LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+                ORDER BY tb.idThietBi DESC;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            var list = new List<AdminDeviceDto>();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new AdminDeviceDto
+                {
+                    IdThietBi = reader.GetInt32("idThietBi"),
+                    MaThietBi = reader["maThietBi"]?.ToString() ?? string.Empty,
+                    DaKichHoat = Convert.ToBoolean(reader["daKichHoat"]),
+                    ThoiGianKichHoat = reader["thoiGianKichHoat"] == DBNull.Value ? null : Convert.ToDateTime(reader["thoiGianKichHoat"]),
+                    LanCuoiHoatDong = reader["lanCuoiHoatDong"] == DBNull.Value ? null : Convert.ToDateTime(reader["lanCuoiHoatDong"]),
+                    TrangThai = reader["trangThai"]?.ToString() ?? string.Empty,
+                    IdTaiKhoan = reader["idTaiKhoan"] == DBNull.Value ? null : Convert.ToInt32(reader["idTaiKhoan"]),
+                    TenChuSoHuu = reader["tenChuSoHuu"]?.ToString(),
+                    EmailChuSoHuu = reader["emailChuSoHuu"]?.ToString()
+                });
+            }
+
+            return list;
+        }
+
+        public async Task<OperationResultDto> UpdateDeviceStatusAsync(string maThietBi, string trangThai)
+        {
+            var validStatuses = new[] { "hoat_dong", "khoa", "cho_kich_hoat" };
+            if (!validStatuses.Contains(trangThai))
+                return new OperationResultDto { Success = false, Message = "Trạng thái không hợp lệ." };
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"UPDATE thietbi SET trangThai = @trangThai WHERE maThietBi = @maThietBi;";
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@trangThai", trangThai);
+            cmd.Parameters.AddWithValue("@maThietBi", maThietBi);
+
+            var affected = await cmd.ExecuteNonQueryAsync();
+            if (affected == 0)
+                return new OperationResultDto { Success = false, Message = "Không tìm thấy thiết bị." };
+
+            return new OperationResultDto { Success = true, Message = "Cập nhật trạng thái thiết bị thành công." };
+        }
     }
 }

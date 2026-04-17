@@ -350,6 +350,30 @@ namespace VinhKhanh.Controllers
             });
         }
 
+        [HttpGet("devices")]
+        public async Task<IActionResult> GetDevices([FromQuery] int idTaiKhoan)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await _adminService.GetDevicesAsync());
+        }
+
+        [HttpPatch("devices/{maThietBi}/status")]
+        public async Task<IActionResult> UpdateDeviceStatus(string maThietBi, [FromQuery] int idTaiKhoan, [FromBody] UpdateDeviceStatusRequestDto request)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            var result = await _adminService.UpdateDeviceStatusAsync(maThietBi, request.TrangThai);
+            if (!result.Success)
+                return result.Message.Contains("không tìm thấy", StringComparison.OrdinalIgnoreCase)
+                    ? NotFound(result)
+                    : BadRequest(result);
+
+            return Ok(result);
+        }
+
         private async Task<int?> ResolveOwnerIdAsync(UpsertStoreRequestDto request)
         {
             if (request.IdChuQuanLy.HasValue && request.IdChuQuanLy.Value > 0)

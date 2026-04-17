@@ -65,7 +65,7 @@ if (!function_exists('backend_base_url')) {
             return $baseUrl;
         }
 
-        $baseUrl = 'https://localhost:7123';
+        $baseUrl = 'http://localhost:5114';
         return $baseUrl;
     }
 }
