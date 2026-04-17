@@ -56,6 +56,7 @@ namespace VinhKhanh.Services
                     ghnn.audioURL,
                     gh.lat,
                     gh.lon,
+                    gh.phiHangThang,
                     gh.tinhTrang
                 FROM gianhang gh
                 LEFT JOIN ngonngu nn 
@@ -83,6 +84,7 @@ namespace VinhKhanh.Services
                     AudioURL = reader["audioURL"]?.ToString(),
                     Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]),
                     Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
+                    PhiHangThang = reader["phiHangThang"] == DBNull.Value ? 0m : Convert.ToDecimal(reader["phiHangThang"]),
                     TinhTrang = reader["tinhTrang"]?.ToString()
                 });
             }
@@ -204,6 +206,7 @@ namespace VinhKhanh.Services
                 HinhAnh = x.HinhAnhChinh,
                 Lat = x.Lat,
                 Lon = x.Lon,
+                PhiHangThang = x.PhiHangThang,
                 TinhTrang = x.TinhTrang
             }).ToList();
         }

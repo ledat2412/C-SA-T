@@ -66,6 +66,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                     gianHang.Lon.Value,
                     gianHang.AudioFullUrl,
                     gianHang.HinhAnhFullUrl,
+                    gianHang.PhiHangThang,
                     radiusMeters ?? RadiusMeters);
             }
         }
@@ -282,6 +283,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         PublishLocationIfChanged(location);
 
         List<GeofenceTriggeredEventArgs> triggers = [];
+        List<GeofenceTriggeredEventArgs> insideTargets = [];
 
         await _sync.WaitAsync(ct);
         try
@@ -299,8 +301,11 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
                 if (isInside)
                 {
+                    var insideTarget = new GeofenceTriggeredEventArgs(target, distance);
+                    insideTargets.Add(insideTarget);
+
                     if (_insideTargetIds.Add(target.Id))
-                        triggers.Add(new GeofenceTriggeredEventArgs(target, distance));
+                        triggers.Add(insideTarget);
                 }
                 else
                 {
@@ -316,14 +321,23 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         if (triggers.Count == 0)
             return;
 
-        foreach (var trigger in triggers.OrderBy(x => x.DistanceMeters))
+        foreach (var trigger in PrioritizeGeofenceTargets(triggers))
             EnteredGeofence?.Invoke(this, trigger);
 
         if (!AutoPlayAudioWhenEntered)
             return;
 
-        var nearestTrigger = triggers.OrderBy(x => x.DistanceMeters).First();
-        await ScheduleAutoPlayAsync(nearestTrigger.Target, ct);
+        var preferredTarget = PrioritizeGeofenceTargets(insideTargets).First();
+        await ScheduleAutoPlayAsync(preferredTarget.Target, ct);
+    }
+
+    private static IOrderedEnumerable<GeofenceTriggeredEventArgs> PrioritizeGeofenceTargets(
+        IEnumerable<GeofenceTriggeredEventArgs> targets)
+    {
+        return targets
+            .OrderByDescending(x => x.Target.MonthlyFee)
+            .ThenBy(x => x.DistanceMeters)
+            .ThenBy(x => x.Target.Id);
     }
 
     private async Task CompletePendingAutoPlayAsync(AudioPlaybackRequest request, CancellationTokenSource pendingCts)
@@ -581,6 +595,7 @@ public sealed record GeofenceTarget(
     double Longitude,
     string? AudioUrl,
     string? ImageUrl,
+    decimal MonthlyFee,
     double RadiusMeters);
 
 public sealed record AudioPlaybackRequest(

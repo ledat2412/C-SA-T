@@ -11,6 +11,7 @@
         public List<string> HinhAnhPhu { get; set; } = new();
         public double? Lat { get; set; }
         public double? Lon { get; set; }
+        public decimal PhiHangThang { get; set; }
         public string? TinhTrang { get; set; }
         public List<MonAnDto> MonAns { get; set; } = new();
     }
