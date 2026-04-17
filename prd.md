@@ -1,304 +1,461 @@
-# Product Requirements Document
-## Hệ thống Du lịch Thông minh — Vinh Khánh Smart Tourism
+# PRD - Vinh Khanh Smart Tourism
 
-**Phiên bản:** 1.0  
-**Ngày:** 09/04/2026  
-**Trạng thái:** Draft
+**Phien ban:** 2.0  
+**Ngay cap nhat:** 17/04/2026  
+**Trang thai:** Draft theo source code hien tai  
+**Pham vi:** MAUI mobile app, ASP.NET Core backend API, dashboard web quan tri/chu quan ly, MySQL database.
 
 ---
 
-## 1. Tổng quan sản phẩm
+## 1. Can cu tai lieu
 
-### 1.1 Mô tả
+Tai lieu nay duoc viet lai dua tren:
 
-Vinh Khánh Smart Tourism là nền tảng du lịch thông minh tích hợp ba thành phần:
+- Source mobile app trong `C-SA-T`: man hinh access, goi dich vu, quet QR, ban do POI, chi tiet gian hang, audio, da ngon ngu, cache offline.
+- Source backend trong `VinhKhanh/VinhKhanh`: controller, service, DTO, MySQL schema va endpoint API.
+- Dashboard web trong `CS_admin`: dang nhap/dang ky, quan ly gian hang, mon an, tai khoan, goi dich vu, yeu cau gian hang.
+- Database MySQL `gianhang` hien tai: class diagram da doc truc tiep tu `information_schema`.
+- Bo hinh co san trong `prd-assets/mermaid`: `usecase.drawio.png`, `Class Diagram.drawio.png`, `GianHang-Page-4.drawio.png`, `GianHang-Page-3.jpg`.
+- Lich su commit gan day:
 
-- **App di động (MAUI Android)** — dành cho du khách, hỗ trợ bản đồ POI, audio guide tự động kích hoạt theo vị trí GPS, đa ngôn ngữ.
-- **Dashboard Web (ASP.NET)** — dành cho Admin quản lý hệ thống và Chủ gian hàng quản lý nội dung POI của mình.
-- **Backend API (ASP.NET Core)** — xử lý toàn bộ nghiệp vụ: gian hàng, món ăn, access session, thiết bị, TTS, auth.
-
-### 1.2 Mục tiêu sản phẩm
-
-| Mục tiêu | Chỉ số đo lường |
+| Commit | Noi dung chinh duoc phan anh vao PRD |
 |---|---|
-| Du khách khám phá POI không cần hướng dẫn viên | % POI có audio guide đầy đủ ≥ 80% |
-| Chủ gian hàng tự quản lý nội dung | Thời gian onboard ≤ 3 ngày |
-| Admin kiểm soát chất lượng gian hàng | Tỉ lệ duyệt/từ chối có email thông báo = 100% |
-| Trải nghiệm offline | App hoạt động với cache SQLite khi mất mạng |
+| `2677a5f` | Fix app bugs, image/audio/lang, access pages |
+| `cfaa5d1` | Fix logic QR token, activity/sequence access |
+| `791cbad` | Goi dich vu, QR mua goi, bypass thanh toan |
+| `8577f4e` | Admin/backend features, request gian hang, service packages |
+| `c9908b4` | Dang ky web cho chu quan ly |
+| `b1987ae` | Cap nhat ngon ngu app, audio, geofence |
+| `fdd005f` | Fix SQLite/offline cache |
+| `2dca51f` | Fix map |
 
-### 1.3 Các bên liên quan
+---
 
-| Vai trò | Mô tả |
+## 2. Tong quan san pham
+
+Vinh Khanh Smart Tourism la he thong du lich thong minh cho khu vuc Vinh Khanh, giup du khach mo app, mua goi truy cap, xem ban do/danh sach gian hang, tim kiem dia diem, xem mon an, nghe audio mo ta theo ngon ngu, va tu dong phat audio khi den gan gian hang.
+
+He thong gom 3 phan:
+
+| Thanh phan | Vai tro |
 |---|---|
-| **Du khách** | Người dùng app, quét QR tại POI, nghe audio guide |
-| **Chủ sở hữu (Owner)** | Đăng ký gian hàng, quản lý POI và món ăn, gia hạn subscription |
-| **Admin** | Duyệt/từ chối gian hàng, quản lý toàn hệ thống |
-| **Thiết bị QR** | Thiết bị vật lý đặt tại POI, được Admin kích hoạt |
+| MAUI Mobile App | App cho du khach: token access, goi dich vu, QR token, map, danh sach, chi tiet, audio, ngon ngu, offline cache |
+| ASP.NET Core Backend | API xu ly auth, access token, goi dich vu, gian hang, mon an, admin/owner, Google TTS, MySQL |
+| CS_admin Web Dashboard | Giao dien web cho admin va chu quan ly quan ly du lieu he thong |
 
 ---
 
-## 2. Kiến trúc hệ thống
+## 3. Muc tieu san pham
 
-### 2.1 Stack công nghệ
-
-| Thành phần | Công nghệ |
+| Muc tieu | Ket qua mong muon |
 |---|---|
-| Mobile App | .NET MAUI (Android) |
-| Backend API | ASP.NET Core (.NET 10), MySQL |
-| Admin/Owner Dashboard | ASP.NET (Razor Pages / API) |
-| Maps | Microsoft.Maui.Maps (Google Maps Android) |
-| TTS | Google Cloud Text-to-Speech API |
-| Audio Playback | Plugin.Maui.Audio |
-| Geofence | MAUI Geolocation (polling 3s, radius 10m) |
-| Local Cache | SQLite (12h TTL) |
-| Auth | JWT / Session-based |
-
-### 2.2 Các entity chính (từ DB schema)
-
-- `gianhang` — gian hàng / POI
-- `gianhangngonngu` — bản dịch tên, mô tả, audioURL theo ngôn ngữ
-- `monan` — món ăn thuộc gian hàng
-- `ngonngu` — danh sách ngôn ngữ hỗ trợ
-- `taikhoan` — tài khoản (admin / chu_quan_ly)
-- `chuquanly` — chủ sở hữu
-- `thietbi` — thiết bị QR tại POI
-- `phien_vao_app` — access session sau khi quét QR
-- `hinhanhgianhang`, `hinhanhmonan` — hình ảnh
-
-### 2.3 Sơ đồ use case tổng thể
-
-![Sơ đồ use case tổng thể của hệ thống Vinh Khánh Smart Tourism](mermaid-diagram-2026-04-10-083728.png)
+| Du khach vao app co kiem soat | Moi phien su dung duoc bao ve bang token theo goi da mua |
+| Mot token chi dung tren mot may | Token duoc khoa vao `clientDeviceId`; may khac quet lai se bi tu choi |
+| Noi dung gian hang de kham pha | Co ban do, danh sach, tim kiem, chi tiet gian hang, chi tiet mon an |
+| Ho tro trai nghiem da ngon ngu | Doi ngon ngu app va audio/mo ta theo bang `ngonngu` |
+| Ho tro audio guide | Audio mo ta co the phat thu cong hoac tu dong khi vao vung geofence |
+| Dashboard quan tri du lieu | Admin/chu quan ly co the quan ly tai khoan, gian hang, mon an, goi dich vu, yeu cau gian hang |
+| Hoat dong khi mang yeu | App co cache SQLite, fallback du lieu cu khi API khong san sang |
 
 ---
 
-## 3. Tính năng theo vai trò
+## 4. Nguoi dung va vai tro
 
-### 3.1 Du khách (Mobile App)
-
-#### F01 — Bản đồ POI
-- Xem bản đồ với các pin POI (gian hàng đang hoạt động có tọa độ lat/lon)
-- Highlight POI gần nhất, xem chi tiết (tên, địa chỉ, mô tả, ảnh, danh sách món ăn)
-- Tìm kiếm POI theo tên, món ăn, địa chỉ
-- Xem vị trí hiện tại của mình trên bản đồ
-
-#### F02 — Geofence + Audio Guide tự động
-- Geofence polling 3 giây, radius 10m
-- Khi vào vùng POI: tự động schedule phát audio sau 3 giây
-- Hỗ trợ pause/resume, seek, stop
-- Banner hiển thị trạng thái phát (Pending → Playing → Paused)
-- Phát đúng ngôn ngữ người dùng đang chọn
-
-#### F03 — Đa ngôn ngữ
-- Chuyển đổi ngôn ngữ (vi, en, ...) trên giao diện
-- Audio guide và mô tả POI theo ngôn ngữ được chọn
-- Cache dữ liệu theo từng ngôn ngữ
-
-#### F04 — Quét QR tại POI
-- Quét mã QR của thiết bị đặt tại POI
-- Gửi `POST /api/access/scan` → nhận `accessToken`
-- Mở khóa nội dung POI trong session (mặc định 30 phút)
-- Tùy chọn: nhập email để nhận hóa đơn
-
-#### F05 — Offline Mode
-- Cache AppData (gian hàng + món ăn) vào SQLite, TTL 12 giờ
-- Khi mất mạng: fallback đọc từ SQLite
-- Khi có mạng: ưu tiên gọi API, cập nhật cache
-
-#### F06 — Tài khoản (tùy chọn)
-- Đăng ký / đăng nhập
-- Xem lịch sử POI đã ghé thăm (nếu có tài khoản)
+| Vai tro | Mo ta | Kenh su dung |
+|---|---|---|
+| Nguoi dung app / du khach | Mua goi, vao app, xem/noi dung du lich, nghe audio | MAUI app |
+| Chu quan ly | Dang ky tai khoan, gui yeu cau gian hang, quan ly gian hang/mon an cua minh | CS_admin dashboard |
+| Admin | Quan ly toan he thong, tai khoan, gian hang, mon an, goi dich vu, duyet yeu cau | CS_admin dashboard + backend API |
+| Dich vu ngoai | SMTP email, Google Text-to-Speech | Backend service |
 
 ---
 
-### 3.2 Chủ sở hữu (Owner Dashboard)
+## 5. Pham vi MVP hien tai
 
-#### F07 — Đăng ký tài khoản
-- Điền form đăng ký → tạo tài khoản → xác thực email
-- Sau xác thực: được phép tạo gian hàng
+### 5.1 Trong pham vi
 
-#### F08 — Đăng ký gian hàng
-- Điền thông tin: tên, địa chỉ, mô tả, ảnh, lat/lon
-- Gian hàng tạo xong ở trạng thái `cho_duyet`
-- Hệ thống thông báo Admin có gian hàng mới chờ duyệt
-- Chủ xem được trạng thái chờ duyệt ngay trên dashboard
+- Kiem tra token khi mo app.
+- Dang ky goi dich vu trong app.
+- Hien QR thanh toan mo phong.
+- Bypass thanh toan de tao token theo goi.
+- Tao mot QR token dang nhap duy nhat va gui qua email neu SMTP da cau hinh.
+- Khoa token vao may hien tai khi tao goi.
+- Quet lai QR token tu email de vao lai tren cung may.
+- Tu choi token neu quet tren may khac.
+- Luu token access trong `Preferences`.
+- Ban do/danh sach/tim kiem gian hang.
+- Xem chi tiet gian hang va mon an.
+- Doi ngon ngu app/audio.
+- Phat audio mo ta va tu dong phat khi vao geofence.
+- Cache app data va audio cho trai nghiem offline.
+- Admin/owner dang nhap, dang ky, quan ly du lieu.
+- Google TTS tao audio tu mo ta gian hang.
 
-#### F09 — Quản lý gian hàng
-- Xem danh sách gian hàng của mình
-- Cập nhật thông tin, ảnh, mô tả
-- Thay đổi trạng thái (tạm dừng / hoạt động — chỉ khi đã được duyệt)
-- Xem chi tiết theo từng ngôn ngữ
+### 5.2 Ngoai pham vi hien tai
 
-#### F10 — Quản lý món ăn
-- Thêm / sửa / xóa món ăn thuộc gian hàng
-- Cập nhật tên, giá, mô tả, ảnh, trạng thái hiển thị
-- Đa ngôn ngữ cho tên và mô tả món ăn
-
-#### F11 — Quản lý audio guide
-- Nhập/chỉnh sửa mô tả gian hàng (theo từng ngôn ngữ)
-- Kích hoạt sinh audio TTS từ mô tả (`POST /api/gianhang/{id}/generate-audio`)
-- Audio được lưu file trên server, URL lưu vào DB
-- Nếu mô tả thay đổi: audio cũ bị xóa, tạo lại tự động (`PUT /api/gianhang/{id}/update-mo-ta`)
-
-#### F12 — Gia hạn subscription
-- Xem danh sách hóa đơn
-- Nhận thông báo sắp hết hạn (tự động trước N ngày)
-- Bấm thanh toán → redirect đến cổng payment → webhook xác nhận → cập nhật trạng thái gian hàng → gửi email hóa đơn
+- Webhook thanh toan that tu ngan hang/vi dien tu.
+- QR khoi phuc rieng. He thong chi dung mot QR token dang nhap.
+- Token dung chung nhieu thiet bi.
+- Analytics nang cao nhu heatmap, top POI, bao cao doanh thu chi tiet.
+- App Store/Play Store production release.
 
 ---
 
-### 3.3 Admin Dashboard
+## 6. Use case tong quat
 
-#### F13 — Duyệt gian hàng
-- Xem danh sách gian hàng chờ duyệt
-- Xem chi tiết gian hàng (thông tin, ảnh, tài liệu)
-- Duyệt → cập nhật `hoat_dong`, gửi email thông báo chủ
-- Từ chối + lý do → cập nhật `tu_choi`, gửi email kèm lý do
+![Use case tong the](prd-assets/mermaid/usecase.drawio.png)
 
-#### F14 — Quản lý gian hàng (toàn hệ thống)
-- Xem tất cả gian hàng (lọc theo danh mục, trạng thái)
-- Tạo / sửa gian hàng thay mặt owner
-- Gán chủ quản lý theo email hoặc ID
+Use case app hien tap trung vao cac chuc nang nguoi dung mobile:
 
-#### F15 — Quản lý thiết bị QR
-- Xem danh sách thiết bị
-- Kích hoạt thiết bị: nhập `maKichHoat` → `POST /api/device/activate`
-- Xem trạng thái thiết bị (đã kích hoạt, lần cuối hoạt động)
-
-#### F16 — Tổng quan (Dashboard)
-- Số gian hàng đang hoạt động / chờ duyệt / tạm dừng
-- Số chủ sở hữu
-- Analytics cơ bản (lượt quét QR, POI phổ biến nhất — roadmap)
+- Mo app va kiem tra token.
+- Dang ky goi dich vu.
+- Quet QR token dang nhap.
+- Xem ban do/danh sach/tim kiem gian hang.
+- Xem thong tin gian hang va mon an.
+- Doi ngon ngu app/audio.
+- Nghe audio mo ta va tu dong phat khi den gan.
+- Xem du lieu offline.
+- Cai dat va reset token truy cap.
 
 ---
 
-## 4. API Endpoints tổng hợp
+## 7. Yeu cau chuc nang
+
+### F01 - Mo app va kiem tra token
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co trong app
+
+Khi mo app, `AccessEntryPage` goi `AccessFlowService.ValidateCurrentAccessAsync()`.
+
+| Dieu kien | Xu ly |
+|---|---|
+| Khong co token local | Hien man hinh chon Quet QR / Dang ky goi |
+| Co token local | Goi `GET /api/access/validate` kem `accessToken` va `clientDeviceId` |
+| Token hop le va dung may | Mo HomePage/noi dung chinh |
+| Token het han/sai may/khong ton tai | Xoa token local, yeu cau truy cap lai |
+
+### F02 - Dang ky goi dich vu trong app
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co luong mo phong thanh toan
+
+Nguoi dung chon goi, nhap email, app hien QR thanh toan. Hien tai luong thanh toan that chua implement webhook, nen app co bypass de test/activate.
+
+| Buoc | Mo ta |
+|---|---|
+| Chon goi | Goi 1/7/30 ngay hoac goi lay tu backend |
+| Nhap email | Email dung de nhan QR token dang nhap |
+| Hien QR thanh toan | Payload dang `PAYQR|goi=...|email=...|gia=...` |
+| Bypass thanh toan | Goi `POST /api/access/package/register` voi `bypassPayment=true` |
+| Backend tao token | Tao `phien_vao_app`, `hoadon`, thoi han theo goi |
+| Khoa token vao may | Gan token voi `clientDeviceId` hien tai |
+| Gui email | Gui dung mot QR token dang nhap qua SMTP neu da cau hinh |
+| Vao app | App luu token va hien nut Vao app |
+
+### F03 - Quet QR token dang nhap
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+QR token la QR duy nhat gui qua email sau khi mua goi. Day khong phai QR khoi phuc rieng.
+
+| Dieu kien | Ket qua |
+|---|---|
+| Token con han va dung may da kich hoat | Luu token vao may, cho vao app |
+| Token het han/khong ton tai | Bao loi QR khong hop le |
+| Token dung nhung may khac quet | Bao loi token chi dung tren mot may |
+| May reset/doi `clientDeviceId` | Bi xem nhu may khac, khong duoc nhan token cu |
+
+### F04 - Ban do va danh sach gian hang
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+- Lay data qua `GET /api/gianhang/appdata?lang=...`.
+- Hien gian hang tren map neu co `lat/lon`.
+- Hien danh sach va cho xem chi tiet.
+- Dung Google Maps key tu `Secrets.props` hoac `Secret/props.txt`.
+
+### F05 - Tim kiem gian hang/mon an
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co so do sequence/search
+
+- Tim theo ten gian hang, dia chi, mon an.
+- Mo chi tiet gian hang tu ket qua tim.
+- Chi tiet gian hang gom hinh anh, mo ta, audio, mon an.
+
+### F06 - Chi tiet mon an
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+- Xem mon an theo gian hang.
+- Hien ten, gia, mo ta, hinh anh, trang thai.
+- Ho tro mo ta mon an theo ngon ngu qua bang `monanngonngu`.
+
+### F07 - Da ngon ngu
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+- `LocalizationService` xu ly ngon ngu app.
+- Data gian hang/mon an lay theo `lang`.
+- Audio mo ta lay theo ngon ngu tu `gianhangngonngu.audioURL`.
+- Cac ngon ngu duoc mo rong qua bang `ngonngu`.
+
+### F08 - Audio guide va geofence
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+- Geofence radius mac dinh: 10m.
+- Poll interval: 3 giay.
+- Khi vao gan gian hang, he thong schedule auto-play sau 3 giay.
+- Co audio playback banner, play/pause/stop/seek.
+- `AudioCacheService` tai/cache audio de giam phu thuoc mang.
+
+### F09 - Offline cache
+
+**Nguoi dung:** Du khach  
+**Trang thai:** Da co
+
+- `AppDataCacheService` dung memory cache va SQLite.
+- Cache app data TTL 12 gio.
+- Khi API fail, app co the fallback cache moi hoac cache cu.
+- Co cleanup cache cu sau grace period.
+
+### F10 - Dang nhap/dang ky web
+
+**Nguoi dung:** Admin, chu quan ly  
+**Trang thai:** Da co
+
+- Web `CS_admin/auth.php` goi proxy `api/auth-login-proxy.php` va `api/auth-register-proxy.php`.
+- Backend co `POST /api/auth/login` va `POST /api/auth/register`.
+- Tai khoan co role `admin`, `chu_quan_ly`, `khach_hang`.
+
+### F11 - Chu quan ly quan ly gian hang
+
+**Nguoi dung:** Chu quan ly  
+**Trang thai:** Da co
+
+- Xem danh sach gian hang cua minh.
+- Gui yeu cau dang ky gian hang.
+- Cap nhat thong tin gian hang.
+- Upload anh gian hang.
+- Quan ly mon an: them/sua/trang thai/upload anh.
+- Quyen duoc check qua `AccountAccessService`.
+
+### F12 - Admin quan ly he thong
+
+**Nguoi dung:** Admin  
+**Trang thai:** Da co
+
+- Xem summary.
+- Quan ly tai khoan.
+- Tao/khoa/mo tai khoan.
+- Quan ly gian hang va mon an toan he thong.
+- Duyet/tu choi yeu cau gian hang.
+- Quan ly goi dich vu: them, sua, doi trang thai.
+
+### F13 - Google Text-to-Speech
+
+**Nguoi dung:** Admin/chu quan ly gian hang  
+**Trang thai:** Da co backend
+
+- Endpoint `POST /api/gianhang/{id}/generate-audio`.
+- Endpoint `PUT /api/gianhang/{id}/update-mo-ta`.
+- Service `GoogleTtsService` tao file audio trong `wwwroot/audio`.
+- URL audio duoc luu vao DB.
+
+---
+
+## 8. Luong truy cap QR token
+
+![Bo sequence va activity tong hop](prd-assets/mermaid/GianHang-Page-4.drawio.png)
+
+Quy tac san pham:
+
+1. He thong chi co mot loai QR cho access: QR token dang nhap.
+2. QR token duoc gui qua email sau khi dang ky goi thanh cong.
+3. Token duoc tao theo thoi han goi va khoa vao may hien tai.
+4. Neu mat token local do xoa app/loi local, nguoi dung quet lai QR token trong email tren cung may de vao lai.
+5. Neu may bi reset lam doi `clientDeviceId`, he thong xem la may moi va tu choi token cu.
+6. Khong co QR khoi phuc rieng.
+
+---
+
+## 9. Du lieu va class diagram DB
+
+![Class diagram DB](prd-assets/mermaid/Class%20Diagram.drawio.png)
+
+Class diagram trong PRD dang dung file `Class Diagram.drawio.png` co san trong folder. Noi dung DB van duoc doi chieu voi MySQL `information_schema` khi viet PRD.
+
+Bang chinh:
+
+| Nhom | Bang |
+|---|---|
+| Tai khoan | `taikhoan`, `admin`, `chu_quan_ly`, `khachhang` |
+| Gian hang | `gianhang`, `gianhangngonngu`, `hinhanhgianhang`, `yeucaugianhang` |
+| Mon an | `monan`, `monanngonngu`, `hinhanhmonan` |
+| Ngon ngu | `ngonngu` |
+| Goi/access | `goidichvu`, `thietbi`, `phien_vao_app`, `hoadon` |
+| Hoa don chi tiet | `chitiethoadon`, `hoadongianhang` |
+
+Ghi chu: DB hien tai co `yeucaugianhang_backup_20260416`, day la bang backup migration, khong phai bang nghiep vu chinh.
+
+---
+
+## 10. Bo so do thiet ke trong folder
+
+![Tong hop so do thiet ke](prd-assets/mermaid/GianHang-Page-3.jpg)
+
+Hinh tren la file tong hop thiet ke co san trong folder, gom nhieu activity/sequence phuc vu doi chieu PRD.
+
+---
+
+## 11. API backend
+
+### Access
+
+| Method | Endpoint | Muc dich |
+|---|---|---|
+| `POST` | `/api/access/scan` | Legacy/scan QR thiet bi, tao access session theo ma thiet bi/goi |
+| `GET` | `/api/access/validate` | Kiem tra token, han dung, dung thiet bi |
+| `POST` | `/api/access/token/activate` | Kich hoat/quet lai QR token dang nhap tren dung may |
+| `POST` | `/api/access/package/register` | Dang ky goi, tao token, tao hoa don, gui email QR token |
 
 ### Auth
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| POST | `/api/auth/login` | Đăng nhập, trả JWT / session |
 
-### GianHang (Public)
-| Method | Endpoint | Mô tả |
+| Method | Endpoint | Muc dich |
 |---|---|---|
-| GET | `/api/gianhang/appdata?lang=vi` | Lấy toàn bộ data app (gian hàng + món ăn) |
-| GET | `/api/gianhang` | Danh sách gian hàng |
-| GET | `/api/gianhang/{id}` | Chi tiết gian hàng |
-| GET | `/api/gianhang/nearby?lat&lon&radiusMeters` | Gian hàng gần vị trí |
-| POST | `/api/gianhang/{id}/generate-audio` | Sinh audio TTS từ mô tả |
-| PUT | `/api/gianhang/{id}/update-mo-ta` | Cập nhật mô tả + tái sinh audio |
+| `POST` | `/api/auth/login` | Dang nhap admin/chu quan ly/app |
+| `POST` | `/api/auth/register` | Dang ky chu quan ly |
 
-### POI
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| GET | `/api/poi?lang=vi` | Danh sách POI có tọa độ |
+### App data / POI
 
-### Access (QR Session)
-| Method | Endpoint | Mô tả |
+| Method | Endpoint | Muc dich |
 |---|---|---|
-| POST | `/api/access/scan` | Quét QR → tạo access session |
-| GET | `/api/access/validate?accessToken=` | Kiểm tra session còn hiệu lực |
+| `GET` | `/api/gianhang/appdata` | Lay du lieu app theo ngon ngu |
+| `GET` | `/api/gianhang` | Danh sach gian hang |
+| `GET` | `/api/gianhang/{id}` | Chi tiet gian hang |
+| `GET` | `/api/gianhang/nearby` | Gian hang gan vi tri |
+| `GET` | `/api/poi` | Danh sach POI |
+| `GET` | `/api/monan/by-gianhang/{idGianHang}` | Danh sach mon an cua gian hang |
+
+### Audio/TTS
+
+| Method | Endpoint | Muc dich |
+|---|---|---|
+| `POST` | `/api/gianhang/{id}/generate-audio` | Tao audio mo ta |
+| `PUT` | `/api/gianhang/{id}/update-mo-ta` | Cap nhat mo ta va tao lai audio |
 
 ### Device
-| Method | Endpoint | Mô tả |
+
+| Method | Endpoint | Muc dich |
 |---|---|---|
-| POST | `/api/device/activate` | Kích hoạt thiết bị QR |
-| GET | `/api/device/{maThietBi}/status` | Trạng thái thiết bị |
+| `POST` | `/api/device/activate` | Kich hoat thiet bi |
+| `GET` | `/api/device/{maThietBi}/status` | Xem trang thai thiet bi |
 
 ### Owner
-| Method | Endpoint | Mô tả |
+
+| Method | Endpoint | Muc dich |
 |---|---|---|
-| GET | `/api/owner/stores?idTaiKhoan=` | Gian hàng của owner |
-| GET | `/api/owner/stores/{id}` | Chi tiết gian hàng |
-| POST | `/api/owner/stores` | Tạo gian hàng |
-| PUT | `/api/owner/stores/{id}` | Cập nhật gian hàng |
-| POST | `/api/owner/stores/{id}/image` | Upload ảnh gian hàng |
-| PATCH | `/api/owner/stores/{id}/status` | Đổi trạng thái gian hàng |
-| GET | `/api/owner/stores/{id}/foods` | Danh sách món ăn |
-| POST | `/api/owner/foods` | Tạo món ăn |
-| PUT | `/api/owner/foods/{id}` | Cập nhật món ăn |
-| PATCH | `/api/owner/foods/{id}/status` | Đổi trạng thái món ăn |
+| `GET` | `/api/owner/stores` | Danh sach gian hang cua owner |
+| `GET` | `/api/owner/stores/{idGianHang}` | Chi tiet gian hang owner |
+| `POST` | `/api/owner/stores` | Tao gian hang |
+| `GET` | `/api/owner/store-requests` | Xem yeu cau gian hang |
+| `POST` | `/api/owner/store-requests` | Gui yeu cau gian hang |
+| `PUT` | `/api/owner/stores/{idGianHang}` | Sua gian hang |
+| `PATCH` | `/api/owner/stores/{idGianHang}/status` | Doi trang thai gian hang |
+| `POST` | `/api/owner/stores/{idGianHang}/image` | Upload anh gian hang |
+| `GET` | `/api/owner/stores/{idGianHang}/foods` | Mon an cua gian hang |
+| `POST` | `/api/owner/foods` | Tao mon an |
+| `PUT` | `/api/owner/foods/{idMonAn}` | Sua mon an |
+| `PATCH` | `/api/owner/foods/{idMonAn}/status` | Doi trang thai mon an |
+| `POST` | `/api/owner/foods/{idMonAn}/image` | Upload anh mon an |
 
 ### Admin
-| Method | Endpoint | Mô tả |
+
+| Method | Endpoint | Muc dich |
 |---|---|---|
-| GET | `/api/admin/summary` | Tổng quan hệ thống |
-| GET | `/api/admin/stores` | Toàn bộ gian hàng |
-| GET | `/api/admin/owners` | Danh sách owners |
-| POST | `/api/admin/stores` | Tạo gian hàng (gán owner theo email/id) |
-| PUT | `/api/admin/stores/{id}` | Cập nhật gian hàng |
-| PATCH | `/api/admin/stores/{id}/status` | Duyệt / từ chối / tạm dừng |
-| POST/PUT/PATCH | `/api/admin/foods/*` | Quản lý món ăn toàn hệ thống |
+| `GET` | `/api/admin/summary` | Tong quan he thong |
+| `GET` | `/api/admin/stores` | Danh sach gian hang |
+| `GET` | `/api/admin/stores/{idGianHang}` | Chi tiet gian hang |
+| `GET` | `/api/admin/owners` | Danh sach chu quan ly |
+| `GET` | `/api/admin/accounts` | Danh sach tai khoan |
+| `POST` | `/api/admin/accounts` | Tao tai khoan |
+| `PATCH` | `/api/admin/accounts/{targetAccountId}/status` | Khoa/mo tai khoan |
+| `GET` | `/api/admin/store-requests` | Danh sach yeu cau gian hang |
+| `PATCH` | `/api/admin/store-requests/{idYeuCau}/review` | Duyet/tu choi yeu cau |
+| `GET` | `/api/admin/service-packages` | Danh sach goi dich vu |
+| `POST` | `/api/admin/service-packages` | Tao goi dich vu |
+| `PUT` | `/api/admin/service-packages/{idGoi}` | Sua goi dich vu |
+| `PATCH` | `/api/admin/service-packages/{idGoi}/status` | Doi trang thai goi |
+| `POST/PUT/PATCH` | `/api/admin/stores/*`, `/api/admin/foods/*` | Quan ly gian hang/mon an toan he thong |
 
 ---
 
-## 5. Trạng thái gian hàng (State Machine)
+## 12. Yeu cau phi chuc nang
 
-```
-cho_duyet → hoat_dong (Admin duyệt)
-cho_duyet → tu_choi   (Admin từ chối)
-hoat_dong → tam_dung  (Owner hoặc Admin tạm dừng)
-tam_dung  → hoat_dong (Owner hoặc Admin kích hoạt lại)
-```
-
-Chỉ các gian hàng `hoat_dong` mới xuất hiện trong AppData trả về cho App.
-
----
-
-## 6. Sequence Diagrams (tổng hợp)
-
-### 6.1 Đăng nhập và phân quyền
-
-![Sequence diagram đăng nhập và phân quyền](mermaid-diagram-2026-04-10-082357.png)
-
-### 6.2 Geofence và audio guide tự động
-
-![Sequence diagram geofence và audio guide tự động](mermaid-diagram-2026-04-10-083452.png)
-
-### 6.3 Quét QR và kích hoạt phiên truy cập
-
-![Sequence diagram quét QR và kích hoạt phiên truy cập](mermaid-diagram-2026-04-10-083649.png)
-
-### 6.4 Đồng bộ và cache offline
-
-![Sequence diagram đồng bộ dữ liệu và cache offline](mermaid-diagram-2026-04-10-083526.png)
-
-### 6.5 Chủ sở hữu quản lý gian hàng
-
-![Sequence diagram chủ sở hữu quản lý gian hàng](mermaid-diagram-2026-04-10-083536.png)
-
-### 6.6 Quản lý món ăn
-
-![Sequence diagram quản lý món ăn](mermaid-diagram-2026-04-10-083510.png)
-
-### 6.7 Luồng tìm kiếm POI
-
-![Sequence diagram luồng tìm kiếm POI](mermaid-diagram-2026-04-10-083040.png)
-
----
-
-## 7. Yêu cầu phi chức năng
-
-| Hạng mục | Yêu cầu |
+| Nhom | Yeu cau |
 |---|---|
-| **Hiệu năng** | API AppData phản hồi < 500ms (cached), < 2s (cold) |
-| **Offline** | App đọc được dữ liệu từ SQLite khi không có mạng |
-| **Bảo mật** | Xác thực idTaiKhoan trên mọi endpoint Owner/Admin |
-| **Đa ngôn ngữ** | Tối thiểu vi, en; mở rộng thêm ngôn ngữ qua bảng ngonngu |
-| **Audio** | TTS Google Cloud; cache audioURL trong DB (không sinh lại nếu đã có) |
-| **Geofence** | Polling 3s, radius mặc định 10m (configurable) |
+| Bao mat access | Token phai kiem tra han dung va dung `clientDeviceId` |
+| Bao mat role | Owner/Admin endpoint phai kiem tra `idTaiKhoan` va role |
+| Offline | App phai doc duoc cache SQLite khi API loi |
+| Hieu nang | App data nen duoc cache memory + SQLite, tranh goi API lap lai |
+| Da ngon ngu | Mo rong ngon ngu qua DB, khong hard-code toan bo noi dung data |
+| Audio | Audio phai cache/tai lai duoc, khong lam app crash khi mat mang |
+| Cau hinh secret | SMTP, Google Maps, Google service account khong dua len PRD/commit |
+| Kha nang test | Luong thanh toan bypass duoc ghi ro la test, khong nham voi payment production |
 
 ---
 
-## 8. Roadmap
+## 13. Tieu chi chap nhan MVP
 
-| Giai đoạn | Tính năng |
+| Hang muc | Tieu chi chap nhan |
 |---|---|
-| **MVP (hiện tại)** | Bản đồ POI, geofence audio, QR session, quản lý gian hàng/món ăn, TTS, admin duyệt |
-| **v1.1** | Thanh toán subscription (Payment integration), email thông báo đầy đủ |
-| **v1.2** | Analytics (heatmap, top POI, thống kê lượt quét), tour guide script |
-| **v2.0** | Đa ngôn ngữ mở rộng, OCR tự động từ ảnh menu, AI gợi ý tour |
+| Access token | Mo app co token hop le thi vao duoc, token sai may bi tu choi |
+| Dang ky goi | Sau bypass thanh toan, app co token, QR token, han dung, nut Vao app |
+| Email QR | Neu SMTP san sang, nguoi dung nhan dung mot QR token dang nhap |
+| Quet lai QR | QR email vao lai duoc tren dung may, khong vao duoc tren may khac |
+| Map/list/search | Hien duoc gian hang, tim va mo chi tiet |
+| Audio/geofence | Vao gan gian hang co audio phu hop ngon ngu va co the phat |
+| Offline | Tat API/mat mang van hien duoc du lieu cache gan nhat neu da sync |
+| Dashboard | Admin/owner quan ly duoc tai khoan, goi, gian hang, mon an, yeu cau |
 
 ---
 
-*Tài liệu này được tổng hợp từ source code (C-SA-T MAUI App + VinhKhanh ASP.NET Backend), sequence diagrams thiết kế, và ghi chú phát triển.*
+## 14. Han che hien tai va viec can lam tiep
+
+| Muc | Trang thai | Huong xu ly |
+|---|---|---|
+| Thanh toan that | Chua implement webhook, dang bypass | Tich hop payment provider, xac thuc giao dich, tat bypass o production |
+| Email | Phu thuoc SMTP config | Them man hinh/healthcheck cau hinh email |
+| Backup table trong DB | `yeucaugianhang_backup_20260416` con ton tai | Xac nhan co giu de audit hay drop khoi production |
+| Bao mat API | Dang truyen `idTaiKhoan` qua query o nhieu endpoint | Chuyen sang JWT/session chuan neu deploy that |
+| Ten app | `ApplicationTitle` con la `MauiApp1` | Doi thanh Vinh Khanh Smart Tourism truoc release |
+| Secret local | Co file config local dang modified | Khong commit secret, dung example/env/user-secrets |
+
+---
+
+## 15. Roadmap de xuat
+
+| Giai doan | Noi dung |
+|---|---|
+| v2.0 - Hoan thien MVP | Chot access token one-device, PRD/diagram, fix encoding tai lieu, on dinh dashboard |
+| v2.1 - Payment production | Webhook thanh toan that, ma giao dich, doi soat hoa don |
+| v2.2 - Security hardening | JWT/session, role claims, rate limit QR/token |
+| v2.3 - Analytics | Luot vao app, luot xem gian hang, audio played, goi ban chay |
+| v2.4 - UX polish | Ten app, icon, onboarding, empty states, offline indicators |
+
+---
+
+## 16. Trang HTML PRD
+
+Ban HTML cua PRD nam tai:
+
+`prd.html`
+
+Mo file nay truc tiep bang trinh duyet de xem ban trinh bay co layout, card va hinh so do.

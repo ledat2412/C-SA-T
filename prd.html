@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PRD - Vinh Khanh Smart Tourism</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #d9e0e8;
+      --paper: #ffffff;
+      --soft: #f5f7fa;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --blue: #1d4ed8;
+      --danger: #b91c1c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #edf1f5;
+      line-height: 1.58;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 24px auto 56px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 42px rgba(23, 32, 42, 0.08);
+    }
+
+    header {
+      padding: 36px 42px 28px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 54px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 14px 0 0;
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 7px 10px;
+      font-size: 13px;
+      color: #304255;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 14px 42px;
+      background: #fbfcfe;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    nav a {
+      color: var(--blue);
+      text-decoration: none;
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      padding: 6px 9px;
+      font-size: 13px;
+    }
+
+    main {
+      padding: 28px 42px 42px;
+    }
+
+    section {
+      margin-top: 34px;
+      padding-top: 2px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 26px;
+      letter-spacing: 0;
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 8px;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 19px;
+    }
+
+    p { margin: 8px 0; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .card {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 16px;
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: #0f172a;
+    }
+
+    .status {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 8px;
+      border: 1px solid #bbf7d0;
+      background: #f0fdf4;
+      color: #166534;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status.partial {
+      border-color: #fed7aa;
+      background: #fff7ed;
+      color: #9a3412;
+    }
+
+    .status.todo {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px;
+      font-size: 14px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      vertical-align: top;
+    }
+
+    th {
+      text-align: left;
+      background: var(--soft);
+      color: #243447;
+    }
+
+    code {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      padding: 1px 4px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 0.92em;
+    }
+
+    ul {
+      margin: 8px 0 18px 20px;
+      padding: 0;
+    }
+
+    li { margin: 5px 0; }
+
+    .diagram {
+      margin: 14px 0 26px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .diagram img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+    }
+
+    .diagram.wide img {
+      max-width: none;
+      width: 1800px;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #f0fdfa;
+      padding: 13px 15px;
+      margin: 14px 0;
+    }
+
+    .warning {
+      border-left-color: var(--accent-2);
+      background: #fff7ed;
+    }
+
+    .danger {
+      border-left-color: var(--danger);
+      background: #fef2f2;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 18px 42px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #fbfcfe;
+    }
+
+    @media (max-width: 860px) {
+      .page { width: 100%; margin: 0; border-left: 0; border-right: 0; }
+      header, nav, main, footer { padding-left: 18px; padding-right: 18px; }
+      nav { position: static; }
+      .grid, .grid.two { grid-template-columns: 1fr; }
+      table { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>PRD - Vinh Khanh Smart Tourism</h1>
+      <p class="subtitle">
+        Tai lieu yeu cau san pham duoc viet lai theo project hien tai: mobile app .NET MAUI,
+        backend ASP.NET Core, dashboard CS_admin, MySQL database, bo hinh draw.io trong folder va lich su commit gan day.
+      </p>
+      <div class="meta">
+        <span class="pill">Version 2.0</span>
+        <span class="pill">Updated 17/04/2026</span>
+        <span class="pill">Status Draft</span>
+        <span class="pill">Scope App + API + Dashboard + DB</span>
+      </div>
+    </header>
+
+    <nav aria-label="Muc luc">
+      <a href="#overview">Tong quan</a>
+      <a href="#scope">Pham vi</a>
+      <a href="#features">Chuc nang</a>
+      <a href="#access">QR token</a>
+      <a href="#data">Du lieu</a>
+      <a href="#diagrams">Bo so do</a>
+      <a href="#api">API</a>
+      <a href="#nfr">Phi chuc nang</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+
+    <main>
+      <section id="overview">
+        <h2>1. Tong quan</h2>
+        <p>
+          Vinh Khanh Smart Tourism giup du khach mua goi truy cap, vao app bang token,
+          kham pha gian hang tren ban do/danh sach, xem mon an, nghe audio mo ta theo ngon ngu
+          va tu dong phat audio khi den gan dia diem.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>Mobile App</h3>
+            <p>MAUI app cho du khach: access token, QR, goi dich vu, map, search, audio, ngon ngu, offline cache.</p>
+          </div>
+          <div class="card">
+            <h3>Backend API</h3>
+            <p>ASP.NET Core API xu ly auth, access session, gian hang, mon an, admin/owner, TTS va MySQL.</p>
+          </div>
+          <div class="card">
+            <h3>Dashboard</h3>
+            <p>CS_admin PHP dashboard cho admin va chu quan ly quan ly tai khoan, gian hang, mon an, goi dich vu.</p>
+          </div>
+        </div>
+
+        <h3>Can cu tu git</h3>
+        <table>
+          <thead>
+            <tr><th>Commit</th><th>Noi dung PRD su dung</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>2677a5f</code></td><td>Fix app bugs, access pages, image/audio/lang.</td></tr>
+            <tr><td><code>cfaa5d1</code></td><td>Fix logic QR token va cap nhat activity/sequence access.</td></tr>
+            <tr><td><code>791cbad</code></td><td>Goi dich vu, QR mua goi, bypass thanh toan.</td></tr>
+            <tr><td><code>8577f4e</code></td><td>Admin/backend features, request gian hang, service packages.</td></tr>
+            <tr><td><code>c9908b4</code></td><td>Dang ky web cho chu quan ly.</td></tr>
+            <tr><td><code>b1987ae</code></td><td>Ngon ngu app, audio, geofence.</td></tr>
+            <tr><td><code>fdd005f</code></td><td>SQLite/offline cache.</td></tr>
+            <tr><td><code>2dca51f</code></td><td>Map.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="scope">
+        <h2>2. Pham vi hien tai</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>Trong MVP</h3>
+            <ul>
+              <li>Kiem tra token khi mo app.</li>
+              <li>Dang ky goi dich vu va tao token theo goi.</li>
+              <li>Mot QR token dang nhap gui qua email.</li>
+              <li>Token chi dung tren mot thiet bi.</li>
+              <li>Map/list/search/detail gian hang va mon an.</li>
+              <li>Audio guide, geofence 10m, polling 3 giay.</li>
+              <li>SQLite cache TTL 12 gio.</li>
+              <li>Admin/owner dashboard.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Ngoai MVP</h3>
+            <ul>
+              <li>Webhook thanh toan that.</li>
+              <li>QR khoi phuc rieng.</li>
+              <li>Token dung chung nhieu may.</li>
+              <li>Analytics nang cao.</li>
+              <li>Production release store.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout warning">
+          Luong thanh toan hien tai la mo phong: app hien QR thanh toan va dung bypass de tao token.
+          Khi len production can thay bang webhook/xac thuc giao dich that.
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>3. Chuc nang</h2>
+        <div class="diagram">
+          <img src="prd-assets/mermaid/usecase.drawio.png" alt="Use case tong the">
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Access & Package</h3>
+            <p>Mo app, validate token, dang ky goi, nhan QR token email, quet lai QR token tren dung may.</p>
+            <span class="status">Implemented</span>
+          </div>
+          <div class="card">
+            <h3>Explore</h3>
+            <p>Xem ban do, danh sach, tim kiem, chi tiet gian hang, chi tiet mon an.</p>
+            <span class="status">Implemented</span>
+          </div>
+          <div class="card">
+            <h3>Language & Audio</h3>
+            <p>Doi ngon ngu app/audio, nghe audio mo ta, auto-play khi vao vung geofence.</p>
+            <span class="status">Implemented</span>
+          </div>
+          <div class="card">
+            <h3>Offline Cache</h3>
+            <p>Memory cache + SQLite cache, fallback khi API/mang khong san sang.</p>
+            <span class="status">Implemented</span>
+          </div>
+          <div class="card">
+            <h3>Owner Dashboard</h3>
+            <p>Dang ky, gui yeu cau gian hang, quan ly gian hang/mon an, upload anh.</p>
+            <span class="status">Implemented</span>
+          </div>
+          <div class="card">
+            <h3>Admin Dashboard</h3>
+            <p>Quan ly tai khoan, gian hang, mon an, yeu cau, goi dich vu.</p>
+            <span class="status">Implemented</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="access">
+        <h2>4. Luong QR token</h2>
+        <div class="diagram wide">
+          <img src="prd-assets/mermaid/GianHang-Page-4.drawio.png" alt="Bo sequence va activity tong hop">
+        </div>
+
+        <table>
+          <thead>
+            <tr><th>Quy tac</th><th>Mo ta</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Mot QR</td><td>Chi co QR token dang nhap, khong co QR khoi phuc rieng.</td></tr>
+            <tr><td>Mot may</td><td>Token duoc khoa vao <code>clientDeviceId</code> khi tao goi.</td></tr>
+            <tr><td>Quet lai</td><td>Neu mat token local, quet lai QR trong email tren dung may de vao app.</td></tr>
+            <tr><td>Sai may</td><td>May khac hoac may reset lam doi ID se bi tu choi.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="data">
+        <h2>5. Du lieu</h2>
+        <div class="diagram">
+          <img src="prd-assets/mermaid/Class%20Diagram.drawio.png" alt="Class diagram database">
+        </div>
+
+        <table>
+          <thead>
+            <tr><th>Nhom</th><th>Bang</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Tai khoan</td><td><code>taikhoan</code>, <code>admin</code>, <code>chu_quan_ly</code>, <code>khachhang</code></td></tr>
+            <tr><td>Gian hang</td><td><code>gianhang</code>, <code>gianhangngonngu</code>, <code>hinhanhgianhang</code>, <code>yeucaugianhang</code></td></tr>
+            <tr><td>Mon an</td><td><code>monan</code>, <code>monanngonngu</code>, <code>hinhanhmonan</code></td></tr>
+            <tr><td>Access/goi</td><td><code>goidichvu</code>, <code>thietbi</code>, <code>phien_vao_app</code>, <code>hoadon</code></td></tr>
+            <tr><td>Hoa don</td><td><code>chitiethoadon</code>, <code>hoadongianhang</code></td></tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          Hinh class diagram dang dung file <code>Class Diagram.drawio.png</code> co san trong folder.
+          Bang <code>yeucaugianhang_backup_20260416</code> van duoc ghi chu rieng vi no la bang backup migration trong DB hien tai.
+        </div>
+      </section>
+
+      <section id="diagrams">
+        <h2>6. Bo so do thiet ke trong folder</h2>
+        <p>
+          Cac hinh ben duoi la bo tai lieu draw.io/anh co san trong <code>prd-assets/mermaid</code>,
+          duoc dung lam nguon minh hoa chinh cho PRD.
+        </p>
+        <div class="diagram wide">
+          <img src="prd-assets/mermaid/GianHang-Page-3.jpg" alt="Tong hop so do thiet ke">
+        </div>
+      </section>
+
+      <section id="api">
+        <h2>7. API chinh</h2>
+        <table>
+          <thead>
+            <tr><th>Nhom</th><th>Endpoint</th><th>Muc dich</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Access</td><td><code>GET /api/access/validate</code></td><td>Kiem tra token, han dung, dung thiet bi.</td></tr>
+            <tr><td>Access</td><td><code>POST /api/access/token/activate</code></td><td>Quet/kich hoat QR token dang nhap.</td></tr>
+            <tr><td>Access</td><td><code>POST /api/access/package/register</code></td><td>Dang ky goi, tao token, hoa don, email QR.</td></tr>
+            <tr><td>Auth</td><td><code>POST /api/auth/login</code>, <code>POST /api/auth/register</code></td><td>Dang nhap va dang ky tai khoan.</td></tr>
+            <tr><td>App data</td><td><code>GET /api/gianhang/appdata</code></td><td>Du lieu gian hang/mon an cho app theo ngon ngu.</td></tr>
+            <tr><td>Gian hang</td><td><code>GET /api/gianhang</code>, <code>GET /api/gianhang/{id}</code></td><td>Danh sach va chi tiet gian hang.</td></tr>
+            <tr><td>Audio</td><td><code>POST /api/gianhang/{id}/generate-audio</code></td><td>Tao audio TTS tu mo ta.</td></tr>
+            <tr><td>Owner</td><td><code>/api/owner/*</code></td><td>Owner quan ly gian hang, mon an, yeu cau.</td></tr>
+            <tr><td>Admin</td><td><code>/api/admin/*</code></td><td>Admin quan ly he thong.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="nfr">
+        <h2>8. Phi chuc nang va tieu chi chap nhan</h2>
+        <table>
+          <thead>
+            <tr><th>Hang muc</th><th>Yeu cau</th><th>Acceptance</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Access</td><td>Token dung may, con han.</td><td>Token sai may bi tu choi.</td></tr>
+            <tr><td>Offline</td><td>SQLite cache TTL 12 gio va fallback cache cu.</td><td>Tat API van xem duoc data da sync.</td></tr>
+            <tr><td>Audio</td><td>Co cache audio va khong crash khi mat mang.</td><td>Audio phat duoc neu cache hoac network san sang.</td></tr>
+            <tr><td>Role</td><td>Owner/Admin endpoint kiem tra quyen.</td><td>Owner khong sua duoc gian hang khong thuoc minh.</td></tr>
+            <tr><td>Secret</td><td>Khong dua SMTP/Google key vao PRD/commit.</td><td>Dung example/env/local secret.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout danger">
+          Viec can chot truoc production: thanh toan webhook that, JWT/session chuan, doi ten app
+          tu <code>MauiApp1</code>, va don bang backup neu khong can audit.
+        </div>
+      </section>
+
+      <section id="roadmap">
+        <h2>9. Roadmap</h2>
+        <table>
+          <thead>
+            <tr><th>Giai doan</th><th>Noi dung</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>v2.0</td><td>Chot MVP, access token one-device, PRD/diagram, on dinh dashboard.</td></tr>
+            <tr><td>v2.1</td><td>Tich hop payment production, webhook, doi soat hoa don.</td></tr>
+            <tr><td>v2.2</td><td>JWT/session, role claims, rate limit QR/token.</td></tr>
+            <tr><td>v2.3</td><td>Analytics: luot xem, luot nghe audio, goi ban chay.</td></tr>
+            <tr><td>v2.4</td><td>UX polish, ten app, icon, onboarding, offline indicator.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      Generated from local project context, draw.io assets, Mermaid notes, database schema and git history. No secrets are included.
+    </footer>
+  </div>
+</body>
+</html>
