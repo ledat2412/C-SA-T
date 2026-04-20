@@ -283,7 +283,6 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         PublishLocationIfChanged(location);
 
         List<GeofenceTriggeredEventArgs> triggers = [];
-        List<GeofenceTriggeredEventArgs> insideTargets = [];
 
         await _sync.WaitAsync(ct);
         try
@@ -302,7 +301,6 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 if (isInside)
                 {
                     var insideTarget = new GeofenceTriggeredEventArgs(target, distance);
-                    insideTargets.Add(insideTarget);
 
                     if (_insideTargetIds.Add(target.Id))
                         triggers.Add(insideTarget);
@@ -321,13 +319,14 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         if (triggers.Count == 0)
             return;
 
-        foreach (var trigger in PrioritizeGeofenceTargets(triggers))
+        var prioritizedTriggers = PrioritizeGeofenceTargets(triggers).ToList();
+        foreach (var trigger in prioritizedTriggers)
             EnteredGeofence?.Invoke(this, trigger);
 
         if (!AutoPlayAudioWhenEntered)
             return;
 
-        var preferredTarget = PrioritizeGeofenceTargets(insideTargets).First();
+        var preferredTarget = prioritizedTriggers[0];
         await ScheduleAutoPlayAsync(preferredTarget.Target, ct);
     }
 

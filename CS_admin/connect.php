@@ -65,8 +65,26 @@ if (!function_exists('backend_base_url')) {
             return $baseUrl;
         }
 
-        $baseUrl = 'http://localhost:5114';
+        $baseUrl = backend_port_is_open('127.0.0.1', 7123)
+            ? 'https://localhost:7123'
+            : 'http://localhost:5114';
         return $baseUrl;
+    }
+}
+
+if (!function_exists('backend_port_is_open')) {
+    function backend_port_is_open($host, $port)
+    {
+        $errno = 0;
+        $errstr = '';
+        $socket = @fsockopen((string) $host, (int) $port, $errno, $errstr, 0.15);
+
+        if ($socket === false) {
+            return false;
+        }
+
+        fclose($socket);
+        return true;
     }
 }
 

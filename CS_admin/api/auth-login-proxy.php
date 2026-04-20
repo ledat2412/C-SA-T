@@ -35,6 +35,8 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, array(
 
 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
 curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
 
 $responseBody = curl_exec($ch);
 $curlError = curl_error($ch);

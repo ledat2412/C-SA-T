@@ -39,6 +39,11 @@ if (!function_exists('sidebar_active_class')) {
       <span>Gian hàng</span>
     </a>
 
+    <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=poi-map'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('poi-map', $sidebarActive); ?>" data-sidebar-item="poi-map">
+      <i class="fa-solid fa-map-location-dot"></i>
+      <span>POI Map</span>
+    </a>
+
     <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=request'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('request', $sidebarActive); ?>" data-sidebar-item="request">
       <i class="fa-solid fa-inbox"></i>
       <span>Yêu cầu</span>

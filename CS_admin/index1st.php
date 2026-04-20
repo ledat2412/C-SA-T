@@ -23,6 +23,12 @@ $availableUseCases = array(
         'view' => __DIR__ . '/admin/store.php',
         'styles' => array('asset/admin/css/store-content.css'),
     ),
+    'poi-map' => array(
+        'title' => 'Ban do POI 3D',
+        'active' => 'poi-map',
+        'view' => __DIR__ . '/admin/poi_map.php',
+        'styles' => array('asset/admin/css/poi-map-content.css'),
+    ),
     'branchdetail2' => array(
         'title' => 'Chi tiết gian hàng',
         'active' => 'store',
@@ -68,7 +74,7 @@ $availableUseCases = array(
 );
 
 if ($accountRole === 'chu_quan_ly') {
-    $allowedUseCases = array('store', 'branchdetail2', 'request', 'menu');
+    $allowedUseCases = array('store', 'poi-map', 'branchdetail2', 'request', 'menu');
     if (!in_array($useCase, $allowedUseCases, true)) {
         $useCase = 'store';
     }

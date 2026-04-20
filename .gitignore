@@ -16,6 +16,7 @@
 # App secret folders
 **/Secret/*.json
 !**/Secret/*.example.json
+CS_admin/Secret/google-maps-browser-key.txt
 
 # Local development settings with secrets
 VinhKhanh/VinhKhanh/appsettings.Development.json
