@@ -9,6 +9,7 @@ public static class BackendUrlResolver
 
     private const string EmulatorHttpsBaseUrl = "https://10.0.2.2:7123/";
     private const string EmulatorHttpBaseUrl = "http://10.0.2.2:5114/";
+    private const string EmulatorHttpsBaseUrl = "https://rudder-lake-yelp.ngrok-free.dev/";
     private const string AndroidDeviceLocalHttpBaseUrl = "http://192.168.31.235:5114/";
     private const string AndroidDeviceLocalHttpsBaseUrl = "https://192.168.31.235:7123/";
     private const string AndroidDeviceReverseHttpBaseUrl = "http://localhost:5114/";
