@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Caching.Memory;
 using VinhKhanh.Services;
 
 namespace VinhKhanh.Middleware
@@ -6,23 +5,14 @@ namespace VinhKhanh.Middleware
     public class DeviceActivityMiddleware
     {
         private const string DeviceHeaderName = "X-Device-Id";
-        private static readonly TimeSpan DedupWindow = TimeSpan.FromSeconds(10);
 
         private readonly RequestDelegate _next;
-        private readonly IMemoryCache _cache;
-        private readonly IServiceScopeFactory _scopeFactory;
-        private readonly ILogger<DeviceActivityMiddleware> _logger;
+        private readonly DeviceTouchQueue _queue;
 
-        public DeviceActivityMiddleware(
-            RequestDelegate next,
-            IMemoryCache cache,
-            IServiceScopeFactory scopeFactory,
-            ILogger<DeviceActivityMiddleware> logger)
+        public DeviceActivityMiddleware(RequestDelegate next, DeviceTouchQueue queue)
         {
             _next = next;
-            _cache = cache;
-            _scopeFactory = scopeFactory;
-            _logger = logger;
+            _queue = queue;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -39,25 +29,7 @@ namespace VinhKhanh.Middleware
             if (string.IsNullOrWhiteSpace(maThietBi) || maThietBi.Length > 100)
                 return;
 
-            var cacheKey = "device_touch::" + maThietBi;
-            if (_cache.TryGetValue(cacheKey, out _))
-                return;
-
-            _cache.Set(cacheKey, true, DedupWindow);
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var scope = _scopeFactory.CreateScope();
-                    var deviceService = scope.ServiceProvider.GetRequiredService<DeviceService>();
-                    await deviceService.TouchByCodeAsync(maThietBi);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Passive touch failed for device {MaThietBi}", maThietBi);
-                }
-            });
+            _queue.TryEnqueue(maThietBi);
         }
     }
 }

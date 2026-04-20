@@ -152,6 +152,27 @@ namespace VinhKhanh.Services
             return affected > 0;
         }
 
+        public async Task<int> TouchBatchAsync(IReadOnlyCollection<string> maThietBiList, CancellationToken ct = default)
+        {
+            if (maThietBiList.Count == 0)
+                return 0;
+
+            // Xây IN clause với tham số đánh số: @p0, @p1, ...
+            var paramNames = maThietBiList.Select((_, i) => $"@p{i}").ToList();
+            var inClause = string.Join(", ", paramNames);
+            var sql = $"UPDATE thietbi SET lanCuoiHoatDong = NOW() WHERE maThietBi IN ({inClause});";
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync(ct);
+
+            using var cmd = new MySqlCommand(sql, conn);
+            var values = maThietBiList.ToList();
+            for (var i = 0; i < values.Count; i++)
+                cmd.Parameters.AddWithValue($"@p{i}", values[i]);
+
+            return await cmd.ExecuteNonQueryAsync(ct);
+        }
+
         private static string? NullIfBlank(string? value)
             => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
