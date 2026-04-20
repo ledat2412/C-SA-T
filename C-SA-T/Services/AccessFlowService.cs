@@ -1,4 +1,5 @@
 using Microsoft.Maui.Storage;
+using MauiApp1.Models;
 
 namespace MauiApp1.Services;
 
@@ -13,10 +14,17 @@ public sealed class AccessFlowService
     private const string AccessDeviceCodeKey = "access_device_code";
 
     private readonly ApiService _apiService;
+    private readonly SQLiteService _sqliteService;
+    private readonly ClientDeviceIdentityService _clientDeviceIdentityService;
 
-    public AccessFlowService(ApiService apiService)
+    public AccessFlowService(
+        ApiService apiService,
+        SQLiteService sqliteService,
+        ClientDeviceIdentityService clientDeviceIdentityService)
     {
         _apiService = apiService;
+        _sqliteService = sqliteService;
+        _clientDeviceIdentityService = clientDeviceIdentityService;
     }
 
     public async Task<string> GetAccessTokenAsync()
@@ -43,6 +51,14 @@ public sealed class AccessFlowService
             {
             }
             return legacy;
+        }
+
+        var cached = await GetLatestUsableCachedAccessAsync();
+        if (cached is not null)
+        {
+            await SetAccessTokenAsync(cached.AccessToken);
+            RestorePreferencesFromCache(cached);
+            return cached.AccessToken;
         }
 
         return string.Empty;
@@ -111,13 +127,14 @@ public sealed class AccessFlowService
         var apiResult = await _apiService.ValidateAccessAsync(token);
         if (apiResult.IsValid)
         {
-            if (apiResult.HetHanLuc.HasValue)
-                Preferences.Set(AccessExpiryKey, apiResult.HetHanLuc.Value.ToUniversalTime().ToString("O"));
-
             var resolvedSource = string.Equals(source, "package", StringComparison.OrdinalIgnoreCase) ? "package" : "qr";
-            Preferences.Set(AccessSourceKey, resolvedSource);
-            if (!string.IsNullOrWhiteSpace(apiResult.MaThietBi))
-                Preferences.Set(AccessDeviceCodeKey, apiResult.MaThietBi);
+            await SaveAccessSnapshotAsync(
+                token,
+                resolvedSource,
+                apiResult.BatDauLuc,
+                apiResult.HetHanLuc,
+                apiResult.MaThietBi,
+                status: apiResult.TrangThai);
 
             return new AccessValidationState
             {
@@ -125,7 +142,21 @@ public sealed class AccessFlowService
                 Message = apiResult.Message,
                 Source = resolvedSource,
                 DeviceCode = apiResult.MaThietBi,
-                ExpiresAtUtc = apiResult.HetHanLuc?.ToUniversalTime()
+                ExpiresAtUtc = apiResult.HetHanLuc?.ToUniversalTime(),
+                LastValidatedAtUtc = DateTime.UtcNow
+            };
+        }
+
+        if (apiResult.IsNetworkError)
+        {
+            var cachedState = await TryBuildCachedValidationStateAsync(token, apiResult.Message);
+            if (cachedState is not null)
+                return cachedState;
+
+            return new AccessValidationState
+            {
+                IsValid = false,
+                Message = apiResult.Message
             };
         }
 
@@ -151,22 +182,37 @@ public sealed class AccessFlowService
             };
         }
 
-        await SetAccessTokenAsync(result.AccessToken);
-        Preferences.Set(AccessSourceKey, "package");
-        if (result.HetHanLuc.HasValue)
-            Preferences.Set(AccessExpiryKey, result.HetHanLuc.Value.ToUniversalTime().ToString("O"));
-        if (!string.IsNullOrWhiteSpace(result.Email))
-            Preferences.Set(AccessEmailKey, result.Email);
-        if (result.IdGoi.HasValue)
-            Preferences.Set(AccessPackageIdKey, result.IdGoi.Value.ToString());
-        if (!string.IsNullOrWhiteSpace(result.TenGoi))
-            Preferences.Set(AccessPackageNameKey, result.TenGoi);
-        if (!string.IsNullOrWhiteSpace(result.MaThietBi))
-            Preferences.Set(AccessDeviceCodeKey, result.MaThietBi);
+        await SaveAccessSnapshotAsync(
+            result.AccessToken,
+            "package",
+            result.BatDauLuc,
+            result.HetHanLuc,
+            result.MaThietBi,
+            result.Email,
+            result.IdGoi?.ToString(),
+            result.TenGoi,
+            result.TrangThai);
 
         var validation = await _apiService.ValidateAccessAsync(result.AccessToken);
         if (!validation.IsValid)
         {
+            if (validation.IsNetworkError && IsFuture(result.HetHanLuc))
+            {
+                return new PackageAccessActivationState
+                {
+                    Success = true,
+                    Message = result.Message,
+                    AccessToken = result.AccessToken,
+                    QrTokenPayload = result.QrTokenPayload,
+                    Email = result.Email ?? email.Trim(),
+                    PackageId = result.IdGoi?.ToString() ?? packageId.ToString(),
+                    PackageName = result.TenGoi ?? string.Empty,
+                    ExpiresAtUtc = result.HetHanLuc?.ToUniversalTime(),
+                    EmailSent = result.EmailSent,
+                    EmailStatusMessage = result.EmailStatusMessage
+                };
+            }
+
             await ClearAccessAsync();
             return new PackageAccessActivationState
             {
@@ -176,6 +222,17 @@ public sealed class AccessFlowService
                 EmailStatusMessage = result.EmailStatusMessage
             };
         }
+
+        await SaveAccessSnapshotAsync(
+            result.AccessToken,
+            "package",
+            validation.BatDauLuc ?? result.BatDauLuc,
+            validation.HetHanLuc ?? result.HetHanLuc,
+            validation.MaThietBi ?? result.MaThietBi,
+            result.Email,
+            result.IdGoi?.ToString(),
+            result.TenGoi,
+            validation.TrangThai ?? result.TrangThai);
 
         return new PackageAccessActivationState
         {
@@ -197,18 +254,16 @@ public sealed class AccessFlowService
         if (!result.Success || string.IsNullOrWhiteSpace(result.AccessToken))
             return;
 
-        await SetAccessTokenAsync(result.AccessToken);
-        Preferences.Set(AccessSourceKey, result.IdGoi.HasValue ? "package" : "qr");
-
-        if (result.HetHanLuc.HasValue)
-            Preferences.Set(AccessExpiryKey, result.HetHanLuc.Value.ToUniversalTime().ToString("O"));
-
-        if (!string.IsNullOrWhiteSpace(result.MaThietBi))
-            Preferences.Set(AccessDeviceCodeKey, result.MaThietBi);
-        if (result.IdGoi.HasValue)
-            Preferences.Set(AccessPackageIdKey, result.IdGoi.Value.ToString());
-        if (!string.IsNullOrWhiteSpace(result.TenGoi))
-            Preferences.Set(AccessPackageNameKey, result.TenGoi);
+        await SaveAccessSnapshotAsync(
+            result.AccessToken,
+            result.IdGoi.HasValue ? "package" : "qr",
+            result.BatDauLuc,
+            result.HetHanLuc,
+            result.MaThietBi,
+            result.Email,
+            result.IdGoi?.ToString(),
+            result.TenGoi,
+            result.TrangThai);
     }
 
     public async Task<TestPackageActivationResult> ActivateTestPackageAsync(string email, string packageId, string packageName, int durationDays)
@@ -223,6 +278,17 @@ public sealed class AccessFlowService
         Preferences.Set(AccessPackageIdKey, packageId);
         Preferences.Set(AccessPackageNameKey, packageName);
 
+        await SaveAccessSnapshotAsync(
+            accessToken,
+            "test",
+            DateTime.UtcNow,
+            expiresAtUtc,
+            _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
+            email.Trim(),
+            packageId,
+            packageName,
+            "hieu_luc");
+
         return new TestPackageActivationResult
         {
             AccessToken = accessToken,
@@ -233,7 +299,7 @@ public sealed class AccessFlowService
         };
     }
 
-    public Task ClearAccessAsync()
+    public async Task ClearAccessAsync()
     {
         RemoveAccessToken();
         Preferences.Remove(AccessSourceKey);
@@ -242,7 +308,7 @@ public sealed class AccessFlowService
         Preferences.Remove(AccessPackageIdKey);
         Preferences.Remove(AccessPackageNameKey);
         Preferences.Remove(AccessDeviceCodeKey);
-        return Task.CompletedTask;
+        await _sqliteService.ClearAccessTokenCachesAsync();
     }
 
     public async Task<AccessSummary> GetCurrentSummaryAsync()
@@ -267,6 +333,156 @@ public sealed class AccessFlowService
 
         return null;
     }
+
+    private async Task SaveAccessSnapshotAsync(
+        string accessToken,
+        string source,
+        DateTime? startedAt,
+        DateTime? expiresAt,
+        string? deviceCode,
+        string? email = null,
+        string? packageId = null,
+        string? packageName = null,
+        string? status = null)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return;
+
+        var resolvedSource = string.IsNullOrWhiteSpace(source) ? "qr" : source;
+        var resolvedEmail = FirstNonEmpty(email, Preferences.Get(AccessEmailKey, string.Empty));
+        var resolvedPackageId = FirstNonEmpty(packageId, Preferences.Get(AccessPackageIdKey, string.Empty));
+        var resolvedPackageName = FirstNonEmpty(packageName, Preferences.Get(AccessPackageNameKey, string.Empty));
+        var resolvedDeviceCode = FirstNonEmpty(deviceCode, Preferences.Get(AccessDeviceCodeKey, string.Empty));
+        var resolvedStatus = string.IsNullOrWhiteSpace(status) ? "hieu_luc" : status.Trim();
+        var now = DateTime.UtcNow;
+
+        await SetAccessTokenAsync(accessToken);
+        Preferences.Set(AccessSourceKey, resolvedSource);
+
+        if (expiresAt.HasValue)
+            Preferences.Set(AccessExpiryKey, expiresAt.Value.ToUniversalTime().ToString("O"));
+        if (!string.IsNullOrWhiteSpace(resolvedEmail))
+            Preferences.Set(AccessEmailKey, resolvedEmail);
+        if (!string.IsNullOrWhiteSpace(resolvedPackageId))
+            Preferences.Set(AccessPackageIdKey, resolvedPackageId);
+        if (!string.IsNullOrWhiteSpace(resolvedPackageName))
+            Preferences.Set(AccessPackageNameKey, resolvedPackageName);
+        if (!string.IsNullOrWhiteSpace(resolvedDeviceCode))
+            Preferences.Set(AccessDeviceCodeKey, resolvedDeviceCode);
+
+        await _sqliteService.UpsertAccessTokenCacheAsync(new AccessTokenCacheEntry
+        {
+            AccessToken = accessToken,
+            Source = resolvedSource,
+            Email = resolvedEmail,
+            PackageId = resolvedPackageId,
+            PackageName = resolvedPackageName,
+            DeviceCode = resolvedDeviceCode,
+            ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId(),
+            StartedAtUtc = startedAt?.ToUniversalTime(),
+            ExpiresAtUtc = expiresAt?.ToUniversalTime(),
+            LastStatus = resolvedStatus,
+            LastValidatedAtUtc = now,
+            UpdatedAtUtc = now
+        });
+    }
+
+    private async Task<AccessValidationState?> TryBuildCachedValidationStateAsync(string accessToken, string reason)
+    {
+        var cached = await GetUsableCachedAccessAsync(accessToken);
+        if (cached is null)
+            return null;
+
+        RestorePreferencesFromCache(cached);
+        return new AccessValidationState
+        {
+            IsValid = true,
+            Message = $"{reason} Token cache con han den {cached.ExpiresAtUtc!.Value.ToLocalTime():dd/MM/yyyy HH:mm}.",
+            Source = cached.Source,
+            DeviceCode = cached.DeviceCode,
+            ExpiresAtUtc = cached.ExpiresAtUtc,
+            LastValidatedAtUtc = cached.LastValidatedAtUtc,
+            UsedOfflineCache = true
+        };
+    }
+
+    private async Task<AccessTokenCacheEntry?> GetUsableCachedAccessAsync(string accessToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return null;
+
+        try
+        {
+            var cached = await _sqliteService.GetAccessTokenCacheAsync(accessToken);
+            return IsUsableCachedAccess(cached) ? cached : null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AccessFlow] SQLite token cache read error: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<AccessTokenCacheEntry?> GetLatestUsableCachedAccessAsync()
+    {
+        try
+        {
+            return await _sqliteService.GetLatestValidAccessTokenCacheAsync(
+                _clientDeviceIdentityService.GetOrCreateClientDeviceId());
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AccessFlow] SQLite latest token cache read error: {ex.Message}");
+            return null;
+        }
+    }
+
+    private bool IsUsableCachedAccess(AccessTokenCacheEntry? cached)
+    {
+        if (cached is null)
+            return false;
+
+        if (!cached.ExpiresAtUtc.HasValue || cached.ExpiresAtUtc.Value <= DateTime.UtcNow)
+            return false;
+
+        if (!string.Equals(cached.LastStatus, "hieu_luc", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
+        return string.Equals(cached.ClientDeviceId, clientDeviceId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void RestorePreferencesFromCache(AccessTokenCacheEntry cached)
+    {
+        if (!string.IsNullOrWhiteSpace(cached.Source))
+            Preferences.Set(AccessSourceKey, cached.Source);
+        if (cached.ExpiresAtUtc.HasValue)
+            Preferences.Set(AccessExpiryKey, cached.ExpiresAtUtc.Value.ToUniversalTime().ToString("O"));
+        if (!string.IsNullOrWhiteSpace(cached.Email))
+            Preferences.Set(AccessEmailKey, cached.Email);
+        if (!string.IsNullOrWhiteSpace(cached.PackageId))
+            Preferences.Set(AccessPackageIdKey, cached.PackageId);
+        if (!string.IsNullOrWhiteSpace(cached.PackageName))
+            Preferences.Set(AccessPackageNameKey, cached.PackageName);
+        if (!string.IsNullOrWhiteSpace(cached.DeviceCode))
+            Preferences.Set(AccessDeviceCodeKey, cached.DeviceCode);
+    }
+
+    private static bool IsFuture(DateTime? value)
+    {
+        return value.HasValue && value.Value.ToUniversalTime() > DateTime.UtcNow;
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return string.Empty;
+    }
 }
 
 public sealed class AccessValidationState
@@ -276,6 +492,8 @@ public sealed class AccessValidationState
     public string? Source { get; set; }
     public string? DeviceCode { get; set; }
     public DateTime? ExpiresAtUtc { get; set; }
+    public DateTime? LastValidatedAtUtc { get; set; }
+    public bool UsedOfflineCache { get; set; }
 }
 
 public sealed class TestPackageActivationResult

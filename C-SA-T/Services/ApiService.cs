@@ -217,9 +217,13 @@ namespace MauiApp1.Services
                 {
                 }
 
-                return result ?? new ValidateAccessResult
+                if (result != null)
+                    return result;
+
+                return new ValidateAccessResult
                 {
                     IsValid = false,
+                    IsNetworkError = !response.IsSuccessStatusCode,
                     Message = response.ReasonPhrase ?? "Khong validate duoc access token."
                 };
             }
@@ -228,6 +232,7 @@ namespace MauiApp1.Services
                 return new ValidateAccessResult
                 {
                     IsValid = false,
+                    IsNetworkError = true,
                     Message = BuildNetworkErrorMessage(ex)
                 };
             }
@@ -473,6 +478,7 @@ namespace MauiApp1.Services
     public class ValidateAccessResult
     {
         public bool IsValid { get; set; }
+        public bool IsNetworkError { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? MaThietBi { get; set; }
         public DateTime? BatDauLuc { get; set; }

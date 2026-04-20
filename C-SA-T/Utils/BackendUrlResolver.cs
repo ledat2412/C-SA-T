@@ -14,7 +14,8 @@ public static class BackendUrlResolver
     private const string AndroidDeviceReverseHttpBaseUrl = "http://localhost:5114/";
     private const string AndroidDeviceReverseHttpsBaseUrl = "https://localhost:7123/";
     private const string AndroidDeviceFallbackBaseUrl = "https://rudder-lake-yelp.ngrok-free.dev/";
-    private const string DesktopBaseUrl = "https://localhost:7123/";
+    private const string DesktopHttpsBaseUrl = "https://localhost:7123/";
+    private const string DesktopHttpBaseUrl = "http://localhost:5114/";
     private const int LocalProbeTimeoutMs = 700;
 
     private static readonly object SyncRoot = new();
@@ -69,9 +70,9 @@ public static class BackendUrlResolver
         return DeviceInfo.DeviceType == DeviceType.Virtual
             ? new[]
             {
-                AndroidDeviceFallbackBaseUrl,
+                EmulatorHttpBaseUrl,
                 EmulatorHttpsBaseUrl,
-                EmulatorHttpBaseUrl
+                AndroidDeviceFallbackBaseUrl
             }
             : new[]
             {
@@ -82,7 +83,11 @@ public static class BackendUrlResolver
                 AndroidDeviceFallbackBaseUrl
             };
 #else
-        return new[] { DesktopBaseUrl };
+        return new[]
+        {
+            DesktopHttpBaseUrl,
+            DesktopHttpsBaseUrl
+        };
 #endif
     }
 
@@ -131,7 +136,6 @@ public static class BackendUrlResolver
     {
         var candidates = GetCandidateBaseUrls();
 
-#if ANDROID
         for (var i = 0; i < candidates.Count - 1; i++)
         {
             if (CanReachTcpPort(candidates[i]))
@@ -139,9 +143,6 @@ public static class BackendUrlResolver
         }
 
         return candidates[^1];
-#else
-        return candidates[0];
-#endif
     }
 
     private static bool CanReachTcpPort(string baseUrl)
