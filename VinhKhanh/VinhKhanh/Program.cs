@@ -1,4 +1,5 @@
 using VinhKhanh.Data;
+using VinhKhanh.Middleware;
 using VinhKhanh.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +22,8 @@ builder.Services.AddScoped<DeviceService>();
 builder.Services.AddScoped<AccessSessionService>();
 builder.Services.AddScoped<PackageAccessEmailService>();
 builder.Services.AddSingleton<GoogleTtsService>();
+
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 
@@ -46,6 +49,8 @@ if (hasHttpsEndpoint)
 
 app.UseStaticFiles();
 app.UseAuthorization();
+
+app.UseMiddleware<DeviceActivityMiddleware>();
 
 app.MapControllers();
 

@@ -500,7 +500,7 @@ public class QrScanPage : ContentPage
 
                 var result = await _apiService.ScanQrAsync(raw);
                 if (result.Success)
-                    _accessFlowService.SaveQrAccess(result);
+                    await _accessFlowService.SaveQrAccessAsync(result);
 
                 _statusLabel.Text = result.Success ? GetText("success") : GetText("failed");
                 _hintLabel.Text = result.Message;

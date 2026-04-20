@@ -6,24 +6,37 @@ namespace MauiApp1.Services
 {
     public class ApiService
     {
+        private const string DeviceHeaderName = "X-Device-Id";
+
         private readonly HttpClient _httpClient;
         private readonly ClientDeviceIdentityService _clientDeviceIdentityService;
+        private long _lastRequestAtTicks;
 
         public ApiService(HttpClient httpClient, ClientDeviceIdentityService clientDeviceIdentityService)
         {
             _httpClient = httpClient;
             _clientDeviceIdentityService = clientDeviceIdentityService;
+
+            var deviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
+            if (!_httpClient.DefaultRequestHeaders.Contains(DeviceHeaderName))
+                _httpClient.DefaultRequestHeaders.Add(DeviceHeaderName, deviceId);
         }
+
+        public DateTime LastRequestAtUtc => new DateTime(Interlocked.Read(ref _lastRequestAtTicks), DateTimeKind.Utc);
+
+        internal void MarkRequestSent() => Interlocked.Exchange(ref _lastRequestAtTicks, DateTime.UtcNow.Ticks);
 
         public async Task<AppDataResponse> GetAppDataAsync(string lang = "vi")
         {
             var url = BuildApiUrl($"api/gianhang/appdata?lang={lang}");
+            MarkRequestSent();
             var result = await _httpClient.GetFromJsonAsync<AppDataResponse>(url);
             return result ?? new AppDataResponse();
         }
 
         public async Task<LoginResult> LoginAsync(string username, string password)
         {
+            MarkRequestSent();
             var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/auth/login"), new
             {
                 Username = username,
@@ -138,6 +151,7 @@ namespace MauiApp1.Services
         {
             try
             {
+                MarkRequestSent();
                 var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/package/register"), new
                 {
                     Email = email,
@@ -186,9 +200,12 @@ namespace MauiApp1.Services
             try
             {
                 var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
-                var url = BuildApiUrl(
-                    $"api/access/validate?accessToken={Uri.EscapeDataString(accessToken)}&clientDeviceId={Uri.EscapeDataString(clientDeviceId)}");
-                var response = await _httpClient.GetAsync(url);
+                MarkRequestSent();
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/validate"), new
+                {
+                    AccessToken = accessToken,
+                    ClientDeviceId = clientDeviceId
+                });
 
                 ValidateAccessResult? result = null;
 
@@ -216,6 +233,52 @@ namespace MauiApp1.Services
             }
         }
 
+        public async Task<HeartbeatResult> SendHeartbeatAsync(string accessToken)
+        {
+            if (string.IsNullOrWhiteSpace(accessToken))
+                return new HeartbeatResult { Success = false, Message = "Thieu access token." };
+
+            try
+            {
+                var clientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId();
+                var metadata = _clientDeviceIdentityService.GetDeviceMetadata();
+                MarkRequestSent();
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/device/heartbeat"), new
+                {
+                    MaThietBi = clientDeviceId,
+                    AccessToken = accessToken,
+                    metadata.Platform,
+                    metadata.Model,
+                    metadata.Manufacturer,
+                    metadata.AppVersion
+                });
+
+                HeartbeatResult? result = null;
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<HeartbeatResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new HeartbeatResult
+                {
+                    Success = response.IsSuccessStatusCode,
+                    Message = response.ReasonPhrase ?? string.Empty,
+                    MustRevalidate = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                return new HeartbeatResult
+                {
+                    Success = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
+        }
+
         public async Task<ActivateTokenResult> ActivateTokenAsync(string accessToken, string? qrRaw = null)
         {
             if (string.IsNullOrWhiteSpace(accessToken))
@@ -229,6 +292,7 @@ namespace MauiApp1.Services
 
             try
             {
+                MarkRequestSent();
                 var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/token/activate"), new
                 {
                     AccessToken = accessToken,
@@ -422,5 +486,13 @@ namespace MauiApp1.Services
 
     public class PackageAccessRegistrationResult : QrScanResult
     {
+    }
+
+    public class HeartbeatResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public DateTime ServerTimeUtc { get; set; }
+        public bool MustRevalidate { get; set; }
     }
 }

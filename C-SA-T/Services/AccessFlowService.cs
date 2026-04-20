@@ -19,9 +19,63 @@ public sealed class AccessFlowService
         _apiService = apiService;
     }
 
+    public async Task<string> GetAccessTokenAsync()
+    {
+        try
+        {
+            var secure = await SecureStorage.Default.GetAsync(AccessTokenKey);
+            if (!string.IsNullOrWhiteSpace(secure))
+                return secure;
+        }
+        catch
+        {
+        }
+
+        var legacy = Preferences.Get(AccessTokenKey, string.Empty);
+        if (!string.IsNullOrWhiteSpace(legacy))
+        {
+            try
+            {
+                await SecureStorage.Default.SetAsync(AccessTokenKey, legacy);
+                Preferences.Remove(AccessTokenKey);
+            }
+            catch
+            {
+            }
+            return legacy;
+        }
+
+        return string.Empty;
+    }
+
+    private static async Task SetAccessTokenAsync(string token)
+    {
+        try
+        {
+            await SecureStorage.Default.SetAsync(AccessTokenKey, token);
+            Preferences.Remove(AccessTokenKey);
+        }
+        catch
+        {
+            Preferences.Set(AccessTokenKey, token);
+        }
+    }
+
+    private static void RemoveAccessToken()
+    {
+        try
+        {
+            SecureStorage.Default.Remove(AccessTokenKey);
+        }
+        catch
+        {
+        }
+        Preferences.Remove(AccessTokenKey);
+    }
+
     public async Task<AccessValidationState> ValidateCurrentAccessAsync()
     {
-        var token = Preferences.Get(AccessTokenKey, string.Empty);
+        var token = await GetAccessTokenAsync();
         if (string.IsNullOrWhiteSpace(token))
         {
             return new AccessValidationState
@@ -46,7 +100,7 @@ public sealed class AccessFlowService
                 };
             }
 
-            ClearAccess();
+            await ClearAccessAsync();
             return new AccessValidationState
             {
                 IsValid = false,
@@ -75,7 +129,7 @@ public sealed class AccessFlowService
             };
         }
 
-        ClearAccess();
+        await ClearAccessAsync();
         return new AccessValidationState
         {
             IsValid = false,
@@ -97,7 +151,7 @@ public sealed class AccessFlowService
             };
         }
 
-        Preferences.Set(AccessTokenKey, result.AccessToken);
+        await SetAccessTokenAsync(result.AccessToken);
         Preferences.Set(AccessSourceKey, "package");
         if (result.HetHanLuc.HasValue)
             Preferences.Set(AccessExpiryKey, result.HetHanLuc.Value.ToUniversalTime().ToString("O"));
@@ -113,7 +167,7 @@ public sealed class AccessFlowService
         var validation = await _apiService.ValidateAccessAsync(result.AccessToken);
         if (!validation.IsValid)
         {
-            ClearAccess();
+            await ClearAccessAsync();
             return new PackageAccessActivationState
             {
                 Success = false,
@@ -138,12 +192,12 @@ public sealed class AccessFlowService
         };
     }
 
-    public void SaveQrAccess(QrScanResult result)
+    public async Task SaveQrAccessAsync(QrScanResult result)
     {
         if (!result.Success || string.IsNullOrWhiteSpace(result.AccessToken))
             return;
 
-        Preferences.Set(AccessTokenKey, result.AccessToken);
+        await SetAccessTokenAsync(result.AccessToken);
         Preferences.Set(AccessSourceKey, result.IdGoi.HasValue ? "package" : "qr");
 
         if (result.HetHanLuc.HasValue)
@@ -157,12 +211,12 @@ public sealed class AccessFlowService
             Preferences.Set(AccessPackageNameKey, result.TenGoi);
     }
 
-    public TestPackageActivationResult ActivateTestPackage(string email, string packageId, string packageName, int durationDays)
+    public async Task<TestPackageActivationResult> ActivateTestPackageAsync(string email, string packageId, string packageName, int durationDays)
     {
         var accessToken = $"TEST-{Guid.NewGuid():N}".ToUpperInvariant();
         var expiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
 
-        Preferences.Set(AccessTokenKey, accessToken);
+        await SetAccessTokenAsync(accessToken);
         Preferences.Set(AccessSourceKey, "test");
         Preferences.Set(AccessExpiryKey, expiresAtUtc.ToString("O"));
         Preferences.Set(AccessEmailKey, email.Trim());
@@ -179,22 +233,23 @@ public sealed class AccessFlowService
         };
     }
 
-    public void ClearAccess()
+    public Task ClearAccessAsync()
     {
-        Preferences.Remove(AccessTokenKey);
+        RemoveAccessToken();
         Preferences.Remove(AccessSourceKey);
         Preferences.Remove(AccessExpiryKey);
         Preferences.Remove(AccessEmailKey);
         Preferences.Remove(AccessPackageIdKey);
         Preferences.Remove(AccessPackageNameKey);
         Preferences.Remove(AccessDeviceCodeKey);
+        return Task.CompletedTask;
     }
 
-    public AccessSummary GetCurrentSummary()
+    public async Task<AccessSummary> GetCurrentSummaryAsync()
     {
         return new AccessSummary
         {
-            AccessToken = Preferences.Get(AccessTokenKey, string.Empty),
+            AccessToken = await GetAccessTokenAsync(),
             Source = Preferences.Get(AccessSourceKey, string.Empty),
             Email = Preferences.Get(AccessEmailKey, string.Empty),
             PackageId = Preferences.Get(AccessPackageIdKey, string.Empty),

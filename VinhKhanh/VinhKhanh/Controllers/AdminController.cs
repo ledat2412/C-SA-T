@@ -351,12 +351,12 @@ namespace VinhKhanh.Controllers
         }
 
         [HttpGet("devices")]
-        public async Task<IActionResult> GetDevices([FromQuery] int idTaiKhoan)
+        public async Task<IActionResult> GetDevices([FromQuery] int idTaiKhoan, [FromQuery] string? loai = null)
         {
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
                 return ForbiddenResult();
 
-            return Ok(await _adminService.GetDevicesAsync());
+            return Ok(await _adminService.GetDevicesAsync(loai));
         }
 
         [HttpPatch("devices/{maThietBi}/status")]

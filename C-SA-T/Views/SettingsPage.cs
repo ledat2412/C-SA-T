@@ -456,7 +456,7 @@ public class SettingsPage : ContentPage
         if (!confirmed)
             return;
 
-        _accessFlowService.ClearAccess();
+        await _accessFlowService.ClearAccessAsync();
 
         if (Application.Current is App app)
             await app.ShowAccessEntryAsync();
@@ -473,7 +473,7 @@ public class SettingsPage : ContentPage
         if (!confirmed)
             return;
 
-        _accessFlowService.ClearAccess();
+        await _accessFlowService.ClearAccessAsync();
         await DisplayAlertAsync(GetDoneTitle(), GetDeleteTokenDoneMessage(), _loc.Get("alert_ok"));
     }
 

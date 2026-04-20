@@ -593,8 +593,8 @@ namespace VinhKhanh.Services
             }
 
             const string insertSql = @"
-                INSERT INTO thietbi (maThietBi, maKichHoat, idTaiKhoan, daKichHoat, thoiGianKichHoat, ngayTao, lanCuoiHoatDong, trangThai)
-                VALUES (@maThietBi, @maKichHoat, NULL, 1, NOW(), NOW(), NOW(), 'hoat_dong');
+                INSERT INTO thietbi (maThietBi, maKichHoat, idTaiKhoan, daKichHoat, thoiGianKichHoat, ngayTao, lanCuoiHoatDong, trangThai, loaiThietBi)
+                VALUES (@maThietBi, @maKichHoat, NULL, 1, NOW(), NOW(), NOW(), 'hoat_dong', 'portal_web');
                 SELECT LAST_INSERT_ID();";
 
             using var insertCmd = new MySqlCommand(insertSql, conn);
@@ -624,8 +624,8 @@ namespace VinhKhanh.Services
                 maKichHoat = maKichHoat[..100];
 
             const string insertSql = @"
-                INSERT INTO thietbi (maThietBi, maKichHoat, idTaiKhoan, daKichHoat, thoiGianKichHoat, ngayTao, lanCuoiHoatDong, trangThai)
-                VALUES (@maThietBi, @maKichHoat, NULL, 1, NOW(), NOW(), NOW(), 'hoat_dong');
+                INSERT INTO thietbi (maThietBi, maKichHoat, idTaiKhoan, daKichHoat, thoiGianKichHoat, ngayTao, lanCuoiHoatDong, trangThai, loaiThietBi)
+                VALUES (@maThietBi, @maKichHoat, NULL, 1, NOW(), NOW(), NOW(), 'hoat_dong', 'app_client');
                 SELECT LAST_INSERT_ID();";
 
             using var insertCmd = new MySqlCommand(insertSql, conn);

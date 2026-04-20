@@ -3,16 +3,24 @@ $auth = isset($_SESSION['admin_auth']) && is_array($_SESSION['admin_auth']) ? $_
 $idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
 $selectedDeviceId = isset($_GET['selected']) ? (int) $_GET['selected'] : 0;
 $statusFilter = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : 'all';
+$loaiFilter = isset($_GET['loai']) ? strtolower(trim((string) $_GET['loai'])) : 'all';
 $flashMessage = isset($_GET['message']) ? (string) $_GET['message'] : '';
 $flashNotice = isset($_GET['notice']) ? (string) $_GET['notice'] : '';
 
 if (!in_array($statusFilter, array('all', 'hoat_dong', 'khoa', 'cho_kich_hoat'), true)) {
     $statusFilter = 'all';
 }
+if (!in_array($loaiFilter, array('all', 'app_client', 'portal_web', 'hardware'), true)) {
+    $loaiFilter = 'all';
+}
 
-function device_api_url($idTaiKhoan)
+function device_api_url($idTaiKhoan, $loaiFilter = 'all')
 {
-    return backend_api_url('Admin/devices') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    $url = backend_api_url('Admin/devices') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    if ($loaiFilter !== 'all' && in_array($loaiFilter, array('app_client', 'portal_web', 'hardware'), true)) {
+        $url .= '&loai=' . rawurlencode($loaiFilter);
+    }
+    return $url;
 }
 
 function device_api_status_url($idTaiKhoan, $maThietBi)
@@ -20,10 +28,11 @@ function device_api_status_url($idTaiKhoan, $maThietBi)
     return backend_api_url('Admin/devices/' . rawurlencode((string) $maThietBi) . '/status') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
-function device_list_url($statusFilter, $selectedDeviceId = 0, $message = '', $notice = '')
+function device_list_url($statusFilter, $selectedDeviceId = 0, $message = '', $notice = '', $loaiFilter = 'all')
 {
     $params = array('usecase' => 'device');
     if ($statusFilter !== 'all') $params['status'] = $statusFilter;
+    if ($loaiFilter !== 'all') $params['loai'] = $loaiFilter;
     if ($selectedDeviceId > 0) $params['selected'] = $selectedDeviceId;
     if ($message !== '') $params['message'] = $message;
     if ($notice !== '') $params['notice'] = $notice;
@@ -63,13 +72,17 @@ function device_call_json($method, $url, $payload, &$error, &$httpCode = 0)
     return $decoded;
 }
 
-function device_fetch_from_database(&$error)
+function device_fetch_from_database(&$error, $loaiFilter = 'all')
 {
     $error = '';
     $conn = admin_db_connection();
     if (!$conn instanceof mysqli) {
         $error = 'Không thể mở kết nối DB fallback.';
         return array();
+    }
+    $whereClause = '';
+    if (in_array($loaiFilter, array('app_client', 'portal_web', 'hardware'), true)) {
+        $whereClause = "WHERE tb.loaiThietBi = '" . $conn->real_escape_string($loaiFilter) . "'";
     }
     $sql = "
         SELECT
@@ -79,6 +92,11 @@ function device_fetch_from_database(&$error)
             tb.thoiGianKichHoat,
             tb.lanCuoiHoatDong,
             tb.trangThai,
+            tb.loaiThietBi,
+            tb.platform,
+            tb.model,
+            tb.manufacturer,
+            tb.appVersion,
             tb.idTaiKhoan,
             COALESCE(ad.hoTen, cql.hoTen) AS tenChuSoHuu,
             tk.email AS emailChuSoHuu
@@ -86,6 +104,7 @@ function device_fetch_from_database(&$error)
         LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
         LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
         LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+        $whereClause
         ORDER BY tb.idThietBi DESC";
     $result = $conn->query($sql);
     if (!$result) {
@@ -161,6 +180,23 @@ function device_status_options()
     );
 }
 
+function device_loai_options()
+{
+    return array(
+        'all' => 'Tất cả loại',
+        'app_client' => 'App mobile',
+        'portal_web' => 'Portal web',
+        'hardware' => 'Thiết bị cứng',
+    );
+}
+
+function device_loai_label($loai)
+{
+    $opts = device_loai_options();
+    $key = strtolower(trim((string) $loai));
+    return isset($opts[$key]) ? $opts[$key] : ($loai !== '' ? $loai : '—');
+}
+
 $deviceError = '';
 $deviceNotice = $flashNotice;
 $deviceMessage = $flashMessage;
@@ -185,30 +221,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['device_action']) && $
             $fallbackError = '';
             $fallbackMessage = device_update_status_in_database($targetMaThietBi, $targetTrangThai, $fallbackError);
             if ($fallbackMessage !== false) {
-                header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $fallbackMessage, 'Trang thiết bị đang dùng DB fallback vì API chưa sẵn sàng.'));
+                header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $fallbackMessage, 'Trang thiết bị đang dùng DB fallback vì API chưa sẵn sàng.', $loaiFilter));
                 exit;
             }
             $deviceError = $apiError !== '' ? $apiError : $fallbackError;
         } else {
             $successMsg = isset($apiResult['message']) && $apiResult['message'] !== '' ? (string) $apiResult['message'] : 'Cập nhật trạng thái thiết bị thành công.';
-            header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $successMsg));
+            header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $successMsg, '', $loaiFilter));
             exit;
         }
     }
 }
 
 $deviceHttpCode = 0;
-$devices = $idTaiKhoan > 0 ? device_call_json('GET', device_api_url($idTaiKhoan), null, $deviceError, $deviceHttpCode) : array();
+$devices = $idTaiKhoan > 0 ? device_call_json('GET', device_api_url($idTaiKhoan, $loaiFilter), null, $deviceError, $deviceHttpCode) : array();
 
 if (!is_array($devices)) {
     $fallbackError = '';
-    $fallbackDevices = device_fetch_from_database($fallbackError);
+    $fallbackDevices = device_fetch_from_database($fallbackError, $loaiFilter);
     if (count($fallbackDevices) > 0) {
         $devices = $fallbackDevices;
         if ($deviceNotice === '') $deviceNotice = 'Trang thiết bị đang dùng dữ liệu trực tiếp từ DB vì API chưa sẵn sàng.';
         if ($deviceHttpCode < 400) $deviceError = '';
     } elseif ($fallbackError !== '') {
         $deviceError = trim($deviceError . ' | ' . $fallbackError, ' |');
+        $devices = array();
     } else {
         $devices = array();
     }
@@ -271,12 +308,31 @@ if ($selectedDevice === null && $filteredCount > 0) {
                 array('key' => 'khoa', 'label' => 'Đã khóa', 'count' => $lockedCount),
             );
             foreach ($tabs as $tab) {
-                $tabUrl = device_list_url($tab['key'], $selectedDeviceId);
+                $tabUrl = device_list_url($tab['key'], $selectedDeviceId, '', '', $loaiFilter);
             ?>
             <a class="head-tab <?php echo $statusFilter === $tab['key'] ? 'active' : ''; ?>" href="<?php echo htmlspecialchars($tabUrl, ENT_QUOTES, 'UTF-8'); ?>">
               <?php echo htmlspecialchars($tab['label'], ENT_QUOTES, 'UTF-8'); ?> (<?php echo (int) $tab['count']; ?>)
             </a>
             <?php } ?>
+          </div>
+          <div class="page-loai-filter" style="margin-top:8px;">
+            <form method="get" style="display:flex;gap:8px;align-items:center;">
+              <input type="hidden" name="usecase" value="device" />
+              <?php if ($statusFilter !== 'all') { ?>
+              <input type="hidden" name="status" value="<?php echo htmlspecialchars($statusFilter, ENT_QUOTES, 'UTF-8'); ?>" />
+              <?php } ?>
+              <?php if ($selectedDeviceId > 0) { ?>
+              <input type="hidden" name="selected" value="<?php echo (int) $selectedDeviceId; ?>" />
+              <?php } ?>
+              <label style="font-size:13px;">Loại thiết bị:</label>
+              <select name="loai" onchange="this.form.submit()">
+                <?php foreach (device_loai_options() as $key => $label) { ?>
+                <option value="<?php echo htmlspecialchars($key, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $loaiFilter === $key ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?>
+                </option>
+                <?php } ?>
+              </select>
+            </form>
           </div>
         </div>
 
@@ -296,6 +352,8 @@ if ($selectedDevice === null && $filteredCount > 0) {
               <thead>
                 <tr>
                   <th>MÃ THIẾT BỊ</th>
+                  <th>LOẠI</th>
+                  <th>MODEL</th>
                   <th>CHỦ SỞ HỮU</th>
                   <th>TRỰC TUYẾN</th>
                   <th>LẦN CUỐI HOẠT ĐỘNG</th>
@@ -305,7 +363,7 @@ if ($selectedDevice === null && $filteredCount > 0) {
               <tbody>
                 <?php if ($filteredCount === 0) { ?>
                 <tr>
-                  <td colspan="5" class="device-empty">Không có thiết bị phù hợp để hiển thị.</td>
+                  <td colspan="7" class="device-empty">Không có thiết bị phù hợp để hiển thị.</td>
                 </tr>
                 <?php } ?>
                 <?php foreach ($filteredDevices as $device) { ?>
@@ -314,14 +372,14 @@ if ($selectedDevice === null && $filteredCount > 0) {
                 $isSelected = $selectedDevice !== null
                     && isset($selectedDevice['idThietBi'], $device['idThietBi'])
                     && (int) $selectedDevice['idThietBi'] === (int) $device['idThietBi'];
-                $selectUrl = device_list_url($statusFilter, (int) $device['idThietBi']);
+                $selectUrl = device_list_url($statusFilter, (int) $device['idThietBi'], '', '', $loaiFilter);
                 ?>
                 <?php
                 $lanCuoi = $device['lanCuoiHoatDong'] ?? '';
                 $isOnline = false;
                 if (!empty($lanCuoi)) {
                     $ts = strtotime((string) $lanCuoi);
-                    $isOnline = $ts !== false && (time() - $ts) <= 300;
+                    $isOnline = $ts !== false && (time() - $ts) <= 45;
                 }
                 $lanCuoiIso = !empty($lanCuoi) ? date('c', strtotime((string) $lanCuoi)) : '';
                 ?>
@@ -330,6 +388,25 @@ if ($selectedDevice === null && $filteredCount > 0) {
                     <a class="device-link" href="<?php echo htmlspecialchars($selectUrl, ENT_QUOTES, 'UTF-8'); ?>">
                       <span class="device-code"><?php echo htmlspecialchars((string) ($device['maThietBi'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></span>
                     </a>
+                  </td>
+                  <td>
+                    <span class="loai-badge"><?php echo htmlspecialchars(device_loai_label($device['loaiThietBi'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></span>
+                  </td>
+                  <td>
+                    <?php if (!empty($device['model']) || !empty($device['platform'])) { ?>
+                    <div class="device-model">
+                      <?php if (!empty($device['model'])) { ?>
+                      <span><?php echo htmlspecialchars((string) $device['model'], ENT_QUOTES, 'UTF-8'); ?></span>
+                      <?php } ?>
+                      <?php if (!empty($device['platform'])) { ?>
+                      <small style="display:block;color:#8892a6;">
+                        <?php echo htmlspecialchars((string) $device['platform'], ENT_QUOTES, 'UTF-8'); ?><?php echo !empty($device['appVersion']) ? ' v' . htmlspecialchars((string) $device['appVersion'], ENT_QUOTES, 'UTF-8') : ''; ?>
+                      </small>
+                      <?php } ?>
+                    </div>
+                    <?php } else { ?>
+                    <span class="device-no-owner">—</span>
+                    <?php } ?>
                   </td>
                   <td>
                     <?php if (!empty($device['tenChuSoHuu'])) { ?>
@@ -411,6 +488,34 @@ if ($selectedDevice === null && $filteredCount > 0) {
               <span>Lần cuối hoạt động</span>
               <strong><?php echo device_format_datetime($selectedDevice['lanCuoiHoatDong'] ?? ''); ?></strong>
             </div>
+            <div class="readonly-item">
+              <span>Loại</span>
+              <strong><?php echo htmlspecialchars(device_loai_label($selectedDevice['loaiThietBi'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php if (!empty($selectedDevice['platform'])) { ?>
+            <div class="readonly-item">
+              <span>Nền tảng</span>
+              <strong><?php echo htmlspecialchars((string) $selectedDevice['platform'], ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php } ?>
+            <?php if (!empty($selectedDevice['model'])) { ?>
+            <div class="readonly-item">
+              <span>Model</span>
+              <strong><?php echo htmlspecialchars((string) $selectedDevice['model'], ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php } ?>
+            <?php if (!empty($selectedDevice['manufacturer'])) { ?>
+            <div class="readonly-item">
+              <span>Nhà sản xuất</span>
+              <strong><?php echo htmlspecialchars((string) $selectedDevice['manufacturer'], ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php } ?>
+            <?php if (!empty($selectedDevice['appVersion'])) { ?>
+            <div class="readonly-item">
+              <span>Phiên bản app</span>
+              <strong><?php echo htmlspecialchars((string) $selectedDevice['appVersion'], ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php } ?>
             <?php if (!empty($selectedDevice['tenChuSoHuu'])) { ?>
             <div class="readonly-item">
               <span>Chủ sở hữu</span>
@@ -476,7 +581,7 @@ if ($selectedDevice === null && $filteredCount > 0) {
 <script>
 (function () {
   var REFRESH_SEC = 15;
-  var ONLINE_SEC  = 300; // 5 phút = online
+  var ONLINE_SEC  = 45; // 45s — heartbeat 15s, cho miss 2 lần + latency
 
   var timer = REFRESH_SEC;
   var timerEl = document.getElementById('liveTimer');

@@ -55,6 +55,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<AudioCacheService>();
         builder.Services.AddSingleton<ApiService>();
         builder.Services.AddSingleton<AccessFlowService>();
+        builder.Services.AddSingleton<DeviceHeartbeatService>();
         builder.Services.AddSingleton<AppDataCacheService>();
         builder.Services.AddSingleton<GeofenceEngineService>();
 

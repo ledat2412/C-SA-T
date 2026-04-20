@@ -7,12 +7,18 @@ namespace MauiApp1;
 public partial class App : Application
 {
     private readonly IServiceProvider _services;
+    private readonly DeviceHeartbeatService _heartbeatService;
 
-    public App(IServiceProvider services, SQLiteService sqliteService, LocalizationService localizationService)
+    public App(
+        IServiceProvider services,
+        SQLiteService sqliteService,
+        LocalizationService localizationService,
+        DeviceHeartbeatService heartbeatService)
     {
         InitializeComponent();
 
         _services = services;
+        _heartbeatService = heartbeatService;
 
         var savedBackendUrl = Preferences.Get(BackendUrlResolver.PreferenceKey, string.Empty);
         BackendUrlResolver.Configure(savedBackendUrl);
@@ -25,7 +31,12 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        return new Window(new NavigationPage(_services.GetRequiredService<AccessEntryPage>()));
+        var window = new Window(new NavigationPage(_services.GetRequiredService<AccessEntryPage>()));
+        window.Activated += (_, _) => _heartbeatService.Start();
+        window.Deactivated += (_, _) => _heartbeatService.Stop();
+        window.Resumed += (_, _) => _heartbeatService.Start();
+        window.Stopped += (_, _) => _heartbeatService.Stop();
+        return window;
     }
 
     public Task ShowAccessEntryAsync()

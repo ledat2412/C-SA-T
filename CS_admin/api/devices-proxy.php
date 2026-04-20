@@ -18,7 +18,16 @@ if (!isset($auth['loaiTaiKhoan']) || $auth['loaiTaiKhoan'] !== 'admin') {
 
 $idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
 
-$url = backend_api_url('Admin/devices') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+$loai = isset($_GET['loai']) ? trim((string) $_GET['loai']) : '';
+$validLoai = array('app_client', 'portal_web', 'hardware');
+$loaiQuery = (in_array($loai, $validLoai, true)) ? $loai : '';
+
+$query = 'idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+if ($loaiQuery !== '') {
+    $query .= '&loai=' . rawurlencode($loaiQuery);
+}
+
+$url = backend_api_url('Admin/devices') . '?' . $query;
 $ch = curl_init($url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json'));
@@ -40,10 +49,16 @@ if ($body === false || $httpCode >= 400) {
         exit;
     }
 
+    $whereClause = '';
+    if ($loaiQuery !== '') {
+        $whereClause = "WHERE tb.loaiThietBi = '" . $conn->real_escape_string($loaiQuery) . "'";
+    }
+
     $sql = "
         SELECT
             tb.idThietBi, tb.maThietBi, tb.daKichHoat,
             tb.thoiGianKichHoat, tb.lanCuoiHoatDong, tb.trangThai,
+            tb.loaiThietBi, tb.platform, tb.model, tb.manufacturer, tb.appVersion,
             tb.idTaiKhoan,
             COALESCE(ad.hoTen, cql.hoTen) AS tenChuSoHuu,
             tk.email AS emailChuSoHuu
@@ -51,6 +66,7 @@ if ($body === false || $httpCode >= 400) {
         LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
         LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
         LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+        $whereClause
         ORDER BY tb.lanCuoiHoatDong DESC, tb.idThietBi DESC";
 
     $result = $conn->query($sql);

@@ -26,10 +26,10 @@ namespace VinhKhanh.Controllers
             return Ok(result);
         }
 
-        [HttpGet("validate")]
-        public async Task<IActionResult> Validate([FromQuery] string accessToken, [FromQuery] string? clientDeviceId = null)
+        [HttpPost("validate")]
+        public async Task<IActionResult> Validate([FromBody] ValidateAccessRequestDto request)
         {
-            var result = await _accessSessionService.ValidateAsync(accessToken, clientDeviceId);
+            var result = await _accessSessionService.ValidateAsync(request.AccessToken ?? string.Empty, request.ClientDeviceId);
             return Ok(result);
         }
 

@@ -119,6 +119,42 @@ namespace VinhKhanh.Services
             };
         }
 
+        public async Task<bool> TouchByCodeAsync(
+            string maThietBi,
+            string? platform = null,
+            string? model = null,
+            string? manufacturer = null,
+            string? appVersion = null)
+        {
+            if (string.IsNullOrWhiteSpace(maThietBi))
+                return false;
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+                UPDATE thietbi
+                SET lanCuoiHoatDong = NOW(),
+                    platform     = COALESCE(@platform,     platform),
+                    model        = COALESCE(@model,        model),
+                    manufacturer = COALESCE(@manufacturer, manufacturer),
+                    appVersion   = COALESCE(@appVersion,   appVersion)
+                WHERE maThietBi = @maThietBi;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@maThietBi", maThietBi);
+            cmd.Parameters.AddWithValue("@platform",     (object?)NullIfBlank(platform)     ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@model",        (object?)NullIfBlank(model)        ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@manufacturer", (object?)NullIfBlank(manufacturer) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@appVersion",   (object?)NullIfBlank(appVersion)   ?? DBNull.Value);
+
+            var affected = await cmd.ExecuteNonQueryAsync();
+            return affected > 0;
+        }
+
+        private static string? NullIfBlank(string? value)
+            => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
         public async Task<DeviceStatusDto> GetStatusAsync(string maThietBi)
         {
             if (string.IsNullOrWhiteSpace(maThietBi))

@@ -662,12 +662,20 @@ namespace VinhKhanh.Services
             return "/" + cleanPath;
         }
 
-        public async Task<List<AdminDeviceDto>> GetDevicesAsync()
+        public async Task<List<AdminDeviceDto>> GetDevicesAsync(string? loai = null)
         {
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
-            const string sql = @"
+            var filter = string.Empty;
+            var validLoai = new[] { "app_client", "portal_web", "hardware" };
+            var applyFilter = !string.IsNullOrWhiteSpace(loai)
+                              && !string.Equals(loai, "all", StringComparison.OrdinalIgnoreCase)
+                              && validLoai.Contains(loai);
+            if (applyFilter)
+                filter = "WHERE tb.loaiThietBi = @loai";
+
+            var sql = $@"
                 SELECT
                     tb.idThietBi,
                     tb.maThietBi,
@@ -675,6 +683,11 @@ namespace VinhKhanh.Services
                     tb.thoiGianKichHoat,
                     tb.lanCuoiHoatDong,
                     tb.trangThai,
+                    tb.loaiThietBi,
+                    tb.platform,
+                    tb.model,
+                    tb.manufacturer,
+                    tb.appVersion,
                     tb.idTaiKhoan,
                     COALESCE(ad.hoTen, cql.hoTen) AS tenChuSoHuu,
                     tk.email AS emailChuSoHuu
@@ -682,9 +695,12 @@ namespace VinhKhanh.Services
                 LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
                 LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
                 LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+                {filter}
                 ORDER BY tb.idThietBi DESC;";
 
             using var cmd = new MySqlCommand(sql, conn);
+            if (applyFilter)
+                cmd.Parameters.AddWithValue("@loai", loai);
             using var reader = await cmd.ExecuteReaderAsync();
 
             var list = new List<AdminDeviceDto>();
@@ -698,6 +714,11 @@ namespace VinhKhanh.Services
                     ThoiGianKichHoat = reader["thoiGianKichHoat"] == DBNull.Value ? null : Convert.ToDateTime(reader["thoiGianKichHoat"]),
                     LanCuoiHoatDong = reader["lanCuoiHoatDong"] == DBNull.Value ? null : Convert.ToDateTime(reader["lanCuoiHoatDong"]),
                     TrangThai = reader["trangThai"]?.ToString() ?? string.Empty,
+                    LoaiThietBi = reader["loaiThietBi"]?.ToString() ?? "app_client",
+                    Platform = reader["platform"] == DBNull.Value ? null : reader["platform"]?.ToString(),
+                    Model = reader["model"] == DBNull.Value ? null : reader["model"]?.ToString(),
+                    Manufacturer = reader["manufacturer"] == DBNull.Value ? null : reader["manufacturer"]?.ToString(),
+                    AppVersion = reader["appVersion"] == DBNull.Value ? null : reader["appVersion"]?.ToString(),
                     IdTaiKhoan = reader["idTaiKhoan"] == DBNull.Value ? null : Convert.ToInt32(reader["idTaiKhoan"]),
                     TenChuSoHuu = reader["tenChuSoHuu"]?.ToString(),
                     EmailChuSoHuu = reader["emailChuSoHuu"]?.ToString()
