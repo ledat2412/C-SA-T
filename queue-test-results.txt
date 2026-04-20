@@ -1,0 +1,101 @@
+Queue test results for commit aa7166e
+Test time: 2026-04-20 around 09:39 Asia/Saigon
+Backend: http://localhost:5114
+
+Summary
+-------
+Backend started successfully with dotnet run.
+DeviceTouchQueue unit/integration tests passed: 16/16.
+Runtime queue behavior passed:
+- Successful response with X-Device-Id was enqueued and flushed to DB.
+- Error response 404 with X-Device-Id was not enqueued.
+
+
+Request 0: Server readiness check
+---------------------------------
+Method: GET
+URL: http://localhost:5114/swagger/index.html
+Status: 200
+
+Result:
+Backend was ready and listening on http://localhost:5114.
+
+
+Request 1: Successful request should enqueue device touch
+--------------------------------------------------------
+Method: GET
+URL: http://localhost:5114/api/device/QUEUE-TEST-CODEX-DETAIL-001/status
+Header: X-Device-Id: QUEUE-TEST-CODEX-DETAIL-001
+Status: 200
+
+Response body:
+{
+  "found": true,
+  "message": "Lay trang thai thiet bi thanh cong.",
+  "maThietBi": "QUEUE-TEST-CODEX-DETAIL-001",
+  "daKichHoat": true,
+  "thoiGianKichHoat": "2026-04-20T09:39:39",
+  "lanCuoiHoatDong": "2000-01-01T00:00:00",
+  "trangThai": "hoat_dong"
+}
+
+Database state before worker flush:
+lanCuoiHoatDong = 2000-01-01 00:00:00
+
+Database state after waiting around 7 seconds for DeviceTouchWorker:
+lanCuoiHoatDong = 2026-04-20 09:39:46
+
+Conclusion:
+QueueUpdatedDevice = true
+
+Meaning:
+DeviceActivityMiddleware read the X-Device-Id header, enqueued the device id into DeviceTouchQueue,
+and DeviceTouchWorker flushed the update to thietbi.lanCuoiHoatDong successfully.
+
+
+Request 2: 404 request should not enqueue device touch
+-----------------------------------------------------
+Method: GET
+URL: http://localhost:5114/api/device/DEVICE-DOES-NOT-EXIST/status
+Header: X-Device-Id: QUEUE-TEST-CODEX-DETAIL-404
+Status: 404
+
+Response body:
+{
+  "found": false,
+  "message": "Khong tim thay thiet bi.",
+  "maThietBi": null,
+  "daKichHoat": false,
+  "thoiGianKichHoat": null,
+  "lanCuoiHoatDong": null,
+  "trangThai": null
+}
+
+Database state before worker flush:
+lanCuoiHoatDong = 2000-01-01 00:00:00
+
+Database state after waiting around 7 seconds for DeviceTouchWorker:
+lanCuoiHoatDong = 2000-01-01 00:00:00
+
+Conclusion:
+QueueSkippedBecauseResponseWasError = true
+
+Meaning:
+DeviceActivityMiddleware skipped enqueue because the response status was 404.
+This matches the code path:
+if (context.Response.StatusCode >= 400) return;
+
+
+Cleanup
+-------
+Temporary test devices were deleted after the test:
+- QUEUE-TEST-CODEX-DETAIL-001
+- QUEUE-TEST-CODEX-DETAIL-404
+
+
+Related code paths
+------------------
+VinhKhanh/VinhKhanh/Middleware/DeviceActivityMiddleware.cs
+VinhKhanh/VinhKhanh/Services/DeviceTouchQueue.cs
+VinhKhanh/VinhKhanh/Services/DeviceService.cs
+VinhKhanh/VinhKhanh/Properties/AssemblyInfo.cs

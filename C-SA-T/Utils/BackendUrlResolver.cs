@@ -69,9 +69,9 @@ public static class BackendUrlResolver
         return DeviceInfo.DeviceType == DeviceType.Virtual
             ? new[]
             {
+                AndroidDeviceFallbackBaseUrl,
                 EmulatorHttpsBaseUrl,
-                EmulatorHttpBaseUrl,
-                AndroidDeviceFallbackBaseUrl
+                EmulatorHttpBaseUrl
             }
             : new[]
             {
