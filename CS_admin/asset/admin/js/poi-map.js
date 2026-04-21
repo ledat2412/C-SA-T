@@ -12,6 +12,12 @@
   var uiWired = false;
   var googleCallbackSeen = false;
   var googleAuthFailed = false;
+  var visibleCache = null;
+  var searchFrame = 0;
+  var localCameraFrame = 0;
+  var localCameraSyncPending = false;
+  var googleCameraFrame = 0;
+  var pendingGoogleCamera = null;
 
   function byId(id) {
     return document.getElementById(id);
@@ -78,14 +84,35 @@
     ].join(' '));
   }
 
+  pois.forEach(function (poi) {
+    poi._lat = Number(poi.lat);
+    poi._lng = Number(poi.lng);
+    poi._radius = Number(poi.radiusMeters || 10);
+    poi._monthlyFee = Number(poi.monthlyFee || 0);
+    poi._searchText = searchableText(poi);
+  });
+
+  function invalidateVisibleCache() {
+    visibleCache = null;
+  }
+
   function matchesFilter(poi) {
     var statusMatches = activeStatus === 'all' || poi.statusClass === activeStatus;
-    var queryMatches = query === '' || searchableText(poi).indexOf(query) !== -1;
+    var queryMatches = query === '' || (poi._searchText || searchableText(poi)).indexOf(query) !== -1;
     return statusMatches && queryMatches;
   }
 
   function visiblePois() {
-    return pois.filter(matchesFilter);
+    if (visibleCache && visibleCache.status === activeStatus && visibleCache.query === query) {
+      return visibleCache.items;
+    }
+
+    visibleCache = {
+      status: activeStatus,
+      query: query,
+      items: pois.filter(matchesFilter)
+    };
+    return visibleCache.items;
   }
 
   function markerClass(poi) {
@@ -149,7 +176,7 @@
       infoWindow.open(map, marker);
     }
 
-    map.panTo({ lat: Number(poi.lat), lng: Number(poi.lng) });
+    map.panTo({ lat: poi._lat, lng: poi._lng });
     if (map.getZoom() < 18) {
       map.setZoom(18);
     }
@@ -172,7 +199,7 @@
     var canUseAdvanced = !!(config.mapId && config.mapId !== 'DEMO_MAP_ID' && google.maps.marker && google.maps.marker.AdvancedMarkerElement);
 
     pois.forEach(function (poi) {
-      var position = { lat: Number(poi.lat), lng: Number(poi.lng) };
+      var position = { lat: poi._lat, lng: poi._lng };
       var content = canUseAdvanced ? buildMarkerContent(poi) : null;
       var marker = canUseAdvanced
         ? new google.maps.marker.AdvancedMarkerElement({
@@ -190,7 +217,7 @@
       var circle = new google.maps.Circle({
         map: map,
         center: position,
-        radius: Number(poi.radiusMeters || 10),
+        radius: poi._radius,
         strokeColor: poi.statusClass === 'active' ? '#16a34a' : (poi.statusClass === 'paused' ? '#f59e0b' : '#64748b'),
         strokeOpacity: 0.55,
         strokeWeight: 1,
@@ -214,7 +241,7 @@
 
   function getLocalBounds() {
     var valid = pois.filter(function (poi) {
-      return isFinite(Number(poi.lat)) && isFinite(Number(poi.lng));
+      return isFinite(poi._lat) && isFinite(poi._lng);
     });
 
     if (!valid.length) {
@@ -226,10 +253,10 @@
       };
     }
 
-    var minLat = Math.min.apply(null, valid.map(function (poi) { return Number(poi.lat); }));
-    var maxLat = Math.max.apply(null, valid.map(function (poi) { return Number(poi.lat); }));
-    var minLng = Math.min.apply(null, valid.map(function (poi) { return Number(poi.lng); }));
-    var maxLng = Math.max.apply(null, valid.map(function (poi) { return Number(poi.lng); }));
+    var minLat = Math.min.apply(null, valid.map(function (poi) { return poi._lat; }));
+    var maxLat = Math.max.apply(null, valid.map(function (poi) { return poi._lat; }));
+    var minLng = Math.min.apply(null, valid.map(function (poi) { return poi._lng; }));
+    var maxLng = Math.max.apply(null, valid.map(function (poi) { return poi._lng; }));
     var latPad = Math.max((maxLat - minLat) * 0.32, 0.00055);
     var lngPad = Math.max((maxLng - minLng) * 0.32, 0.00055);
 
@@ -244,8 +271,8 @@
   function localPoint(poi, bounds) {
     var lngSpan = Math.max(bounds.maxLng - bounds.minLng, 0.00001);
     var latSpan = Math.max(bounds.maxLat - bounds.minLat, 0.00001);
-    var x = ((Number(poi.lng) - bounds.minLng) / lngSpan) * 100;
-    var y = (1 - ((Number(poi.lat) - bounds.minLat) / latSpan)) * 100;
+    var x = ((poi._lng - bounds.minLng) / lngSpan) * 100;
+    var y = (1 - ((poi._lat - bounds.minLat) / latSpan)) * 100;
 
     return {
       x: Math.max(5, Math.min(95, x)),
@@ -267,12 +294,12 @@
     var centerLat = (bounds.minLat + bounds.maxLat) / 2;
     var metersWide = Math.max((bounds.maxLng - bounds.minLng) * 111320 * Math.cos(centerLat * Math.PI / 180), 1);
     var pxPerMeter = 980 / metersWide;
-    return Math.max(34, Math.min(118, Number(poi.radiusMeters || 10) * pxPerMeter * 2.2));
+    return Math.max(34, Math.min(118, poi._radius * pxPerMeter * 2.2));
   }
 
   function localBuildingHeight(poi) {
-    var fee = Number(poi.monthlyFee || 0);
-    var radius = Number(poi.radiusMeters || 10);
+    var fee = poi._monthlyFee;
+    var radius = poi._radius;
     return Math.max(34, Math.min(118, 34 + (fee / 90000) + radius * 1.8));
   }
 
@@ -283,12 +310,64 @@
 
     localState.heading = normalizeHeading(localState.heading);
     localState.tilt = clamp(localState.tilt, 0, 68);
+    if (localCameraFrame) {
+      localCameraSyncPending = true;
+      return;
+    }
+
+    localCameraSyncPending = true;
+    localCameraFrame = requestAnimationFrame(function () {
+      localCameraFrame = 0;
+      if (!localState || !localState.world || !localCameraSyncPending) {
+        return;
+      }
+      localCameraSyncPending = false;
+      localState.heading = normalizeHeading(localState.heading);
+      localState.tilt = clamp(localState.tilt, 0, 68);
+      applyLocalCameraNow();
+    });
+  }
+
+  function applyLocalCameraNow() {
+    if (!localState || !localState.world) {
+      return;
+    }
+
     localState.world.style.setProperty('--poi-local-heading', localState.heading + 'deg');
     localState.world.style.setProperty('--poi-local-tilt', localState.tilt + 'deg');
     localState.world.style.setProperty('--poi-local-heading-inverse', (-localState.heading) + 'deg');
     localState.world.style.setProperty('--poi-local-tilt-inverse', (-localState.tilt) + 'deg');
     localState.world.classList.toggle('flat', localState.tilt < 10);
     syncCameraControls();
+  }
+
+  function scheduleGoogleCamera(camera) {
+    pendingGoogleCamera = camera;
+    if (googleCameraFrame) {
+      return;
+    }
+
+    googleCameraFrame = requestAnimationFrame(function () {
+      googleCameraFrame = 0;
+      if (!map || !pendingGoogleCamera) {
+        pendingGoogleCamera = null;
+        return;
+      }
+
+      var nextCamera = pendingGoogleCamera;
+      pendingGoogleCamera = null;
+      if (typeof map.moveCamera === 'function') {
+        map.moveCamera(nextCamera);
+      } else {
+        if (typeof nextCamera.tilt !== 'undefined' && typeof map.setTilt === 'function') {
+          map.setTilt(nextCamera.tilt);
+        }
+        if (typeof nextCamera.heading !== 'undefined' && typeof map.setHeading === 'function') {
+          map.setHeading(nextCamera.heading);
+        }
+      }
+      syncCameraControls();
+    });
   }
 
   function currentTilt() {
@@ -341,14 +420,10 @@
       return;
     }
     if (map) {
-      if (typeof map.moveCamera === 'function') {
-        map.moveCamera({
-          tilt: tilt,
-          heading: currentHeading()
-        });
-      } else if (typeof map.setTilt === 'function') {
-        map.setTilt(tilt);
-      }
+      scheduleGoogleCamera({
+        tilt: tilt,
+        heading: currentHeading()
+      });
     }
     syncCameraControls();
   }
@@ -361,14 +436,10 @@
       return;
     }
     if (map) {
-      if (typeof map.moveCamera === 'function') {
-        map.moveCamera({
-          heading: heading,
-          tilt: currentTilt()
-        });
-      } else if (typeof map.setHeading === 'function') {
-        map.setHeading(heading);
-      }
+      scheduleGoogleCamera({
+        heading: heading,
+        tilt: currentTilt()
+      });
     }
     syncCameraControls();
   }
@@ -512,7 +583,7 @@
       tilt: 62
     };
 
-    applyLocalCamera();
+    applyLocalCameraNow();
     wireLocalDrag(mapEl);
     renderLocalMarkers();
   }
@@ -598,7 +669,7 @@
     var desiredHeading = currentHeading();
     var bounds = new google.maps.LatLngBounds();
     visible.forEach(function (poi) {
-      bounds.extend({ lat: Number(poi.lat), lng: Number(poi.lng) });
+      bounds.extend({ lat: poi._lat, lng: poi._lng });
     });
 
     map.fitBounds(bounds, 88);
@@ -678,6 +749,7 @@
     }
 
     var visible = visiblePois();
+    var fragment = document.createDocumentFragment();
     list.innerHTML = '';
 
     visible.forEach(function (poi) {
@@ -723,13 +795,15 @@
           }
           openInfo(poi, entry.marker);
         } else if (map) {
-          map.panTo({ lat: Number(poi.lat), lng: Number(poi.lng) });
+          map.panTo({ lat: poi._lat, lng: poi._lng });
           map.setZoom(18);
         }
       });
 
-      list.appendChild(button);
+      fragment.appendChild(button);
     });
+
+    list.appendChild(fragment);
 
     if (counter) {
       counter.textContent = String(visible.length);
@@ -769,14 +843,22 @@
     var searchInput = byId('poiMapSearch');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
-        query = normalize(searchInput.value);
-        applyFilters({ fit: false });
+        if (searchFrame) {
+          cancelAnimationFrame(searchFrame);
+        }
+        searchFrame = requestAnimationFrame(function () {
+          searchFrame = 0;
+          query = normalize(searchInput.value);
+          invalidateVisibleCache();
+          applyFilters({ fit: false });
+        });
       });
     }
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-poi-status]'), function (button) {
       button.addEventListener('click', function () {
         activeStatus = button.getAttribute('data-poi-status') || 'all';
+        invalidateVisibleCache();
         Array.prototype.forEach.call(document.querySelectorAll('[data-poi-status]'), function (other) {
           other.classList.toggle('active', other === button);
         });

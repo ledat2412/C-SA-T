@@ -10,14 +10,14 @@ public sealed class MapActionButton : ContentView
     private bool _isButtonEnabled = true;
     private bool _isBusy;
 
-    public MapActionButton(View icon, double widthRequest = 52, double heightRequest = 52)
+    public MapActionButton(View icon, double widthRequest = 54, double heightRequest = 54)
     {
         _icon = icon;
         _indicator = new ActivityIndicator
         {
             IsVisible = false,
             IsRunning = false,
-            Color = Color.FromArgb("#EA580C"),
+            Color = Color.FromArgb("#DC2626"),
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
             WidthRequest = 18,
@@ -32,9 +32,9 @@ public sealed class MapActionButton : ContentView
         _frame = new Border
         {
             StrokeThickness = 1,
-            Stroke = new SolidColorBrush(Color.FromArgb("#F3E8E2")),
-            BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            Stroke = new SolidColorBrush(Color.FromArgb("#FED7AA")),
+            BackgroundColor = Color.FromArgb("#FFF7ED"),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
             WidthRequest = widthRequest,
             HeightRequest = heightRequest,
             Padding = 0,
@@ -42,9 +42,9 @@ public sealed class MapActionButton : ContentView
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.10f,
-                Radius = 12,
-                Offset = new Point(0, 4)
+                Opacity = 0.12f,
+                Radius = 18,
+                Offset = new Point(0, 7)
             }
         };
 

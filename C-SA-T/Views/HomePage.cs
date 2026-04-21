@@ -6,6 +6,8 @@ using MauiApp1.Models;
 using MauiApp1.Services;
 using MauiApp1.Utils;
 using MauiApp1.Views.Maps;
+using System.Globalization;
+using System.Text;
 
 namespace MauiApp1.Views;
 
@@ -25,7 +27,14 @@ public class HomePage : ContentPage
     private Label _heroStreetLabel = null!;
     private Label _heroAccentLabel = null!;
     private Label _sectionNearbyLabel = null!;
+    private Entry _homeSearchEntry = null!;
+    private readonly List<(GianHang restaurant, double distance, string imagePath)> _nearbyRestaurants = new();
     private int _followCount;
+    private bool _hasLoadedNearby;
+    private bool _isLoadingNearby;
+    private bool _hasRequestedExplorePreload;
+    private DateTime _lastNearbyLoadAtUtc;
+    private static readonly TimeSpan NearbyReloadInterval = TimeSpan.FromMinutes(5);
 
     public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine, LocalizationService localizationService)
     {
@@ -77,18 +86,13 @@ public class HomePage : ContentPage
             localizationService,
             onExploreTap: async () =>
             {
-                var poiMapPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<PoiMapPage>();
-                if (poiMapPage != null)
-                {
-                    poiMapPage.RequestAutoOpenExplore();
-                    await Navigation.PushAsync(poiMapPage);
-                }
+                if (Application.Current is App app)
+                    await app.ShowExplorePageAsync(autoOpenExplore: true);
             },
             onSettingsTap: async () =>
             {
-                var settingsPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<SettingsPage>();
-                if (settingsPage != null)
-                    await Navigation.PushAsync(settingsPage);
+                if (Application.Current is App app)
+                    await app.ShowSettingsPageAsync();
             });
         root.Children.Add(footer);
         Grid.SetRow(footer, 1);
@@ -102,7 +106,26 @@ public class HomePage : ContentPage
         localizationService.LanguageChanged += OnLanguageChanged;
         UpdateLocalizedText();
 
-        Appearing += async (_, __) => await LoadNearbyRestaurants();
+        Appearing += async (_, __) =>
+        {
+            await LoadNearbyRestaurants();
+            QueueExplorePreload();
+        };
+    }
+
+    private void QueueExplorePreload()
+    {
+        if (_hasRequestedExplorePreload)
+            return;
+
+        _hasRequestedExplorePreload = true;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(350);
+            if (Application.Current is App app)
+                await app.PreloadExplorePageAsync();
+        });
     }
 
     private void OnLanguageChanged()
@@ -110,7 +133,7 @@ public class HomePage : ContentPage
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             UpdateLocalizedText();
-            await LoadNearbyRestaurants();
+            await LoadNearbyRestaurants(forceRefresh: true);
         });
     }
 
@@ -124,28 +147,47 @@ public class HomePage : ContentPage
         _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
         if (_sectionNearbyLabel is not null)
             _sectionNearbyLabel.Text = _loc.Get("section_nearby");
+        if (_homeSearchEntry is not null)
+            _homeSearchEntry.Placeholder = _loc.Get("search_placeholder");
     }
 
-    private async Task LoadNearbyRestaurants()
+    private async Task LoadNearbyRestaurants(bool forceRefresh = false)
     {
+        if (_isLoadingNearby)
+            return;
+
+        if (!forceRefresh &&
+            _hasLoadedNearby &&
+            DateTime.UtcNow - _lastNearbyLoadAtUtc < NearbyReloadInterval)
+        {
+            return;
+        }
+
+        _isLoadingNearby = true;
+
         try
         {
-            await GetUserLocation();
+            var locationTask = GetUserLocation();
 
             var gianHangs = await _gianHangService.GetAllAsync(_loc.CurrentLanguage);
+            await locationTask;
 
             _nearbySection.Children.Clear();
             _sectionNearbyLabel = null!;
-            _nearbySection.Children.Add(BuildSectionHeader(_loc.Get("section_nearby"), _loc.Get("section_see_all")));
+            _nearbySection.Children.Add(BuildSectionHeader(_loc.Get("section_nearby")));
+            _nearbySection.Children.Add(BuildHomeSearchBox());
 
             if (gianHangs == null || gianHangs.Count == 0)
             {
+                _nearbyRestaurants.Clear();
                 _nearbySection.Children.Add(new Label
                 {
                     Text = _loc.Get("no_data"),
                     FontSize = 14,
                     TextColor = Color.FromArgb("#64748B")
                 });
+                _hasLoadedNearby = true;
+                _lastNearbyLoadAtUtc = DateTime.UtcNow;
                 return;
             }
 
@@ -171,39 +213,177 @@ public class HomePage : ContentPage
             }
 
             var sorted = restaurantsWithDistance.OrderBy(r => r.distance).ToList();
+            _nearbyRestaurants.Clear();
+            _nearbyRestaurants.AddRange(sorted);
+
             _followCount = Math.Min(sorted.Count, 8);
             _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
             await _geofenceEngine.UpdateTargetsAsync(gianHangs, radiusMeters: 10);
             await _geofenceEngine.StartAsync();
 
-            foreach (var (restaurant, distance, imagePath) in sorted.Take(8))
-            {
-                var distanceText = distance < 1
-                    ? $"{distance * 1000:F0} m"
-                    : $"{distance:F1} km";
+            RenderNearbyRestaurants();
 
-                _nearbySection.Children.Add(BuildNearbySpotRow(
-                    restaurant,
-                    string.IsNullOrWhiteSpace(restaurant.DiaChi)
-                        ? $"{_loc.Get("home_nearby_prefix")} • {distanceText}"
-                        : $"{restaurant.DiaChi} • {distanceText}",
-                    imagePath));
-            }
+            _hasLoadedNearby = true;
+            _lastNearbyLoadAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[HomePage] Error loading nearby restaurants: {ex.Message}");
         }
+        finally
+        {
+            _isLoadingNearby = false;
+        }
+    }
+
+    private void RenderNearbyRestaurants()
+    {
+        if (_nearbySection.Children.Count > 2)
+        {
+            for (var i = _nearbySection.Children.Count - 1; i >= 2; i--)
+                _nearbySection.Children.RemoveAt(i);
+        }
+
+        var normalizedQuery = NormalizeSearchText(_homeSearchEntry?.Text);
+        var results = GetFilteredNearbyRestaurants(normalizedQuery).ToList();
+
+        if (results.Count == 0)
+        {
+            _nearbySection.Children.Add(BuildEmptyHomeSearchState(_homeSearchEntry?.Text ?? string.Empty));
+            return;
+        }
+
+        foreach (var (restaurant, distance, imagePath) in results.Take(string.IsNullOrWhiteSpace(normalizedQuery) ? 8 : 12))
+        {
+            var distanceText = distance < 1
+                ? $"{distance * 1000:F0} m"
+                : $"{distance:F1} km";
+
+            _nearbySection.Children.Add(BuildNearbySpotRow(
+                restaurant,
+                string.IsNullOrWhiteSpace(restaurant.DiaChi)
+                    ? $"{_loc.Get("home_nearby_prefix")} • {distanceText}"
+                    : $"{restaurant.DiaChi} • {distanceText}",
+                imagePath));
+        }
+    }
+
+    private IEnumerable<(GianHang restaurant, double distance, string imagePath)> GetFilteredNearbyRestaurants(string normalizedQuery)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+            return _nearbyRestaurants.OrderBy(x => x.distance);
+
+        var terms = normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return _nearbyRestaurants
+            .Select(item => new
+            {
+                Item = item,
+                Score = ScoreRestaurantSearchMatch(item.restaurant, normalizedQuery, terms)
+            })
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Item.distance)
+            .ThenBy(x => x.Item.restaurant.Ten)
+            .Select(x => x.Item);
+    }
+
+    private static int ScoreRestaurantSearchMatch(GianHang restaurant, string normalizedQuery, string[] terms)
+    {
+        var title = NormalizeSearchText(restaurant.Ten);
+        var address = NormalizeSearchText(restaurant.DiaChi);
+        var description = NormalizeSearchText(restaurant.MoTa);
+        var menuNames = restaurant.MonAns
+            .Where(item => !string.Equals(item.TinhTrang, "an", StringComparison.OrdinalIgnoreCase))
+            .Select(item => NormalizeSearchText(item.Ten))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToArray();
+        var allText = NormalizeSearchText($"{restaurant.Ten} {restaurant.DiaChi} {restaurant.MoTa} {string.Join(" ", restaurant.MonAns.Select(x => $"{x.Ten} {x.MoTa}"))}");
+
+        var score = 0;
+
+        if (title.StartsWith(normalizedQuery, StringComparison.Ordinal))
+            score += 220;
+        else if (title.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 170;
+
+        if (menuNames.Any(name => name.StartsWith(normalizedQuery, StringComparison.Ordinal)))
+            score += 180;
+        else if (menuNames.Any(name => name.Contains(normalizedQuery, StringComparison.Ordinal)))
+            score += 140;
+
+        if (description.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 70;
+
+        if (address.Contains(normalizedQuery, StringComparison.Ordinal))
+            score += 55;
+
+        foreach (var term in terms)
+        {
+            if (title.StartsWith(term, StringComparison.Ordinal))
+                score += 45;
+            else if (title.Contains(term, StringComparison.Ordinal))
+                score += 28;
+
+            if (menuNames.Any(name => name.StartsWith(term, StringComparison.Ordinal)))
+                score += 34;
+            else if (menuNames.Any(name => name.Contains(term, StringComparison.Ordinal)))
+                score += 20;
+
+            if (description.Contains(term, StringComparison.Ordinal))
+                score += 10;
+
+            if (address.Contains(term, StringComparison.Ordinal))
+                score += 8;
+        }
+
+        if (terms.Length > 1 && terms.All(term => allText.Contains(term, StringComparison.Ordinal)))
+            score += 42;
+
+        if (terms.All(term => title.Contains(term, StringComparison.Ordinal) || menuNames.Any(name => name.Contains(term, StringComparison.Ordinal))))
+            score += 25;
+
+        return score;
+    }
+
+    private static string NormalizeSearchText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var normalized = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
+                continue;
+
+            builder.Append(c switch
+            {
+                'đ' => 'd',
+                _ => c
+            });
+        }
+
+        return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
     private async Task GetUserLocation()
     {
         try
         {
+            var lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
+            if (lastKnown is not null)
+            {
+                _userLocation = lastKnown;
+                return;
+            }
+
             var location = await Geolocation.Default.GetLocationAsync(new GeolocationRequest
             {
-                DesiredAccuracy = GeolocationAccuracy.Best,
-                Timeout = TimeSpan.FromSeconds(30)
+                DesiredAccuracy = GeolocationAccuracy.Medium,
+                Timeout = TimeSpan.FromSeconds(5)
             });
 
             _userLocation = location ?? new Location(10.762622, 106.660172);
@@ -229,22 +409,14 @@ public class HomePage : ContentPage
 
     private View BuildMainHeader()
     {
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto)
-            },
-            ColumnSpacing = 12
-        };
-
         _headerTitleLabel = new Label
         {
-            FontSize = 32,
+            FontSize = 30,
             FontAttributes = FontAttributes.Bold,
             TextColor = Color.FromArgb("#0F172A"),
-            LineHeight = 1.05
+            LineHeight = 1.05,
+            MaxLines = 2,
+            LineBreakMode = LineBreakMode.WordWrap
         };
 
         _headerLocationLabel = new Label
@@ -255,7 +427,7 @@ public class HomePage : ContentPage
             VerticalTextAlignment = TextAlignment.Center
         };
 
-        var left = new VerticalStackLayout
+        return new VerticalStackLayout
         {
             Spacing = 6,
             Children =
@@ -287,47 +459,6 @@ public class HomePage : ContentPage
                 }
             }
         };
-        grid.Children.Add(left);
-
-        var notifyButton = new Border
-        {
-            HeightRequest = 44,
-            WidthRequest = 44,
-            StrokeThickness = 0,
-            StrokeShape = new RoundRectangle { CornerRadius = 22 },
-            BackgroundColor = Colors.White,
-            Content = new Grid
-            {
-                Children =
-                {
-                    BuildBellIcon(),
-                    new Border
-                    {
-                        WidthRequest = 10,
-                        HeightRequest = 10,
-                        StrokeThickness = 2,
-                        Stroke = new SolidColorBrush(Colors.White),
-                        StrokeShape = new RoundRectangle { CornerRadius = 5 },
-                        BackgroundColor = Color.FromArgb("#F59E0B"),
-                        HorizontalOptions = LayoutOptions.End,
-                        VerticalOptions = LayoutOptions.Start,
-                        TranslationX = -2,
-                        TranslationY = 2
-                    }
-                }
-            },
-            Shadow = new Shadow
-            {
-                Brush = Brush.Black,
-                Opacity = 0.08f,
-                Radius = 10,
-                Offset = new Point(0, 4)
-            }
-        };
-        grid.Children.Add(notifyButton);
-        Grid.SetColumn(notifyButton, 1);
-
-        return grid;
     }
 
     private View BuildHeroCard()
@@ -742,17 +873,8 @@ public class HomePage : ContentPage
         };
     }
 
-    private View BuildSectionHeader(string title, string action)
+    private View BuildSectionHeader(string title)
     {
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Star),
-                new ColumnDefinition(GridLength.Auto)
-            }
-        };
-
         _sectionNearbyLabel = new Label
         {
             Text = title,
@@ -761,20 +883,127 @@ public class HomePage : ContentPage
             TextColor = Color.FromArgb("#0F172A")
         };
 
-        grid.Children.Add(_sectionNearbyLabel);
+        return _sectionNearbyLabel;
+    }
 
-        var actionLabel = new Label
+    private View BuildHomeSearchBox()
+    {
+        _homeSearchEntry = new Entry
         {
-            Text = action,
-            FontSize = 14,
-            FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#E11D48"),
-            VerticalTextAlignment = TextAlignment.End
+            Placeholder = _loc.Get("search_placeholder"),
+            BackgroundColor = Colors.Transparent,
+            TextColor = Color.FromArgb("#111827"),
+            PlaceholderColor = Color.FromArgb("#A16207"),
+            FontSize = 15,
+            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Center
         };
-        grid.Children.Add(actionLabel);
-        Grid.SetColumn(actionLabel, 1);
+        _homeSearchEntry.TextChanged += (_, __) => RenderNearbyRestaurants();
 
-        return grid;
+        var searchGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star)
+            },
+            ColumnSpacing = 10,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                BuildHomeSearchIcon(),
+                _homeSearchEntry
+            }
+        };
+        Grid.SetColumn(_homeSearchEntry, 1);
+
+        return new Border
+        {
+            StrokeThickness = 1,
+            Stroke = new SolidColorBrush(Color.FromArgb("#FED7AA")),
+            BackgroundColor = Color.FromArgb("#FFFFFB"),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            Padding = new Thickness(15, 5),
+            HeightRequest = 54,
+            Content = searchGrid,
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.08f,
+                Radius = 16,
+                Offset = new Point(0, 6)
+            }
+        };
+    }
+
+    private View BuildHomeSearchIcon()
+    {
+        var stroke = new SolidColorBrush(Color.FromArgb("#DC2626"));
+
+        return new Grid
+        {
+            WidthRequest = 22,
+            HeightRequest = 22,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Ellipse
+                {
+                    WidthRequest = 11,
+                    HeightRequest = 11,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8,
+                    HorizontalOptions = LayoutOptions.Start,
+                    VerticalOptions = LayoutOptions.Start,
+                    TranslationX = 4,
+                    TranslationY = 4
+                },
+                new Line
+                {
+                    X1 = 13.5,
+                    Y1 = 13.5,
+                    X2 = 18,
+                    Y2 = 18,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                }
+            }
+        };
+    }
+
+    private View BuildEmptyHomeSearchState(string query)
+    {
+        return new Border
+        {
+            StrokeThickness = 0,
+            BackgroundColor = Color.FromArgb("#FFF6EF"),
+            StrokeShape = new RoundRectangle { CornerRadius = 18 },
+            Padding = new Thickness(14),
+            Content = new VerticalStackLayout
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new Label
+                    {
+                        Text = "Khong tim thay ket qua",
+                        FontSize = 15,
+                        FontAttributes = FontAttributes.Bold,
+                        TextColor = Color.FromArgb("#0F172A")
+                    },
+                    new Label
+                    {
+                        Text = string.IsNullOrWhiteSpace(query)
+                            ? "Thu tim theo ten quan, mon an hoac dia chi."
+                            : $"Thu tu khoa khac thay cho \"{query}\".",
+                        FontSize = 13,
+                        TextColor = Color.FromArgb("#64748B")
+                    }
+                }
+            }
+        };
     }
 
     private View BuildBellIcon()

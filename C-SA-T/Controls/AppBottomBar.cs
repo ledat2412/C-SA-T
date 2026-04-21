@@ -135,7 +135,25 @@ public sealed class AppBottomBar : ContentView
         if (onTap is not null)
         {
             var tap = new TapGestureRecognizer();
-            tap.Tapped += async (_, __) => await onTap();
+            var isHandlingTap = false;
+            tap.Tapped += async (_, __) =>
+            {
+                if (isHandlingTap)
+                    return;
+
+                isHandlingTap = true;
+                content.InputTransparent = true;
+
+                try
+                {
+                    await onTap();
+                }
+                finally
+                {
+                    content.InputTransparent = false;
+                    isHandlingTap = false;
+                }
+            };
             content.GestureRecognizers.Add(tap);
         }
 

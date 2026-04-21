@@ -127,6 +127,7 @@
   overflow:hidden;
   border:1px solid #d8e2ea;
   background:#dce8ee;
+  contain:layout paint;
 }
 
 .poi-google-map{
@@ -223,6 +224,8 @@
     rotateZ(var(--poi-local-heading));
   transform-style:preserve-3d;
   transition:transform .32s ease;
+  will-change:transform;
+  contain:layout paint style;
   background:
     linear-gradient(90deg, rgba(255,255,255,.48) 1px, transparent 1px),
     linear-gradient(0deg, rgba(255,255,255,.48) 1px, transparent 1px),
@@ -231,6 +234,11 @@
   box-shadow:
     0 32px 74px rgba(15,23,42,.22),
     inset 0 0 0 2px rgba(255,255,255,.62);
+}
+
+.poi-local-map.is-dragging .poi-local-world,
+.poi-local-map.is-dragging .poi-local-marker{
+  transition:none;
 }
 
 .poi-local-world.flat{
@@ -310,6 +318,7 @@
   opacity:.72;
   transition:opacity .18s ease, transform .18s ease;
   pointer-events:none;
+  will-change:opacity;
 }
 
 .poi-local-building{
@@ -328,6 +337,7 @@
     0 16px 24px rgba(15,23,42,.18);
   opacity:.88;
   transition:opacity .18s ease, filter .18s ease;
+  will-change:opacity, filter;
 }
 
 .poi-local-building::before{
@@ -359,6 +369,7 @@
   cursor:pointer;
   color:#0f172a;
   transition:filter .16s ease, opacity .16s ease;
+  will-change:transform, opacity;
 }
 
 .poi-local-pin{
@@ -635,6 +646,7 @@
   display:flex;
   flex-direction:column;
   gap:10px;
+  contain:content;
 }
 
 .poi-item{
@@ -648,6 +660,8 @@
   gap:12px;
   cursor:pointer;
   text-align:left;
+  content-visibility:auto;
+  contain-intrinsic-size:72px;
 }
 
 .poi-item:hover,

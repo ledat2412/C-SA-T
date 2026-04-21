@@ -100,8 +100,10 @@ public partial class PoiMapPage : ContentPage
     private bool _isInitialLoadStarted;
     private bool _isInitialLoadCompleted;
     private bool _isLoadingPois;
+    private DateTime _lastPoiLoadAtUtc;
     private string _activeSearchQuery = string.Empty;
     private int? _selectedPoiId;
+    private static readonly TimeSpan PoiReloadInterval = TimeSpan.FromMinutes(5);
 
     // Vị trí sheet chi tiết
     private double _detailHiddenY;
@@ -184,16 +186,14 @@ public partial class PoiMapPage : ContentPage
             localizationService,
             onHomeTap: async () =>
             {
-                var homePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<HomePage>();
-                if (homePage != null)
-                    await Navigation.PushAsync(homePage);
+                if (Application.Current is App app)
+                    await app.ShowMainPageAsync();
             },
             onExploreTap: ToggleSuggestionSheetAsync,
             onSettingsTap: async () =>
             {
-                var settingsPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<SettingsPage>();
-                if (settingsPage != null)
-                    await Navigation.PushAsync(settingsPage);
+                if (Application.Current is App app)
+                    await app.ShowSettingsPageAsync();
             });
         _topBar = CreateTopBar();
 
@@ -204,7 +204,7 @@ public partial class PoiMapPage : ContentPage
             RenderLanguageOptions();
             _ = ApplySelectedLanguageToCurrentDetailAsync();
             if (_isInitialLoadCompleted)
-                _ = LoadRealPoisAsync();
+                _ = LoadRealPoisAsync(forceRefresh: true);
         });
         UpdateLocalizedText();
 
@@ -260,7 +260,6 @@ public partial class PoiMapPage : ContentPage
 
         root.Children.Add(_map);
         root.Children.Add(_topBar);
-        root.Children.Add(_currentLocationButton);
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_footer);
@@ -274,8 +273,7 @@ public partial class PoiMapPage : ContentPage
         var button = new MapActionButton(BuildCurrentLocationIcon())
         {
             HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.Start,
-            Margin = new Thickness(0, 84, 16, 0),
+            VerticalOptions = LayoutOptions.Center,
             ZIndex = 21
         };
 
@@ -304,8 +302,8 @@ public partial class PoiMapPage : ContentPage
         {
             Placeholder = _loc.Get("search_placeholder"),
             BackgroundColor = Colors.Transparent,
-            TextColor = Color.FromArgb("#111111"),
-            PlaceholderColor = Color.FromArgb("#9CA3AF"),
+            TextColor = Color.FromArgb("#111827"),
+            PlaceholderColor = Color.FromArgb("#A16207"),
             FontSize = 15,
             ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
             HorizontalOptions = LayoutOptions.Fill,
@@ -320,54 +318,59 @@ public partial class PoiMapPage : ContentPage
         {
             ColumnDefinitions =
             {
-                new ColumnDefinition { Width = GridLength.Star },
-                new ColumnDefinition { Width = GridLength.Auto }
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = GridLength.Star }
             },
-            ColumnSpacing = 8,
+            ColumnSpacing = 10,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Fill
         };
 
-        searchGrid.Children.Add(_searchEntry);
-        Grid.SetColumn(_searchEntry, 0);
-
         searchGrid.Children.Add(searchIcon);
-        Grid.SetColumn(searchIcon, 1);
+        Grid.SetColumn(searchIcon, 0);
+
+        searchGrid.Children.Add(_searchEntry);
+        Grid.SetColumn(_searchEntry, 1);
 
         var searchBox = new Border
         {
             StrokeThickness = 1,
-            Stroke = new SolidColorBrush(Color.FromArgb("#F3E8E2")),
-            BackgroundColor = Colors.White,
+            Stroke = new SolidColorBrush(Color.FromArgb("#FED7AA")),
+            BackgroundColor = Color.FromArgb("#FFFFFB"),
             StrokeShape = new RoundRectangle { CornerRadius = 18 },
-            Padding = new Thickness(16, 10),
+            Padding = new Thickness(15, 5),
+            HeightRequest = 54,
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.10f,
-                Radius = 12,
-                Offset = new Point(0, 4)
+                Opacity = 0.11f,
+                Radius = 18,
+                Offset = new Point(0, 7)
             },
             Content = searchGrid,
-            WidthRequest = 320,
-            MaximumWidthRequest = 332,
-            HorizontalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Fill,
             VerticalOptions = LayoutOptions.Center
         };
 
         var topBar = new Grid
         {
-            Padding = new Thickness(16, 6, 16, 0),
+            Padding = new Thickness(16, 10, 16, 0),
             ColumnDefinitions =
             {
-                new ColumnDefinition { Width = GridLength.Star }
+                new ColumnDefinition { Width = GridLength.Star },
+                new ColumnDefinition { Width = GridLength.Auto }
             },
+            ColumnSpacing = 10,
             VerticalOptions = LayoutOptions.Start,
             HorizontalOptions = LayoutOptions.Fill,
             ZIndex = 20
         };
 
         topBar.Children.Add(searchBox);
+        Grid.SetColumn(searchBox, 0);
+
+        topBar.Children.Add(_currentLocationButton);
+        Grid.SetColumn(_currentLocationButton, 1);
 
         return topBar;
     }
@@ -509,10 +512,19 @@ public partial class PoiMapPage : ContentPage
         }
     }
 
-    private async Task LoadRealPoisAsync()
+    private async Task LoadRealPoisAsync(bool forceRefresh = false)
     {
         if (_isLoadingPois)
             return;
+
+        if (!forceRefresh &&
+            _allPois.Count > 0 &&
+            DateTime.UtcNow - _lastPoiLoadAtUtc < PoiReloadInterval)
+        {
+            ApplySmartSearch(_searchEntry.Text, revealResults: !string.IsNullOrWhiteSpace(_searchEntry.Text), preserveSelectedPoi: true);
+            RefreshVisiblePins();
+            return;
+        }
 
         _isLoadingPois = true;
 
@@ -551,6 +563,7 @@ public partial class PoiMapPage : ContentPage
             RefreshVisiblePins();
             await BuildStyledPinsAsync(data);
             RefreshVisiblePins();
+            _lastPoiLoadAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
@@ -1173,6 +1186,8 @@ public partial class PoiMapPage : ContentPage
 
     private View BuildSearchIcon()
     {
+        var stroke = new SolidColorBrush(Color.FromArgb("#DC2626"));
+
         return new Grid
         {
             WidthRequest = 22,
@@ -1185,7 +1200,7 @@ public partial class PoiMapPage : ContentPage
                 {
                     WidthRequest = 11,
                     HeightRequest = 11,
-                    Stroke = new SolidColorBrush(Color.FromArgb("#94A3B8")),
+                    Stroke = stroke,
                     StrokeThickness = 1.8,
                     HorizontalOptions = LayoutOptions.Start,
                     VerticalOptions = LayoutOptions.Start,
@@ -1198,7 +1213,7 @@ public partial class PoiMapPage : ContentPage
                     Y1 = 13.5,
                     X2 = 18,
                     Y2 = 18,
-                    Stroke = new SolidColorBrush(Color.FromArgb("#94A3B8")),
+                    Stroke = stroke,
                     StrokeThickness = 1.8
                 }
             }
@@ -1207,7 +1222,8 @@ public partial class PoiMapPage : ContentPage
 
     private View BuildCurrentLocationIcon()
     {
-        var stroke = new SolidColorBrush(Color.FromArgb("#EA580C"));
+        var stroke = new SolidColorBrush(Color.FromArgb("#DC2626"));
+        var accent = new SolidColorBrush(Color.FromArgb("#FB7185"));
 
         return new Grid
         {
@@ -1230,7 +1246,7 @@ public partial class PoiMapPage : ContentPage
                 {
                     WidthRequest = 5,
                     HeightRequest = 5,
-                    Fill = stroke,
+                    Fill = accent,
                     HorizontalOptions = LayoutOptions.Center,
                     VerticalOptions = LayoutOptions.Center
                 },
@@ -2064,8 +2080,7 @@ public partial class PoiMapPage : ContentPage
         try
         {
             var gianHang = await _gianHangService.GetByIdAsync(
-                poi.IDChiNhanh,
-                forceRefresh: true);
+                poi.IDChiNhanh);
 
             if (gianHang == null)
             {

@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Collections.Concurrent;
 using MauiApp1.Models;
 
 namespace MauiApp1.Services
@@ -10,11 +11,14 @@ namespace MauiApp1.Services
         private readonly AudioCacheService _audioCacheService;
         private readonly object _refreshLock = new();
 
-        private readonly Dictionary<string, AppDataResponse> _memoryCache =
+        private readonly ConcurrentDictionary<string, AppDataResponse> _memoryCache =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DateTime> _lastRefreshAttemptUtc =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _refreshingKeys =
             new(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan AppDataCacheMaxAge = TimeSpan.FromHours(12);
+        private static readonly TimeSpan BackgroundRefreshInterval = TimeSpan.FromMinutes(5);
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -36,15 +40,21 @@ namespace MauiApp1.Services
             lang = string.IsNullOrWhiteSpace(lang) ? "vi" : lang.Trim().ToLowerInvariant();
             var cacheKey = $"appdata_{lang}";
 
-            if (forceRefresh || Connectivity.Current.NetworkAccess == NetworkAccess.Internet)
+            if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
+            {
+                QueueRefreshIfDue(cacheKey, lang);
+                return memoryData;
+            }
+
+            if (forceRefresh)
             {
                 var refreshed = await TryFetchAndCacheFromApiAsync(lang, cacheKey);
                 if (refreshed is not null)
                     return refreshed;
-            }
 
-            if (!forceRefresh && _memoryCache.TryGetValue(cacheKey, out var memoryData))
-                return memoryData;
+                if (_memoryCache.TryGetValue(cacheKey, out memoryData))
+                    return memoryData;
+            }
 
             var freshCached = await TryReadCachedResponseAsync(cacheKey, AppDataCacheMaxAge);
             if (freshCached is not null)
@@ -96,6 +106,7 @@ namespace MauiApp1.Services
         public async Task ClearAsync()
         {
             _memoryCache.Clear();
+            _lastRefreshAttemptUtc.Clear();
             await _sqliteService.ClearAllCacheAsync();
         }
 
@@ -107,6 +118,7 @@ namespace MauiApp1.Services
         public void ClearMemory()
         {
             _memoryCache.Clear();
+            _lastRefreshAttemptUtc.Clear();
         }
 
         private async Task<AppDataResponse?> TryReadCachedResponseAsync(string cacheKey, TimeSpan? maxAge)
@@ -135,6 +147,8 @@ namespace MauiApp1.Services
             if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
                 return null;
 
+            _lastRefreshAttemptUtc[cacheKey] = DateTime.UtcNow;
+
             try
             {
                 var apiData = await _apiService.GetAppDataAsync(lang);
@@ -158,6 +172,20 @@ namespace MauiApp1.Services
                 System.Diagnostics.Debug.WriteLine($"[AppDataCacheService] API error: {ex.Message}");
                 return null;
             }
+        }
+
+        private void QueueRefreshIfDue(string cacheKey, string lang)
+        {
+            if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+                return;
+
+            if (_lastRefreshAttemptUtc.TryGetValue(cacheKey, out var lastAttempt) &&
+                DateTime.UtcNow - lastAttempt < BackgroundRefreshInterval)
+            {
+                return;
+            }
+
+            QueueRefresh(cacheKey, lang);
         }
 
         private void QueueRefresh(string cacheKey, string lang)

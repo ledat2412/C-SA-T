@@ -4,6 +4,11 @@ namespace MauiApp1.Services;
 
 public class LocalizationService
 {
+    public const string LanguagePreferenceKey = "ui_language";
+    public const string LanguageModePreferenceKey = "ui_language_mode";
+    public const string SystemLanguageMode = "system";
+    public const string ManualLanguageMode = "manual";
+
     private string _currentLanguage = "vi";
 
     public string CurrentLanguage => _currentLanguage;
@@ -12,7 +17,7 @@ public class LocalizationService
 
     public void SetLanguage(string code)
     {
-        var c = code?.Trim().ToLowerInvariant() ?? "vi";
+        var c = NormalizeLanguageCode(code);
         if (_currentLanguage == c) return;
         _currentLanguage = c;
         ApplyCulture(c);
@@ -22,6 +27,70 @@ public class LocalizationService
     public LocalizationService()
     {
         ApplyCulture(_currentLanguage);
+    }
+
+    public static string ResolveStartupLanguage()
+    {
+        if (!Preferences.ContainsKey(LanguageModePreferenceKey) &&
+            Preferences.ContainsKey(LanguagePreferenceKey))
+        {
+            var legacyLanguage = NormalizeLanguageCode(Preferences.Get(LanguagePreferenceKey, "vi"));
+            Preferences.Set(LanguageModePreferenceKey, ManualLanguageMode);
+            Preferences.Set(LanguagePreferenceKey, legacyLanguage);
+            return legacyLanguage;
+        }
+
+        var mode = Preferences.Get(LanguageModePreferenceKey, SystemLanguageMode);
+        if (mode.Equals(ManualLanguageMode, StringComparison.OrdinalIgnoreCase) &&
+            Preferences.ContainsKey(LanguagePreferenceKey))
+        {
+            return NormalizeLanguageCode(Preferences.Get(LanguagePreferenceKey, "vi"));
+        }
+
+        var detected = DetectSystemLanguage();
+        Preferences.Set(LanguageModePreferenceKey, SystemLanguageMode);
+        Preferences.Set(LanguagePreferenceKey, detected);
+        return detected;
+    }
+
+    public static string DetectSystemLanguage()
+    {
+        var candidates = new[]
+        {
+            CultureInfo.CurrentUICulture,
+            CultureInfo.CurrentCulture,
+            CultureInfo.InstalledUICulture
+        };
+
+        foreach (var culture in candidates)
+        {
+            var language = NormalizeLanguageCode(culture.TwoLetterISOLanguageName);
+            if (IsSupportedLanguage(language))
+                return language;
+        }
+
+        return "vi";
+    }
+
+    public static string NormalizeLanguageCode(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            return "vi";
+
+        var c = code.Trim().ToLowerInvariant();
+        return c switch
+        {
+            var value when value.StartsWith("vi") => "vi",
+            var value when value.StartsWith("en") => "en",
+            var value when value.StartsWith("ko") => "ko",
+            var value when value.StartsWith("ja") => "ja",
+            _ => "vi"
+        };
+    }
+
+    private static bool IsSupportedLanguage(string code)
+    {
+        return code is "vi" or "en" or "ko" or "ja";
     }
 
     public string Get(string key)

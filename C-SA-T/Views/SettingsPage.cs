@@ -22,6 +22,7 @@ public class SettingsPage : ContentPage
 
     private static readonly (string Code, string NativeName)[] _languages =
     {
+        ("system", "Theo hệ thống"),
         ("vi", "Tiếng Việt"),
         ("en", "English"),
         ("ko", "한국어"),
@@ -175,15 +176,13 @@ public class SettingsPage : ContentPage
             _loc,
             onHomeTap: async () =>
             {
-                var homePage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<HomePage>();
-                if (homePage != null)
-                    await Navigation.PushAsync(homePage);
+                if (Application.Current is App app)
+                    await app.ShowMainPageAsync();
             },
             onExploreTap: async () =>
             {
-                var poiMapPage = App.Current?.Handler?.MauiContext?.Services.GetRequiredService<Maps.PoiMapPage>();
-                if (poiMapPage != null)
-                    await Navigation.PushAsync(poiMapPage);
+                if (Application.Current is App app)
+                    await app.ShowExplorePageAsync(autoOpenExplore: true);
             });
         root.Children.Add(footer);
         Grid.SetRow(footer, 1);
@@ -197,9 +196,20 @@ public class SettingsPage : ContentPage
 
         foreach (var (code, nativeName) in _languages)
         {
-            var isSelected = code.Equals(_loc.CurrentLanguage, StringComparison.OrdinalIgnoreCase);
+            var isSelected = IsLanguageChipSelected(code);
             _chipGrid.Children.Add(BuildLanguageChip(code, nativeName, isSelected));
         }
+    }
+
+    private bool IsLanguageChipSelected(string code)
+    {
+        var mode = Preferences.Get(LocalizationService.LanguageModePreferenceKey, LocalizationService.SystemLanguageMode);
+
+        if (code.Equals("system", StringComparison.OrdinalIgnoreCase))
+            return mode.Equals(LocalizationService.SystemLanguageMode, StringComparison.OrdinalIgnoreCase);
+
+        return mode.Equals(LocalizationService.ManualLanguageMode, StringComparison.OrdinalIgnoreCase) &&
+               code.Equals(_loc.CurrentLanguage, StringComparison.OrdinalIgnoreCase);
     }
 
     private View BuildLanguageChip(string code, string nativeName, bool selected)
@@ -229,11 +239,27 @@ public class SettingsPage : ContentPage
 
     private void OnLanguageSelected(string code)
     {
-        if (code.Equals(_loc.CurrentLanguage, StringComparison.OrdinalIgnoreCase))
+        if (code.Equals("system", StringComparison.OrdinalIgnoreCase))
+        {
+            var systemLanguage = LocalizationService.DetectSystemLanguage();
+            Preferences.Set(LocalizationService.LanguageModePreferenceKey, LocalizationService.SystemLanguageMode);
+            Preferences.Set(LocalizationService.LanguagePreferenceKey, systemLanguage);
+            _loc.SetLanguage(systemLanguage);
+            RenderLanguageChips();
             return;
+        }
 
-        _loc.SetLanguage(code);
-        Preferences.Set("ui_language", code);
+        var normalizedCode = LocalizationService.NormalizeLanguageCode(code);
+        var mode = Preferences.Get(LocalizationService.LanguageModePreferenceKey, LocalizationService.SystemLanguageMode);
+        if (mode.Equals(LocalizationService.ManualLanguageMode, StringComparison.OrdinalIgnoreCase) &&
+            normalizedCode.Equals(_loc.CurrentLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Preferences.Set(LocalizationService.LanguageModePreferenceKey, LocalizationService.ManualLanguageMode);
+        Preferences.Set(LocalizationService.LanguagePreferenceKey, normalizedCode);
+        _loc.SetLanguage(normalizedCode);
         RenderLanguageChips();
     }
 
