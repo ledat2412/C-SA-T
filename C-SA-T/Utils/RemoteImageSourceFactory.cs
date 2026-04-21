@@ -91,9 +91,12 @@ public static class RemoteImageSourceFactory
             (_, _, _, _) => true;
 #endif
 
-        return new HttpClient(handler)
+        var httpClient = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
+
+        BackendUrlResolver.ConfigureHttpClient(httpClient);
+        return httpClient;
     }
 }

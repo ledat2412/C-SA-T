@@ -241,6 +241,7 @@ internal static class MapPinStyling
                 {
                     Timeout = TimeSpan.FromSeconds(8)
                 };
+                global::MauiApp1.Utils.BackendUrlResolver.ConfigureHttpClient(httpClient);
 
                 return await httpClient.GetByteArrayAsync(url).ConfigureAwait(false);
             }).GetAwaiter().GetResult();

@@ -147,7 +147,7 @@ namespace MauiApp1.Services
             }
         }
 
-        public async Task<PackageAccessRegistrationResult> RegisterPackageAccessAsync(string email, int idGoi, bool bypassPayment)
+        public async Task<PackageAccessRegistrationResult> RegisterPackageAccessAsync(string email, int idGoi, bool bypassPayment, bool sendEmail = true)
         {
             try
             {
@@ -157,6 +157,7 @@ namespace MauiApp1.Services
                     Email = email,
                     IdGoi = idGoi,
                     BypassPayment = bypassPayment,
+                    SendEmail = sendEmail,
                     ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId()
                 });
 

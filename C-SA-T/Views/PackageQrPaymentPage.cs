@@ -1,6 +1,8 @@
 using Microsoft.Maui.Controls.Shapes;
 using MauiApp1.Models;
 using MauiApp1.Services;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using ZXing.Net.Maui.Controls;
 using MauiColor = Microsoft.Maui.Graphics.Color;
 
@@ -10,19 +12,23 @@ public class PackageQrPaymentPage : ContentPage
 {
     private readonly AccessFlowService _accessFlowService;
     private readonly LocalizationService _loc;
+    private readonly IImageGallerySaver? _gallerySaver;
     private readonly PackagePlanOption _plan;
     private readonly string _email;
     private readonly CheckBox _bypassCheckBox;
-    private readonly Button _bypassButton;
+    private readonly Button _bypassEmailButton;
+    private readonly Button _bypassDownloadButton;
+    private readonly HorizontalStackLayout _bypassChoiceLayout;
     private readonly Label _statusLabel;
     private readonly Label _helperLabel;
     private readonly VerticalStackLayout _successLayout;
     private bool _isSubmitting;
 
-    public PackageQrPaymentPage(AccessFlowService accessFlowService, LocalizationService localizationService, PackagePlanOption plan, string email)
+    public PackageQrPaymentPage(AccessFlowService accessFlowService, LocalizationService localizationService, PackagePlanOption plan, string email, IImageGallerySaver? gallerySaver = null)
     {
         _accessFlowService = accessFlowService;
         _loc = localizationService;
+        _gallerySaver = gallerySaver;
         _plan = plan;
         _email = email;
 
@@ -46,16 +52,34 @@ public class PackageQrPaymentPage : ContentPage
             LineBreakMode = LineBreakMode.WordWrap
         };
 
-        _bypassButton = new Button
+        _bypassEmailButton = new Button
         {
-            Text = GetText("bypass_button"),
+            Text = GetText("bypass_email"),
             BackgroundColor = MauiColor.FromArgb("#F97316"),
             TextColor = Colors.White,
             CornerRadius = 16,
             Padding = new Thickness(14, 12),
-            IsVisible = false
+            HorizontalOptions = LayoutOptions.FillAndExpand
         };
-        _bypassButton.Clicked += async (_, __) => await ConfirmBypassAsync();
+        _bypassEmailButton.Clicked += async (_, __) => await ConfirmBypassAsync(sendEmail: true);
+
+        _bypassDownloadButton = new Button
+        {
+            Text = GetText("bypass_download"),
+            BackgroundColor = MauiColor.FromArgb("#1D4ED8"),
+            TextColor = Colors.White,
+            CornerRadius = 16,
+            Padding = new Thickness(14, 12),
+            HorizontalOptions = LayoutOptions.FillAndExpand
+        };
+        _bypassDownloadButton.Clicked += async (_, __) => await ConfirmBypassAsync(sendEmail: false);
+
+        _bypassChoiceLayout = new HorizontalStackLayout
+        {
+            Spacing = 10,
+            IsVisible = false,
+            Children = { _bypassEmailButton, _bypassDownloadButton }
+        };
 
         _bypassCheckBox = new CheckBox
         {
@@ -63,7 +87,7 @@ public class PackageQrPaymentPage : ContentPage
         };
         _bypassCheckBox.CheckedChanged += (_, args) =>
         {
-            _bypassButton.IsVisible = args.Value;
+            _bypassChoiceLayout.IsVisible = args.Value;
         };
 
         _successLayout = new VerticalStackLayout
@@ -182,7 +206,7 @@ public class PackageQrPaymentPage : ContentPage
                                         }
                                     }
                                 },
-                                _bypassButton
+                                _bypassChoiceLayout
                             }
                         }),
                     _successLayout
@@ -191,20 +215,21 @@ public class PackageQrPaymentPage : ContentPage
         };
     }
 
-    private async Task ConfirmBypassAsync()
+    private async Task ConfirmBypassAsync(bool sendEmail)
     {
         if (_isSubmitting)
             return;
 
         _isSubmitting = true;
-        _bypassButton.IsEnabled = false;
+        _bypassEmailButton.IsEnabled = false;
+        _bypassDownloadButton.IsEnabled = false;
 
         try
         {
             _statusLabel.Text = GetText("status_generating");
             _helperLabel.Text = GetText("helper_generating");
 
-            var result = await _accessFlowService.RegisterPackageAccessBypassAsync(_email, _plan.BackendPackageId);
+            var result = await _accessFlowService.RegisterPackageAccessBypassAsync(_email, _plan.BackendPackageId, sendEmail);
             if (!result.Success)
             {
                 _statusLabel.Text = GetText("status_failed");
@@ -216,13 +241,22 @@ public class PackageQrPaymentPage : ContentPage
             _statusLabel.Text = GetText("status_activated");
             _helperLabel.Text = result.EmailSent
                 ? GetText("helper_email_sent")
-                : result.EmailStatusMessage ?? GetText("helper_qr_ready");
+                : GetText("helper_qr_ready");
 
             ShowSuccess(result);
+
+            // Nếu user chọn Download → tự động lưu QR vào gallery ngay sau khi activate thành công
+            if (!sendEmail)
+            {
+                var payload = result.QrTokenPayload ?? result.AccessToken;
+                if (!string.IsNullOrWhiteSpace(payload))
+                    await SaveAndShareQrAsync(payload);
+            }
         }
         finally
         {
-            _bypassButton.IsEnabled = true;
+            _bypassEmailButton.IsEnabled = true;
+            _bypassDownloadButton.IsEnabled = true;
             _isSubmitting = false;
         }
     }
@@ -249,6 +283,29 @@ public class PackageQrPaymentPage : ContentPage
             var body = Uri.EscapeDataString(
                 $"{string.Format(GetText("email_line"), result.Email)}\n{string.Format(GetText("package_line"), result.PackageName)}\n{string.Format(GetText("token_line"), result.AccessToken)}\n{string.Format(GetText("payload_line"), result.QrTokenPayload)}\n{string.Format(GetText("expires_line"), expiresText)}");
             await Launcher.Default.OpenAsync(new Uri($"mailto:{result.Email}?subject={subject}&body={body}"));
+        };
+
+        var saveQrButton = new Button
+        {
+            Text = GetText("save_qr"),
+            BackgroundColor = Colors.White,
+            TextColor = MauiColor.FromArgb("#1D4ED8"),
+            BorderColor = MauiColor.FromArgb("#BFDBFE"),
+            BorderWidth = 1,
+            CornerRadius = 14
+        };
+        saveQrButton.Clicked += async (_, __) =>
+        {
+            saveQrButton.IsEnabled = false;
+            try
+            {
+                var payload = result.QrTokenPayload ?? result.AccessToken;
+                await SaveAndShareQrAsync(payload);
+            }
+            finally
+            {
+                saveQrButton.IsEnabled = true;
+            }
         };
 
         var enterButton = new Button
@@ -317,10 +374,65 @@ public class PackageQrPaymentPage : ContentPage
                             TextColor = MauiColor.FromArgb("#9A3412"),
                             LineBreakMode = LineBreakMode.WordWrap
                         },
+                        saveQrButton,
                         gmailButton,
                         enterButton
                     }
                 }));
+    }
+
+    private async Task SaveAndShareQrAsync(string payload)
+    {
+        try
+        {
+            var writer = new ZXing.BarcodeWriterPixelData
+            {
+                Format = ZXing.BarcodeFormat.QR_CODE,
+                Options = new ZXing.QrCode.QrCodeEncodingOptions
+                {
+                    Width = 512,
+                    Height = 512,
+                    Margin = 2,
+                    ErrorCorrection = ZXing.QrCode.Internal.ErrorCorrectionLevel.M
+                }
+            };
+
+            var pixelData = writer.Write(payload);
+
+            using var image = SixLabors.ImageSharp.Image.LoadPixelData<Rgba32>(
+                pixelData.Pixels, pixelData.Width, pixelData.Height);
+
+            var fileName = $"qr_vinhkhanh_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+
+            byte[] pngBytes;
+            using (var ms = new MemoryStream())
+            {
+                await image.SaveAsPngAsync(ms);
+                pngBytes = ms.ToArray();
+            }
+
+            if (_gallerySaver != null)
+            {
+                // Lưu thẳng vào Pictures/VinhKhanh trên thiết bị
+                await _gallerySaver.SavePngToGalleryAsync(pngBytes, fileName);
+                await DisplayAlertAsync(GetText("save_qr_title"), GetText("save_qr_success"), _loc.Get("alert_ok"));
+            }
+            else
+            {
+                // Fallback: share sheet nếu platform không hỗ trợ gallery saver
+                var path = System.IO.Path.Combine(FileSystem.CacheDirectory, fileName);
+                await File.WriteAllBytesAsync(path, pngBytes);
+                await Share.RequestAsync(new ShareFileRequest
+                {
+                    Title = GetText("save_qr_title"),
+                    File = new ShareFile(path, "image/png")
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(GetText("failed_title"), ex.Message, _loc.Get("alert_ok"));
+        }
     }
 
     private static View BuildCard(View content)
@@ -369,6 +481,9 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "Package activated successfully",
                 "email_backend_sent" => "The backend sent the QR token email automatically.",
                 "email_manual_hint" => "Automatic email could not be sent. You can use the Gmail button to send it manually.",
+                "save_qr" => "Save QR to device",
+                "save_qr_title" => "QR saved",
+                "save_qr_success" => "QR code saved to Pictures/VinhKhanh on your device.",
                 _ => key
             },
             "ko" => key switch
@@ -400,6 +515,9 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "패키지 활성화 완료",
                 "email_backend_sent" => "백엔드가 QR 토큰 이메일을 자동으로 보냈습니다.",
                 "email_manual_hint" => "자동 이메일 전송에 실패했습니다. Gmail 버튼으로 수동 발송할 수 있습니다.",
+                "save_qr" => "QR을 기기에 저장",
+                "save_qr_title" => "QR 저장됨",
+                "save_qr_success" => "QR 코드가 기기의 Pictures/VinhKhanh에 저장되었습니다.",
                 _ => key
             },
             "ja" => key switch
@@ -431,6 +549,9 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "プランの有効化に成功しました",
                 "email_backend_sent" => "バックエンドがQRトークンメールを自動送信しました。",
                 "email_manual_hint" => "自動メール送信に失敗しました。Gmail ボタンから手動送信できます。",
+                "save_qr" => "QRをデバイスに保存",
+                "save_qr_title" => "QR保存完了",
+                "save_qr_success" => "QRコードが端末のPictures/VinhKhanh に保存されました。",
                 _ => key
             },
             _ => key switch
@@ -462,6 +583,9 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "Da kich hoat goi thanh cong",
                 "email_backend_sent" => "Backend da gui email QR token tu dong.",
                 "email_manual_hint" => "Chua gui duoc email tu dong, ban co the dung nut Gmail de gui thu cong.",
+                "save_qr" => "Tai QR ve may",
+                "save_qr_title" => "Da luu QR",
+                "save_qr_success" => "Da luu ma QR vao Pictures/VinhKhanh tren may ban.",
                 _ => key
             }
         };

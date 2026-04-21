@@ -168,9 +168,9 @@ public sealed class AccessFlowService
         };
     }
 
-    public async Task<PackageAccessActivationState> RegisterPackageAccessBypassAsync(string email, int packageId)
+    public async Task<PackageAccessActivationState> RegisterPackageAccessBypassAsync(string email, int packageId, bool sendEmail = true)
     {
-        var result = await _apiService.RegisterPackageAccessAsync(email, packageId, bypassPayment: true);
+        var result = await _apiService.RegisterPackageAccessAsync(email, packageId, bypassPayment: true, sendEmail: sendEmail);
         if (!result.Success || string.IsNullOrWhiteSpace(result.AccessToken))
         {
             return new PackageAccessActivationState

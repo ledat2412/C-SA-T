@@ -8,6 +8,9 @@ using Plugin.Maui.Audio;
 using ZXing.Net.Maui.Controls;
 #if ANDROID
 using MauiApp1.Platforms.Android.Maps;
+using MauiApp1.Platforms.Android;
+#elif WINDOWS
+using MauiApp1.Platforms.Windows;
 #endif
 
 namespace MauiApp1;
@@ -42,10 +45,13 @@ public static class MauiProgram
                 (message, cert, chain, errors) => true;
 #endif
 
-            return new HttpClient(handler)
+            var httpClient = new HttpClient(handler)
             {
                 BaseAddress = new Uri(baseUrl)
             };
+
+            BackendUrlResolver.ConfigureHttpClient(httpClient);
+            return httpClient;
         });
 
         builder.Services.AddSingleton(AudioManager.Current);
@@ -78,6 +84,12 @@ public static class MauiProgram
         builder.Services.AddTransient<AccessEntryPage>();
         builder.Services.AddTransient<PackageRegistrationPage>();
         builder.Services.AddTransient<PackageQrPaymentPage>();
+
+#if ANDROID
+        builder.Services.AddSingleton<IImageGallerySaver, ImageGallerySaver>();
+#elif WINDOWS
+        builder.Services.AddSingleton<IImageGallerySaver, ImageGallerySaver>();
+#endif
 
 #if DEBUG
         builder.Logging.AddDebug();

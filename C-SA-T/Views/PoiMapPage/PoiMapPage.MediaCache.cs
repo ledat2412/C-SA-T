@@ -269,10 +269,13 @@ public partial class PoiMapPage
             (message, cert, chain, errors) => true;
 #endif
 
-        return new HttpClient(handler)
+        var httpClient = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
+
+        global::MauiApp1.Utils.BackendUrlResolver.ConfigureHttpClient(httpClient);
+        return httpClient;
     }
 
 }

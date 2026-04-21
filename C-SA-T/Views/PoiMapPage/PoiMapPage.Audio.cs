@@ -150,7 +150,9 @@ public partial class PoiMapPage
             (_, _, _, _) => true;
 #endif
 
-        return new HttpClient(handler);
+        var httpClient = new HttpClient(handler);
+        global::MauiApp1.Utils.BackendUrlResolver.ConfigureHttpClient(httpClient);
+        return httpClient;
     }
 
     private static string FormatTime(double seconds)

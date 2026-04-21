@@ -7,6 +7,8 @@ public static class BackendUrlResolver
 {
     public const string PreferenceKey = "backend_base_url";
 
+    private const string NgrokSkipBrowserWarningHeaderName = "ngrok-skip-browser-warning";
+    private const string NgrokSkipBrowserWarningHeaderValue = "true";
     private const string EmulatorHttpsBaseUrl = "https://10.0.2.2:7123/";
     private const string EmulatorHttpBaseUrl = "http://10.0.2.2:5114/";
     private const string AndroidDeviceLocalHttpBaseUrl = "http://192.168.31.235:5114/";
@@ -104,6 +106,12 @@ public static class BackendUrlResolver
         }
 
         return new Uri(new Uri(GetBaseUrl()), trimmedPath.TrimStart('/')).ToString();
+    }
+
+    public static void ConfigureHttpClient(HttpClient httpClient)
+    {
+        if (!httpClient.DefaultRequestHeaders.Contains(NgrokSkipBrowserWarningHeaderName))
+            httpClient.DefaultRequestHeaders.Add(NgrokSkipBrowserWarningHeaderName, NgrokSkipBrowserWarningHeaderValue);
     }
 
     public static string? NormalizeOverrideBaseUrl(string? value)
