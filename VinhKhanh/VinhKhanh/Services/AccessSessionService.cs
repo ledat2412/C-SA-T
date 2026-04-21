@@ -350,12 +350,14 @@ namespace VinhKhanh.Services
 
             await TouchDeviceAsync(conn, deviceId);
 
-            var emailResult = await _emailService.TrySendQrTokenEmailAsync(
-                email,
-                package.TenGoi,
-                accessToken,
-                qrTokenPayload,
-                hetHanLuc);
+            var emailResult = request.SendEmail
+                ? await _emailService.TrySendQrTokenEmailAsync(
+                    email,
+                    package.TenGoi,
+                    accessToken,
+                    qrTokenPayload,
+                    hetHanLuc)
+                : (Sent: false, Message: "Nguoi dung chon tai QR ve may thay vi nhan email.");
 
             return new RegisterPackageAccessResponseDto
             {
