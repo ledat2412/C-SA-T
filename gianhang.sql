@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Máy chủ: 127.0.0.1
--- Thời gian đã tạo: Th4 16, 2026 lúc 08:27 AM
+-- Thời gian đã tạo: Th4 21, 2026 lúc 02:51 AM
 -- Phiên bản máy phục vụ: 10.4.32-MariaDB
--- Phiên bản PHP: 8.2.12
+-- Phiên bản PHP: 8.0.30
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -86,7 +86,10 @@ CREATE TABLE `chu_quan_ly` (
 --
 
 INSERT INTO `chu_quan_ly` (`idChuQuanLy`, `idTaiKhoan`, `hoTen`, `sdt`, `diaChi`, `ngayTao`) VALUES
-(1, 3, 'Nguyen Van A', '0909000009', 'Quan 4', '2026-04-08 23:22:50');
+(1, 3, 'Nguyen Van A', '0909000009', 'Quan 4', '2026-04-08 23:22:50'),
+(2, 5, 'test', NULL, NULL, '2026-04-16 21:26:44'),
+(3, 6, 'test2', NULL, NULL, '2026-04-16 21:27:33'),
+(4, 7, 'test23', NULL, NULL, '2026-04-16 21:28:38');
 
 -- --------------------------------------------------------
 
@@ -113,8 +116,8 @@ CREATE TABLE `gianhang` (
 --
 
 INSERT INTO `gianhang` (`idGianHang`, `idChuQuanLy`, `ten`, `diaChi`, `lat`, `lon`, `vongBo`, `tinhTrang`, `phiHangThang`, `ngayDangKy`, `thoiGianCapNhat`) VALUES
-(1, 1, 'Banh trang nuong Co Ba', 'Khu A - Pho am thuc Vinh Khanh', 10.7626220, 106.6601720, 10.00, 'dang_hoat_dong', 500000.00, '2026-03-26 22:17:19', '2026-04-09 20:53:40'),
-(2, 1, 'Tra sua May', 'Khu B - Pho am thuc Vinh Khanh', 10.7631000, 106.6609000, 10.00, 'dang_hoat_dong', 701000.00, '2026-03-26 22:17:19', '2026-04-09 20:40:33'),
+(1, 1, 'Bánh tráng nướng Cô Ba', 'Khu A - Pho am thuc Vinh Khanh', 10.7626220, 106.6601720, 10.00, 'dang_hoat_dong', 5000000.00, '2026-03-26 22:17:19', '2026-04-17 08:18:06'),
+(2, 1, 'Trà Sửa Mây', 'Khu B - Pho am thuc Vinh Khanh', 10.7631000, 106.6609000, 10.00, 'dang_hoat_dong', 701000.00, '2026-03-26 22:17:19', '2026-04-17 08:28:15'),
 (3, 1, 'Xien que 88', 'Khu C - Pho am thuc Vinh Khanh', 10.7634000, 106.6611000, 10.00, 'dang_hoat_dong', 650000.00, '2026-03-26 22:17:19', NULL);
 
 -- --------------------------------------------------------
@@ -137,12 +140,14 @@ CREATE TABLE `gianhangngonngu` (
 --
 
 INSERT INTO `gianhangngonngu` (`id`, `idGianHang`, `idNgonNgu`, `ten`, `audioURL`, `moTa`) VALUES
-(1, 1, 1, 'Banh trang nuong Co Ba', 'audio/gianhang_1_vi.mp3', 'Banh trang nuong gion, thom, an kem trung, hanh la va sot dac trung.'),
+(1, 1, 1, 'Bánh tráng nướng Cô Ba', 'audio/gianhang_1_vi.mp3', 'Banh trang nuong gion, thom, an kem trung, hanh la va sot dac trung.'),
 (2, 1, 2, 'Co Ba Grilled Rice Paper', 'audio/gianhang_1_en.mp3', 'A booth specializing in crispy and flavorful traditional grilled rice paper.'),
-(3, 2, 1, 'Tra sua May', 'audio/gianhang_2_vi.mp3', 'Tra sua vi nhe, de uong, phu hop cho du khach di bo tham quan pho am thuc.'),
+(3, 2, 1, 'Trà Sửa Mây', 'audio/gianhang_2_vi.mp3', 'Tra sua vi nhe, de uong, phu hop cho du khach di bo tham quan pho am thuc.'),
 (4, 2, 2, 'May Milk Tea', 'audio/gianhang_2_en.mp3', 'A milk tea booth serving familiar drinks with a light and refreshing taste.'),
 (5, 3, 1, 'Xien que 88', 'audio/gianhang_3_vi.mp3', 'Gian hang xien que voi nhieu lua chon an vat nong hoi va de thuong.'),
-(6, 3, 2, 'Skewer 88', 'audio/gianhang_3_en.mp3', 'A street-food booth serving assorted skewers that are easy to grab and enjoy.');
+(6, 3, 2, 'Skewer 88', 'audio/gianhang_3_en.mp3', 'A street-food booth serving assorted skewers that are easy to grab and enjoy.'),
+(10, 1, 3, 'Banh trang nuong Co Ba', 'audio/gianhang_1_ko.mp3', 'こんにちは'),
+(11, 1, 4, 'Banh trang nuong Co Ba', 'audio/gianhang_1_ja.mp3', 'こんにちは');
 
 -- --------------------------------------------------------
 
@@ -208,7 +213,7 @@ CREATE TABLE `hinhanhmonan` (
 
 INSERT INTO `hinhanhmonan` (`idHinhAnh`, `idMonAn`, `duongDan`) VALUES
 (1, 1, 'bt_trung.jpg'),
-(2, 2, 'bt_phomai.jpg'),
+(2, 2, 'images/foods/food_2_20260416144016090.webp'),
 (3, 3, 'ts_truyenthong.jpg'),
 (4, 4, 'tra_dao_cam_sa.jpg'),
 (5, 5, 'xien_bo_vien.jpg'),
@@ -246,7 +251,20 @@ INSERT INTO `hoadon` (`idHoaDon`, `idKhachHang`, `idPhienVaoApp`, `idGoi`, `emai
 (7, NULL, 5, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-16 00:09:44', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
 (8, NULL, 6, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-16 00:14:21', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
 (9, NULL, 7, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-16 00:22:15', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
-(10, NULL, 8, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-16 01:13:24', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.');
+(10, NULL, 8, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-16 01:13:24', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(11, NULL, 9, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-16 14:29:03', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(12, NULL, 10, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-16 14:39:48', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(13, NULL, 11, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-17 02:30:22', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(14, NULL, 12, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-17 08:10:40', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(15, NULL, 13, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-17 08:55:30', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(16, NULL, 14, 3, 'vosang20102005@gmail.com', 500000.00, '2026-04-17 09:25:27', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(17, NULL, 15, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-20 07:32:45', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(18, NULL, 16, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-20 08:12:55', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(19, NULL, 17, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-20 09:14:14', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(20, NULL, 18, 1, 'ledat241205@gmail.com', 15000.00, '2026-04-20 09:50:00', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(21, NULL, 19, 1, 'ledat241204@gmail.com', 15000.00, '2026-04-20 09:54:23', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(22, NULL, 20, 3, 'caohoangthinh2@gmail.com', 500000.00, '2026-04-21 07:30:29', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.'),
+(23, NULL, 21, 3, 'vobao142@gmail.com', 500000.00, '2026-04-21 07:36:20', 'da_thanh_toan', 'Bypass thanh toan QR de test package access.');
 
 -- --------------------------------------------------------
 
@@ -314,7 +332,7 @@ CREATE TABLE `monan` (
 
 INSERT INTO `monan` (`idMonAn`, `idGianHang`, `ten`, `donGia`, `thoiGianCapNhat`, `tinhTrang`) VALUES
 (1, 1, 'Banh trang nuong trung', 20000.00, '2026-04-15 02:00:17', 'con_ban'),
-(2, 1, 'Banh trang nuong pho mai', 25000.00, '2026-04-15 02:00:17', 'con_ban'),
+(2, 1, 'Banh trang nuong pho mai', 25000.00, '2026-04-16 21:40:16', 'con_ban'),
 (3, 2, 'Tra sua truyen thong', 30000.00, '2026-04-15 02:00:17', 'con_ban'),
 (4, 2, 'Tra dao cam sa', 35000.00, '2026-04-15 02:00:17', 'con_ban'),
 (5, 3, 'Xien bo vien', 15000.00, '2026-04-15 02:00:17', 'con_ban'),
@@ -405,7 +423,20 @@ INSERT INTO `phien_vao_app` (`id`, `idThietBi`, `maThietBi`, `idGoi`, `qrRaw`, `
 (5, 3, 'DEVICE-PACKAGE-PORTAL', 1, 'vkaccess://restore?accessToken=C8444E680B619D05399EB40F0223D373B2072A201759A79F16D96CD5CC3A736A', 'C8444E680B619D05399EB40F0223D373B2072A201759A79F16D96CD5CC3A736A', '2026-04-15 17:09:44', '2026-04-16 17:09:44', 'hieu_luc'),
 (6, 3, 'DEVICE-PACKAGE-PORTAL', 1, 'vkaccess://restore?accessToken=82E76E95F910E08288F6F41AD6EA46CBC76F76C1FCDB34B9D4539E30AD2C7707', '82E76E95F910E08288F6F41AD6EA46CBC76F76C1FCDB34B9D4539E30AD2C7707', '2026-04-15 17:14:21', '2026-04-16 17:14:21', 'hieu_luc'),
 (7, 3, 'DEVICE-PACKAGE-PORTAL', 1, 'vkaccess://restore?accessToken=B4D5B5984A0485C614217BE4078C844CA9E475E7C159049FD690E30AD0450E39', 'B4D5B5984A0485C614217BE4078C844CA9E475E7C159049FD690E30AD0450E39', '2026-04-15 17:22:15', '2026-04-16 17:22:15', 'hieu_luc'),
-(8, 4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 1, 'vkaccess://restore?accessToken=C12057CB5DADBF092744325DFEEF1C99665D41406733D2E10E0DE58F7038E985', 'C12057CB5DADBF092744325DFEEF1C99665D41406733D2E10E0DE58F7038E985', '2026-04-15 18:13:24', '2026-04-16 18:13:24', 'hieu_luc');
+(8, 4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 1, 'vkaccess://restore?accessToken=C12057CB5DADBF092744325DFEEF1C99665D41406733D2E10E0DE58F7038E985', 'C12057CB5DADBF092744325DFEEF1C99665D41406733D2E10E0DE58F7038E985', '2026-04-15 18:13:24', '2026-04-16 18:13:24', 'huy'),
+(9, 5, 'APP-CLIENT-564E3C683FA64FB8B2AC10624ABA88CB', 3, 'vkaccess://restore?accessToken=B855BD5AD0EB1C88D2343F2F100DEBC046BEF35EE4107E42768714007CE9BB76', 'B855BD5AD0EB1C88D2343F2F100DEBC046BEF35EE4107E42768714007CE9BB76', '2026-04-16 07:29:03', '2026-05-16 07:29:03', 'huy'),
+(10, 5, 'APP-CLIENT-564E3C683FA64FB8B2AC10624ABA88CB', 3, 'vkaccess://restore?accessToken=D74A14A8ADD445508A81175D9666A72BF255F410B4CD169156A7613675628B35', 'D74A14A8ADD445508A81175D9666A72BF255F410B4CD169156A7613675628B35', '2026-04-16 07:39:48', '2026-05-16 07:39:48', 'huy'),
+(11, 5, 'APP-CLIENT-564E3C683FA64FB8B2AC10624ABA88CB', 3, 'vkaccess://login?token=1DD3D88FD98BFA9C41F5692F3561AAD3BB3F4FA518787AC29A0FF2723E3A8DCF', '1DD3D88FD98BFA9C41F5692F3561AAD3BB3F4FA518787AC29A0FF2723E3A8DCF', '2026-04-16 19:30:22', '2026-05-16 19:30:22', 'hieu_luc'),
+(12, 6, 'APP-CLIENT-665ACDF462C54606BC9CB7EB1B9BE8EC', 3, 'vkaccess://login?token=F44E5538ADECA8CF96A896E8760CA60A8A02C0084DEA8668B0731F4A2C75028A', 'F44E5538ADECA8CF96A896E8760CA60A8A02C0084DEA8668B0731F4A2C75028A', '2026-04-17 01:10:40', '2026-05-17 01:10:40', 'huy'),
+(13, 7, 'APP-CLIENT-8B62701DC01F4AAA802789862106629D', 3, 'vkaccess://login?token=F056CF8ED76F4ECC19661D499BC02714C3B575E598CEA348440E050A3E8A07D9', 'F056CF8ED76F4ECC19661D499BC02714C3B575E598CEA348440E050A3E8A07D9', '2026-04-17 01:55:30', '2026-05-17 01:55:30', 'hieu_luc'),
+(14, 8, 'APP-CLIENT-AE58F501CB654A71A5E12E7E25AFB051', 3, 'vkaccess://login?token=6A9F19D878F247172439370F0ECCAB0E4A3BFF1141B7DFA51111B020E2017ABE', '6A9F19D878F247172439370F0ECCAB0E4A3BFF1141B7DFA51111B020E2017ABE', '2026-04-17 02:25:27', '2026-05-17 02:25:27', 'hieu_luc'),
+(15, 6, 'APP-CLIENT-665ACDF462C54606BC9CB7EB1B9BE8EC', 3, 'vkaccess://login?token=7FC5AF1C1EAD698A0A0F780B8AA43E2648D775AD29E5DFA73BC2FBE97B061DC0', '7FC5AF1C1EAD698A0A0F780B8AA43E2648D775AD29E5DFA73BC2FBE97B061DC0', '2026-04-20 00:32:45', '2026-05-20 00:32:45', 'huy'),
+(16, 4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 1, 'vkaccess://login?token=4046B209A85C2FB7438323F5E6C52D086A3FDEE612A8E0839D8BF0D59030ECD4', '4046B209A85C2FB7438323F5E6C52D086A3FDEE612A8E0839D8BF0D59030ECD4', '2026-04-20 01:12:55', '2026-04-21 01:12:55', 'huy'),
+(17, 4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 1, 'vkaccess://login?token=D697EEC3EF629924A02958DCC1A7B249EAB87579F5D95B46F88D83433FBB55F4', 'D697EEC3EF629924A02958DCC1A7B249EAB87579F5D95B46F88D83433FBB55F4', '2026-04-20 02:14:14', '2026-04-21 02:14:14', 'hieu_luc'),
+(18, 9, 'APP-CLIENT-DF4D7217011A45F980D11709417F6CB9', 1, 'vkaccess://login?token=1D8AB863D1B25CA4AE7DAD3000E73E8006C09C965F69E0028A248C7F1D7DC621', '1D8AB863D1B25CA4AE7DAD3000E73E8006C09C965F69E0028A248C7F1D7DC621', '2026-04-20 02:50:00', '2026-04-21 02:50:00', 'huy'),
+(19, 9, 'APP-CLIENT-DF4D7217011A45F980D11709417F6CB9', 1, 'vkaccess://login?token=02A466FC81F16F5AF3218244EC8059018E17AB6E9788CF49A37AF54D070A9DCC', '02A466FC81F16F5AF3218244EC8059018E17AB6E9788CF49A37AF54D070A9DCC', '2026-04-20 02:54:23', '2026-04-21 02:54:23', 'hieu_luc'),
+(20, 6, 'APP-CLIENT-665ACDF462C54606BC9CB7EB1B9BE8EC', 3, 'vkaccess://login?token=C1A31075E4D73D84D21262D1DD3E6994825107200BD0DCFEA794C63E03C707BE', 'C1A31075E4D73D84D21262D1DD3E6994825107200BD0DCFEA794C63E03C707BE', '2026-04-21 00:30:29', '2026-05-21 00:30:29', 'hieu_luc'),
+(21, 10, 'APP-CLIENT-354615A68010491AAB7BB738E9D116FF', 3, 'vkaccess://login?token=C3BA01677D6E5AB29AAE8E61E6A313356F2D336CCF3B5E2F395A09DA98C66A61', 'C3BA01677D6E5AB29AAE8E61E6A313356F2D336CCF3B5E2F395A09DA98C66A61', '2026-04-21 00:36:20', '2026-05-21 00:36:20', 'hieu_luc');
 
 --
 -- Bẫy `phien_vao_app`
@@ -490,7 +521,10 @@ INSERT INTO `taikhoan` (`idTaiKhoan`, `email`, `matKhau`, `username`, `loaiTaiKh
 (1, '1', '1', '1', 'admin', 'hoat_dong', 'da_duyet', '2026-03-26 22:17:19'),
 (2, 'kh2@gmail.com', '123456', 'khachhang2', 'khach_hang', 'hoat_dong', 'da_duyet', '2026-03-26 22:17:19'),
 (3, 'chu1@demo.com', '123456', 'chuquanly01', 'chu_quan_ly', 'hoat_dong', 'da_duyet', '2026-04-08 23:22:49'),
-(4, 'kh1@gmail.com', '123456', 'khachhang1', 'khach_hang', 'hoat_dong', 'da_duyet', '2026-03-26 22:17:19');
+(4, 'kh1@gmail.com', '123456', 'khachhang1', 'khach_hang', 'hoat_dong', 'da_duyet', '2026-03-26 22:17:19'),
+(5, 'finneybea58@hotmail.com', '12345678', '321', 'chu_quan_ly', 'hoat_dong', 'da_duyet', '2026-04-16 21:26:44'),
+(6, 'finneybea58_2@hotmail.com', '12345678', '321x', 'chu_quan_ly', 'hoat_dong', 'da_duyet', '2026-04-16 21:27:33'),
+(7, 'finneybea528@hotmail.com', '12345678', '122', 'chu_quan_ly', 'hoat_dong', 'da_duyet', '2026-04-16 21:28:38');
 
 -- --------------------------------------------------------
 
@@ -507,18 +541,29 @@ CREATE TABLE `thietbi` (
   `thoiGianKichHoat` datetime DEFAULT NULL,
   `ngayTao` datetime NOT NULL DEFAULT current_timestamp(),
   `lanCuoiHoatDong` datetime DEFAULT NULL,
-  `trangThai` enum('cho_kich_hoat','hoat_dong','khoa') NOT NULL DEFAULT 'cho_kich_hoat'
+  `trangThai` enum('cho_kich_hoat','hoat_dong','khoa') NOT NULL DEFAULT 'cho_kich_hoat',
+  `loaiThietBi` enum('app_client','portal_web','hardware') NOT NULL DEFAULT 'app_client',
+  `platform` varchar(32) DEFAULT NULL,
+  `model` varchar(128) DEFAULT NULL,
+  `manufacturer` varchar(128) DEFAULT NULL,
+  `appVersion` varchar(32) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Đang đổ dữ liệu cho bảng `thietbi`
 --
 
-INSERT INTO `thietbi` (`idThietBi`, `maThietBi`, `maKichHoat`, `idTaiKhoan`, `daKichHoat`, `thoiGianKichHoat`, `ngayTao`, `lanCuoiHoatDong`, `trangThai`) VALUES
-(1, 'DEVICE-DEMO-001', 'ACT-001', NULL, 1, '2026-04-15 02:00:17', '2026-04-15 02:00:17', '2026-04-15 02:00:17', 'hoat_dong'),
-(2, 'DEVICE-DEMO-002', 'ACT-002', NULL, 0, NULL, '2026-04-15 02:00:17', NULL, 'cho_kich_hoat'),
-(3, 'DEVICE-PACKAGE-PORTAL', 'ACT-PACKAGE-PORTAL', NULL, 1, '2026-04-15 23:39:30', '2026-04-15 23:39:30', '2026-04-16 01:09:39', 'hoat_dong'),
-(4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 'ACT-APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', NULL, 1, '2026-04-16 01:13:24', '2026-04-16 01:13:24', '2026-04-16 01:16:52', 'hoat_dong');
+INSERT INTO `thietbi` (`idThietBi`, `maThietBi`, `maKichHoat`, `idTaiKhoan`, `daKichHoat`, `thoiGianKichHoat`, `ngayTao`, `lanCuoiHoatDong`, `trangThai`, `loaiThietBi`, `platform`, `model`, `manufacturer`, `appVersion`) VALUES
+(1, 'DEVICE-DEMO-001', 'ACT-001', NULL, 1, '2026-04-15 02:00:17', '2026-04-15 02:00:17', '2026-04-15 02:00:17', 'hoat_dong', 'hardware', NULL, NULL, NULL, NULL),
+(2, 'DEVICE-DEMO-002', 'ACT-002', NULL, 0, NULL, '2026-04-15 02:00:17', NULL, 'cho_kich_hoat', 'hardware', NULL, NULL, NULL, NULL),
+(3, 'DEVICE-PACKAGE-PORTAL', 'ACT-PACKAGE-PORTAL', NULL, 1, '2026-04-15 23:39:30', '2026-04-15 23:39:30', '2026-04-16 01:09:39', 'hoat_dong', 'portal_web', NULL, NULL, NULL, NULL),
+(4, 'APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', 'ACT-APP-CLIENT-2DEBB7C666FC4D8FB67586A2ADA1B403', NULL, 1, '2026-04-16 01:13:24', '2026-04-16 01:13:24', '2026-04-20 10:20:37', 'hoat_dong', 'app_client', 'Android', 'sdk_gphone64_x86_64', 'Google', '1.0'),
+(5, 'APP-CLIENT-564E3C683FA64FB8B2AC10624ABA88CB', 'ACT-APP-CLIENT-564E3C683FA64FB8B2AC10624ABA88CB', NULL, 1, '2026-04-16 14:29:03', '2026-04-16 14:29:03', '2026-04-17 02:30:26', 'hoat_dong', 'app_client', NULL, NULL, NULL, NULL),
+(6, 'APP-CLIENT-665ACDF462C54606BC9CB7EB1B9BE8EC', 'ACT-APP-CLIENT-665ACDF462C54606BC9CB7EB1B9BE8EC', NULL, 1, '2026-04-17 08:10:40', '2026-04-17 08:10:40', '2026-04-21 07:40:29', 'hoat_dong', 'app_client', 'Android', 'M2101K6G', 'Xiaomi', '1.0'),
+(7, 'APP-CLIENT-8B62701DC01F4AAA802789862106629D', 'ACT-APP-CLIENT-8B62701DC01F4AAA802789862106629D', NULL, 1, '2026-04-17 08:55:30', '2026-04-17 08:55:30', '2026-04-17 09:18:12', 'hoat_dong', 'app_client', NULL, NULL, NULL, NULL),
+(8, 'APP-CLIENT-AE58F501CB654A71A5E12E7E25AFB051', 'ACT-APP-CLIENT-AE58F501CB654A71A5E12E7E25AFB051', NULL, 1, '2026-04-17 09:25:27', '2026-04-17 09:25:27', '2026-04-17 09:25:34', 'hoat_dong', 'app_client', NULL, NULL, NULL, NULL),
+(9, 'APP-CLIENT-DF4D7217011A45F980D11709417F6CB9', 'ACT-APP-CLIENT-DF4D7217011A45F980D11709417F6CB9', NULL, 1, '2026-04-20 09:50:00', '2026-04-20 09:50:00', '2026-04-20 10:36:18', 'hoat_dong', 'app_client', 'Android', 'CPH2743', 'OPPO', '1.0'),
+(10, 'APP-CLIENT-354615A68010491AAB7BB738E9D116FF', 'ACT-APP-CLIENT-354615A68010491AAB7BB738E9D116FF', NULL, 1, '2026-04-21 07:36:20', '2026-04-21 07:36:20', '2026-04-21 07:41:20', 'hoat_dong', 'app_client', NULL, NULL, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -695,7 +740,8 @@ ALTER TABLE `taikhoan`
 ALTER TABLE `thietbi`
   ADD PRIMARY KEY (`idThietBi`),
   ADD UNIQUE KEY `uq_thietbi_maThietBi` (`maThietBi`),
-  ADD KEY `idx_thietbi_idTaiKhoan` (`idTaiKhoan`);
+  ADD KEY `idx_thietbi_idTaiKhoan` (`idTaiKhoan`),
+  ADD KEY `idx_loai_lanCuoi` (`loaiThietBi`,`lanCuoiHoatDong`);
 
 --
 -- Chỉ mục cho bảng `yeucaugianhang`
@@ -726,7 +772,7 @@ ALTER TABLE `chitiethoadon`
 -- AUTO_INCREMENT cho bảng `chu_quan_ly`
 --
 ALTER TABLE `chu_quan_ly`
-  MODIFY `idChuQuanLy` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `idChuQuanLy` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT cho bảng `gianhang`
@@ -738,7 +784,7 @@ ALTER TABLE `gianhang`
 -- AUTO_INCREMENT cho bảng `gianhangngonngu`
 --
 ALTER TABLE `gianhangngonngu`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
 -- AUTO_INCREMENT cho bảng `goidichvu`
@@ -762,7 +808,7 @@ ALTER TABLE `hinhanhmonan`
 -- AUTO_INCREMENT cho bảng `hoadon`
 --
 ALTER TABLE `hoadon`
-  MODIFY `idHoaDon` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `idHoaDon` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
 
 --
 -- AUTO_INCREMENT cho bảng `hoadongianhang`
@@ -798,19 +844,19 @@ ALTER TABLE `ngonngu`
 -- AUTO_INCREMENT cho bảng `phien_vao_app`
 --
 ALTER TABLE `phien_vao_app`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
 
 --
 -- AUTO_INCREMENT cho bảng `taikhoan`
 --
 ALTER TABLE `taikhoan`
-  MODIFY `idTaiKhoan` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `idTaiKhoan` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT cho bảng `thietbi`
 --
 ALTER TABLE `thietbi`
-  MODIFY `idThietBi` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `idThietBi` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT cho bảng `yeucaugianhang`

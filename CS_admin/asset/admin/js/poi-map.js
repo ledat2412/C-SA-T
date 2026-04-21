@@ -7,6 +7,11 @@
   var query = '';
   var selectedId = null;
   var markerEntries = [];
+  var localEntries = [];
+  var localState = null;
+  var uiWired = false;
+  var googleCallbackSeen = false;
+  var googleAuthFailed = false;
 
   function byId(id) {
     return document.getElementById(id);
@@ -30,6 +35,22 @@
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function clamp(value, min, max) {
+    var number = Number(value);
+    if (!isFinite(number)) {
+      number = min;
+    }
+    return Math.max(min, Math.min(max, number));
+  }
+
+  function normalizeHeading(value) {
+    var heading = Number(value);
+    if (!isFinite(heading)) {
+      heading = 0;
+    }
+    return ((heading % 360) + 360) % 360;
   }
 
   function initials(name) {
@@ -96,9 +117,15 @@
         entry.content.className = markerClass(entry.poi);
       }
     });
+    refreshLocalSelection();
   }
 
   function openInfo(poi, marker) {
+    if (localState) {
+      openLocalInfo(poi);
+      return;
+    }
+
     if (!map || !infoWindow || !marker) {
       return;
     }
@@ -185,7 +212,379 @@
     });
   }
 
+  function getLocalBounds() {
+    var valid = pois.filter(function (poi) {
+      return isFinite(Number(poi.lat)) && isFinite(Number(poi.lng));
+    });
+
+    if (!valid.length) {
+      return {
+        minLat: 10.7622,
+        maxLat: 10.7638,
+        minLng: 106.6598,
+        maxLng: 106.6613
+      };
+    }
+
+    var minLat = Math.min.apply(null, valid.map(function (poi) { return Number(poi.lat); }));
+    var maxLat = Math.max.apply(null, valid.map(function (poi) { return Number(poi.lat); }));
+    var minLng = Math.min.apply(null, valid.map(function (poi) { return Number(poi.lng); }));
+    var maxLng = Math.max.apply(null, valid.map(function (poi) { return Number(poi.lng); }));
+    var latPad = Math.max((maxLat - minLat) * 0.32, 0.00055);
+    var lngPad = Math.max((maxLng - minLng) * 0.32, 0.00055);
+
+    return {
+      minLat: minLat - latPad,
+      maxLat: maxLat + latPad,
+      minLng: minLng - lngPad,
+      maxLng: maxLng + lngPad
+    };
+  }
+
+  function localPoint(poi, bounds) {
+    var lngSpan = Math.max(bounds.maxLng - bounds.minLng, 0.00001);
+    var latSpan = Math.max(bounds.maxLat - bounds.minLat, 0.00001);
+    var x = ((Number(poi.lng) - bounds.minLng) / lngSpan) * 100;
+    var y = (1 - ((Number(poi.lat) - bounds.minLat) / latSpan)) * 100;
+
+    return {
+      x: Math.max(5, Math.min(95, x)),
+      y: Math.max(7, Math.min(93, y))
+    };
+  }
+
+  function statusColor(statusClass) {
+    if (statusClass === 'active') {
+      return '#16a34a';
+    }
+    if (statusClass === 'paused') {
+      return '#d97706';
+    }
+    return '#64748b';
+  }
+
+  function localRadiusPixels(poi, bounds) {
+    var centerLat = (bounds.minLat + bounds.maxLat) / 2;
+    var metersWide = Math.max((bounds.maxLng - bounds.minLng) * 111320 * Math.cos(centerLat * Math.PI / 180), 1);
+    var pxPerMeter = 980 / metersWide;
+    return Math.max(34, Math.min(118, Number(poi.radiusMeters || 10) * pxPerMeter * 2.2));
+  }
+
+  function localBuildingHeight(poi) {
+    var fee = Number(poi.monthlyFee || 0);
+    var radius = Number(poi.radiusMeters || 10);
+    return Math.max(34, Math.min(118, 34 + (fee / 90000) + radius * 1.8));
+  }
+
+  function applyLocalCamera() {
+    if (!localState || !localState.world) {
+      return;
+    }
+
+    localState.heading = normalizeHeading(localState.heading);
+    localState.tilt = clamp(localState.tilt, 0, 68);
+    localState.world.style.setProperty('--poi-local-heading', localState.heading + 'deg');
+    localState.world.style.setProperty('--poi-local-tilt', localState.tilt + 'deg');
+    localState.world.style.setProperty('--poi-local-heading-inverse', (-localState.heading) + 'deg');
+    localState.world.style.setProperty('--poi-local-tilt-inverse', (-localState.tilt) + 'deg');
+    localState.world.classList.toggle('flat', localState.tilt < 10);
+    syncCameraControls();
+  }
+
+  function currentTilt() {
+    if (localState) {
+      return clamp(localState.tilt, 0, 68);
+    }
+    if (map && typeof map.getTilt === 'function') {
+      return clamp(map.getTilt() || 0, 0, 68);
+    }
+    return 62;
+  }
+
+  function currentHeading() {
+    if (localState) {
+      return normalizeHeading(localState.heading);
+    }
+    if (map && typeof map.getHeading === 'function') {
+      return normalizeHeading(map.getHeading() || 0);
+    }
+    return 336;
+  }
+
+  function syncCameraControls() {
+    var tiltSlider = byId('poiTiltSlider');
+    var headingSlider = byId('poiHeadingSlider');
+    var tiltValue = byId('poiTiltValue');
+    var headingValue = byId('poiHeadingValue');
+    var tilt = Math.round(currentTilt());
+    var heading = Math.round(currentHeading());
+
+    if (tiltSlider && document.activeElement !== tiltSlider) {
+      tiltSlider.value = String(tilt);
+    }
+    if (headingSlider && document.activeElement !== headingSlider) {
+      headingSlider.value = String(heading);
+    }
+    if (tiltValue) {
+      tiltValue.textContent = String(tilt);
+    }
+    if (headingValue) {
+      headingValue.textContent = String(heading);
+    }
+  }
+
+  function setTiltValue(value) {
+    var tilt = clamp(value, 0, 68);
+    if (localState) {
+      localState.tilt = tilt;
+      applyLocalCamera();
+      return;
+    }
+    if (map) {
+      if (typeof map.moveCamera === 'function') {
+        map.moveCamera({
+          tilt: tilt,
+          heading: currentHeading()
+        });
+      } else if (typeof map.setTilt === 'function') {
+        map.setTilt(tilt);
+      }
+    }
+    syncCameraControls();
+  }
+
+  function setHeadingValue(value) {
+    var heading = normalizeHeading(value);
+    if (localState) {
+      localState.heading = heading;
+      applyLocalCamera();
+      return;
+    }
+    if (map) {
+      if (typeof map.moveCamera === 'function') {
+        map.moveCamera({
+          heading: heading,
+          tilt: currentTilt()
+        });
+      } else if (typeof map.setHeading === 'function') {
+        map.setHeading(heading);
+      }
+    }
+    syncCameraControls();
+  }
+
+  function clearLocalPopup() {
+    if (localState && localState.popup) {
+      localState.popup.classList.remove('visible');
+      localState.popup.innerHTML = '';
+    }
+  }
+
+  function refreshLocalSelection() {
+    localEntries.forEach(function (entry) {
+      var selected = entry.poi.id === selectedId;
+      if (entry.marker) {
+        entry.marker.classList.toggle('selected', selected);
+      }
+      if (entry.building) {
+        entry.building.classList.toggle('selected', selected);
+      }
+    });
+  }
+
+  function openLocalInfo(poi) {
+    if (!localState || !localState.popup) {
+      return;
+    }
+
+    selectedId = poi.id;
+    refreshLocalSelection();
+    updateActiveListItem();
+
+    var entry = localEntries.find(function (item) {
+      return item.poi.id === poi.id;
+    });
+    if (!entry) {
+      return;
+    }
+
+    localState.popup.innerHTML =
+      '<strong>' + escapeHtml(poi.name) + '</strong>' +
+      '<span>' + escapeHtml(poi.address) + '</span>' +
+      '<span>' + escapeHtml(poi.statusLabel) + ' - ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
+      '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet</a>';
+
+    localState.popup.style.left = Math.max(16, Math.min(78, entry.point.x)) + '%';
+    localState.popup.style.top = Math.max(14, Math.min(74, entry.point.y)) + '%';
+    localState.popup.classList.add('visible');
+  }
+
+  function renderLocalMarkers() {
+    if (!localState || !localState.world) {
+      return;
+    }
+
+    var world = localState.world;
+    var bounds = getLocalBounds();
+    localEntries = [];
+    world.innerHTML =
+      '<div class="poi-local-grid"></div>' +
+      '<div class="poi-local-road road-main"></div>' +
+      '<div class="poi-local-road road-cross"></div>' +
+      '<div class="poi-local-road road-side-a"></div>' +
+      '<div class="poi-local-road road-side-b"></div>';
+
+    pois.forEach(function (poi, index) {
+      var point = localPoint(poi, bounds);
+      var color = statusColor(poi.statusClass);
+      var radius = localRadiusPixels(poi, bounds);
+      var height = localBuildingHeight(poi);
+      var shift = (index % 2 === 0 ? -1 : 1) * (16 + (index % 3) * 8);
+
+      var ring = document.createElement('div');
+      ring.className = 'poi-local-ring ' + escapeHtml(poi.statusClass || 'unknown');
+      ring.style.left = point.x + '%';
+      ring.style.top = point.y + '%';
+      ring.style.width = radius + 'px';
+      ring.style.height = radius + 'px';
+      ring.style.borderColor = color;
+      world.appendChild(ring);
+
+      var building = document.createElement('div');
+      building.className = 'poi-local-building ' + escapeHtml(poi.statusClass || 'unknown');
+      building.style.left = 'calc(' + point.x + '% + ' + shift + 'px)';
+      building.style.top = 'calc(' + point.y + '% + 24px)';
+      building.style.height = height + 'px';
+      building.style.setProperty('--poi-building-color', color);
+      world.appendChild(building);
+
+      var marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'poi-local-marker ' + escapeHtml(poi.statusClass || 'unknown');
+      marker.style.left = point.x + '%';
+      marker.style.top = point.y + '%';
+      marker.style.setProperty('--poi-marker-color', color);
+      marker.setAttribute('aria-label', poi.name);
+      marker.innerHTML =
+        '<span class="poi-local-pin"><i class="fa-solid fa-store"></i></span>' +
+        '<span class="poi-local-label">' + escapeHtml(poi.name) + '</span>';
+      marker.addEventListener('click', function () {
+        openLocalInfo(poi);
+      });
+      world.appendChild(marker);
+
+      localEntries.push({
+        poi: poi,
+        marker: marker,
+        ring: ring,
+        building: building,
+        point: point
+      });
+    });
+
+    applyLocalMarkerVisibility();
+    refreshLocalSelection();
+  }
+
+  function renderLocal3DMap() {
+    var mapEl = byId('poiGoogleMap');
+    if (!mapEl) {
+      return;
+    }
+
+    map = null;
+    markerEntries = [];
+    infoWindow = null;
+    mapEl.innerHTML =
+      '<div class="poi-local-map">' +
+        '<div class="poi-local-badge"><i class="fa-solid fa-cube"></i><span>3D</span></div>' +
+        '<div class="poi-local-viewport">' +
+          '<div class="poi-local-world"></div>' +
+        '</div>' +
+        '<div class="poi-local-popup" role="dialog" aria-live="polite"></div>' +
+      '</div>';
+
+    localState = {
+      world: mapEl.querySelector('.poi-local-world'),
+      popup: mapEl.querySelector('.poi-local-popup'),
+      viewport: mapEl.querySelector('.poi-local-viewport'),
+      heading: 336,
+      tilt: 62
+    };
+
+    applyLocalCamera();
+    wireLocalDrag(mapEl);
+    renderLocalMarkers();
+  }
+
+  function wireLocalDrag(mapEl) {
+    if (!mapEl || mapEl.getAttribute('data-local-drag-ready') === '1') {
+      return;
+    }
+    mapEl.setAttribute('data-local-drag-ready', '1');
+
+    var drag = null;
+
+    mapEl.addEventListener('pointerdown', function (event) {
+      if (!localState || event.button > 0) {
+        return;
+      }
+      if (event.target.closest('.poi-local-marker, .poi-local-popup, .poi-map-controls, .poi-camera-panel')) {
+        return;
+      }
+
+      drag = {
+        x: event.clientX,
+        y: event.clientY,
+        heading: currentHeading(),
+        tilt: currentTilt()
+      };
+      mapEl.classList.add('is-dragging');
+      mapEl.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    mapEl.addEventListener('pointermove', function (event) {
+      if (!drag || !localState) {
+        return;
+      }
+
+      var dx = event.clientX - drag.x;
+      var dy = event.clientY - drag.y;
+      localState.heading = normalizeHeading(drag.heading + dx * 0.36);
+      localState.tilt = clamp(drag.tilt - dy * 0.24, 0, 68);
+      applyLocalCamera();
+    });
+
+    function endDrag(event) {
+      if (!drag) {
+        return;
+      }
+      drag = null;
+      mapEl.classList.remove('is-dragging');
+      if (event && typeof mapEl.releasePointerCapture === 'function') {
+        try {
+          mapEl.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          // Pointer capture can already be released by the browser.
+        }
+      }
+    }
+
+    mapEl.addEventListener('pointerup', endDrag);
+    mapEl.addEventListener('pointercancel', endDrag);
+    mapEl.addEventListener('lostpointercapture', endDrag);
+  }
+
   function fitVisiblePois() {
+    if (localState) {
+      localState.heading = 336;
+      localState.tilt = 62;
+      applyLocalCamera();
+      clearLocalPopup();
+      return;
+    }
+
     if (!map || !window.google) {
       return;
     }
@@ -195,6 +594,8 @@
       return;
     }
 
+    var desiredTilt = Math.max(currentTilt(), 45);
+    var desiredHeading = currentHeading();
     var bounds = new google.maps.LatLngBounds();
     visible.forEach(function (poi) {
       bounds.extend({ lat: Number(poi.lat), lng: Number(poi.lng) });
@@ -206,13 +607,54 @@
     }
 
     setTimeout(function () {
-      if (map && typeof map.setTilt === 'function') {
-        map.setTilt(67.5);
+      if (!map) {
+        return;
       }
+      if (typeof map.moveCamera === 'function') {
+        map.moveCamera({
+          tilt: desiredTilt,
+          heading: desiredHeading
+        });
+      } else {
+        if (typeof map.setTilt === 'function') {
+          map.setTilt(desiredTilt);
+        }
+        if (typeof map.setHeading === 'function') {
+          map.setHeading(desiredHeading);
+        }
+      }
+      syncCameraControls();
     }, 250);
   }
 
+  function applyLocalMarkerVisibility() {
+    if (!localState) {
+      return;
+    }
+
+    var visibleIds = {};
+    visiblePois().forEach(function (poi) {
+      visibleIds[poi.id] = true;
+    });
+
+    localEntries.forEach(function (entry) {
+      var visible = !!visibleIds[entry.poi.id];
+      entry.marker.classList.toggle('hidden', !visible);
+      entry.ring.classList.toggle('hidden', !visible);
+      entry.building.classList.toggle('hidden', !visible);
+    });
+
+    if (selectedId && !visibleIds[selectedId]) {
+      clearLocalPopup();
+    }
+  }
+
   function applyMarkerVisibility() {
+    if (localState) {
+      applyLocalMarkerVisibility();
+      return;
+    }
+
     var visibleIds = {};
     visiblePois().forEach(function (poi) {
       visibleIds[poi.id] = true;
@@ -272,7 +714,9 @@
         refreshMarkerSelection();
         updateActiveListItem();
 
-        if (entry) {
+        if (localState) {
+          openLocalInfo(poi);
+        } else if (entry) {
           setMarkerMap(entry, map);
           if (entry.circle) {
             entry.circle.setMap(map);
@@ -317,6 +761,11 @@
   }
 
   function wireUi() {
+    if (uiWired) {
+      return;
+    }
+    uiWired = true;
+
     var searchInput = byId('poiMapSearch');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
@@ -340,35 +789,42 @@
       fitButton.addEventListener('click', fitVisiblePois);
     }
 
+    var tiltSlider = byId('poiTiltSlider');
+    if (tiltSlider) {
+      tiltSlider.addEventListener('input', function () {
+        setTiltValue(tiltSlider.value);
+      });
+    }
+
+    var headingSlider = byId('poiHeadingSlider');
+    if (headingSlider) {
+      headingSlider.addEventListener('input', function () {
+        setHeadingValue(headingSlider.value);
+      });
+    }
+
     var tiltButton = byId('poiToggleTilt');
     if (tiltButton) {
       tiltButton.addEventListener('click', function () {
-        if (!map || typeof map.setTilt !== 'function') {
-          return;
-        }
-
-        var currentTilt = Number(map.getTilt() || 0);
-        map.setTilt(currentTilt > 0 ? 0 : 67.5);
+        setTiltValue(currentTilt() > 10 ? 0 : 62);
       });
     }
 
     var rotateLeft = byId('poiRotateLeft');
     if (rotateLeft) {
       rotateLeft.addEventListener('click', function () {
-        if (map && typeof map.setHeading === 'function') {
-          map.setHeading(Number(map.getHeading() || 0) - 25);
-        }
+        setHeadingValue(currentHeading() - 18);
       });
     }
 
     var rotateRight = byId('poiRotateRight');
     if (rotateRight) {
       rotateRight.addEventListener('click', function () {
-        if (map && typeof map.setHeading === 'function') {
-          map.setHeading(Number(map.getHeading() || 0) + 25);
-        }
+        setHeadingValue(currentHeading() + 18);
       });
     }
+
+    syncCameraControls();
   }
 
   function showMapMessage(message) {
@@ -384,12 +840,27 @@
       '</div>';
   }
 
+  function bootLocalMap() {
+    wireUi();
+    renderList();
+
+    if (!pois.length) {
+      showMapMessage('Chua co gian hang nao co toa do hop le.');
+      return;
+    }
+
+    renderLocal3DMap();
+  }
+
+  window.renderPoiLocalMap = bootLocalMap;
+
   window.gm_authFailure = function () {
-    var keyHint = config.apiKeyPrefix ? ' Key: ' + config.apiKeyPrefix + '.' : '';
-    showMapMessage('Google Maps dang chan API key hien tai.' + keyHint + ' Trong Google Cloud, hay cho phep key nay dung Maps JavaScript API va HTTP referrer localhost.');
+    googleAuthFailed = true;
+    bootLocalMap();
   };
 
   window.initPoiAdminMap = function () {
+    googleCallbackSeen = true;
     wireUi();
     renderList();
 
@@ -403,10 +874,13 @@
       return;
     }
 
-    if (!config.hasApiKey || !window.google || !google.maps) {
-      showMapMessage('Can Google Maps API key hop le de hien thi ban do.');
+    if (googleAuthFailed || !config.hasApiKey || !window.google || !google.maps) {
+      bootLocalMap();
       return;
     }
+
+    localState = null;
+    localEntries = [];
 
     var center = config.center || {};
     try {
@@ -415,34 +889,74 @@
           lat: Number(center.lat || pois[0].lat),
           lng: Number(center.lng || pois[0].lng)
         },
-        zoom: 17,
-        tilt: 67.5,
-        heading: 25,
+        zoom: 18,
+        tilt: 62,
+        heading: 336,
         mapTypeId: 'roadmap',
         clickableIcons: false,
         gestureHandling: 'greedy',
+        headingInteractionEnabled: true,
+        tiltInteractionEnabled: true,
+        cameraControl: true,
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: true,
         rotateControl: true
       };
 
+      if (google.maps.RenderingType && google.maps.RenderingType.VECTOR) {
+        mapOptions.renderingType = google.maps.RenderingType.VECTOR;
+      }
+
       if (config.mapId && config.mapId !== 'DEMO_MAP_ID') {
         mapOptions.mapId = config.mapId;
       }
 
       map = new google.maps.Map(mapEl, mapOptions);
+      if (typeof map.setTiltInteractionEnabled === 'function') {
+        map.setTiltInteractionEnabled(true);
+      }
+      if (typeof map.setHeadingInteractionEnabled === 'function') {
+        map.setHeadingInteractionEnabled(true);
+      }
+      if (typeof map.setRenderingType === 'function' && google.maps.RenderingType && google.maps.RenderingType.VECTOR) {
+        map.setRenderingType(google.maps.RenderingType.VECTOR);
+      }
+      if (typeof map.moveCamera === 'function') {
+        map.moveCamera({
+          center: mapOptions.center,
+          zoom: mapOptions.zoom,
+          tilt: mapOptions.tilt,
+          heading: mapOptions.heading
+        });
+      }
+      if (typeof map.addListener === 'function') {
+        map.addListener('tilt_changed', syncCameraControls);
+        map.addListener('heading_changed', syncCameraControls);
+        map.addListener('renderingtype_changed', syncCameraControls);
+      }
 
       createMarkers();
       applyFilters({ fit: true });
+      syncCameraControls();
     } catch (error) {
-      showMapMessage(error && error.message ? error.message : 'Google Maps khong khoi tao duoc.');
+      bootLocalMap();
     }
   };
 
   document.addEventListener('DOMContentLoaded', function () {
+    wireUi();
+    renderList();
+
     if (!config.hasApiKey) {
-      window.initPoiAdminMap();
+      bootLocalMap();
+      return;
     }
+
+    setTimeout(function () {
+      if (!googleCallbackSeen && !map && !localState) {
+        bootLocalMap();
+      }
+    }, 2400);
   });
 })();

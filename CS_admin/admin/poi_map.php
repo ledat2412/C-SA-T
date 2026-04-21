@@ -259,7 +259,7 @@ $mapConfig = json_encode(array(
   <section class="poi-map-page">
     <div class="poi-map-header">
       <div>
-        <p class="poi-map-kicker">Google Maps 3D</p>
+        <p class="poi-map-kicker">POI Map 3D</p>
         <h2>Ban do POI gian hang</h2>
         <p>Theo doi vi tri, vung geofence va trang thai cua cac cua hang tren ban do nghieng 3D.</p>
       </div>
@@ -327,6 +327,17 @@ $mapConfig = json_encode(array(
           </div>
         </div>
 
+        <div class="poi-camera-panel" aria-label="Dieu khien camera 3D">
+          <label>
+            <span>Tilt <output id="poiTiltValue">62</output></span>
+            <input id="poiTiltSlider" type="range" min="0" max="68" step="1" value="62" />
+          </label>
+          <label>
+            <span>Rotate <output id="poiHeadingValue">336</output></span>
+            <input id="poiHeadingSlider" type="range" min="0" max="359" step="1" value="336" />
+          </label>
+        </div>
+
         <div class="poi-map-controls">
           <button type="button" id="poiFitBounds" title="Can vua tat ca POI" aria-label="Can vua tat ca POI">
             <i class="fa-solid fa-compress"></i>
@@ -370,7 +381,7 @@ window.POI_ADMIN_MAP_CONFIG = <?php echo $mapConfig ?: '{}'; ?>;
 </script>
 <script src="<?php echo htmlspecialchars(admin_url('asset/admin/js/poi-map.js'), ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo filemtime(__DIR__ . '/../asset/admin/js/poi-map.js'); ?>"></script>
 <?php if ($googleMapsApiKey !== '') { ?>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=<?php echo rawurlencode($googleMapsApiKey); ?>&libraries=marker&callback=initPoiAdminMap&loading=async"></script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=<?php echo rawurlencode($googleMapsApiKey); ?>&v=weekly&libraries=marker&callback=initPoiAdminMap&loading=async"></script>
 <?php } else { ?>
 <script>
 if (window.initPoiAdminMap) {
