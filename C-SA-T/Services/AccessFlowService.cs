@@ -249,6 +249,72 @@ public sealed class AccessFlowService
         };
     }
 
+    public Task<PackagePaymentResult> CreatePackagePaymentAsync(string email, int packageId, bool sendEmail = false)
+    {
+        return _apiService.CreatePackagePaymentAsync(email, packageId, sendEmail);
+    }
+
+    public async Task<PackageAccessActivationState> ConfirmPackagePaymentAsync(string paymentReference, string email, int packageId)
+    {
+        var result = await _apiService.GetPackagePaymentStatusAsync(paymentReference);
+        if (!result.Success)
+        {
+            return new PackageAccessActivationState
+            {
+                Success = false,
+                Message = result.Message
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(result.AccessToken))
+        {
+            return new PackageAccessActivationState
+            {
+                Success = false,
+                Message = result.Message,
+                Email = result.Email ?? email.Trim(),
+                PackageId = result.IdGoi?.ToString() ?? packageId.ToString(),
+                PackageName = result.TenGoi ?? string.Empty
+            };
+        }
+
+        await SaveAccessSnapshotAsync(
+            result.AccessToken,
+            "package",
+            result.BatDauLuc,
+            result.HetHanLuc,
+            result.MaThietBi,
+            result.Email,
+            result.IdGoi?.ToString(),
+            result.TenGoi,
+            result.TrangThai);
+
+        var validation = await _apiService.ValidateAccessAsync(result.AccessToken);
+        if (!validation.IsValid && !validation.IsNetworkError)
+        {
+            await ClearAccessAsync();
+            return new PackageAccessActivationState
+            {
+                Success = false,
+                Message = validation.Message
+            };
+        }
+
+        return new PackageAccessActivationState
+        {
+            Success = true,
+            Message = result.Message,
+            AccessToken = result.AccessToken,
+            QrTokenPayload = result.QrTokenPayload,
+            Email = result.Email ?? email.Trim(),
+            PackageId = result.IdGoi?.ToString() ?? packageId.ToString(),
+            PackageName = result.TenGoi ?? string.Empty,
+            ExpiresAtUtc = validation.HetHanLuc?.ToUniversalTime() ?? result.HetHanLuc?.ToUniversalTime(),
+            EmailSent = result.EmailSent,
+            EmailStatusMessage = result.EmailStatusMessage
+        };
+    }
+
     public async Task SaveQrAccessAsync(QrScanResult result)
     {
         if (!result.Success || string.IsNullOrWhiteSpace(result.AccessToken))

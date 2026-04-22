@@ -1,5 +1,6 @@
 using System.Linq;
 using MauiApp1.Models;
+using MauiApp1.Controls;
 using MauiApp1.Services;
 using MauiApp1.Utils;
 using Microsoft.Maui.Controls.Shapes;
@@ -25,8 +26,10 @@ public class GianHangFoodGalleryPage : ContentPage
     private readonly VerticalStackLayout _menuList;
     private readonly VerticalStackLayout _popularList;
     private readonly HorizontalStackLayout _drinkRow;
+    private readonly AppRefreshView _refreshView;
 
     private bool _isLoaded;
+    private static readonly TimeSpan ExploreRefreshInterval = TimeSpan.FromMinutes(5);
 
     public GianHangFoodGalleryPage(
         GianHang gianHang,
@@ -141,10 +144,13 @@ public class GianHangFoodGalleryPage : ContentPage
                 }
             }
         };
+        _refreshView = new AppRefreshView(
+            scroll,
+            async () => await LoadMenuAsync(forceRefresh: true));
 
         layout.Children.Add(header);
-        layout.Children.Add(scroll);
-        Grid.SetRow(scroll, 1);
+        layout.Children.Add(_refreshView);
+        Grid.SetRow(_refreshView, 1);
 
         Content = layout;
         ShowStatus(GetText("loading"));
@@ -153,6 +159,7 @@ public class GianHangFoodGalleryPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        _refreshView.StartAutoRefresh(Dispatcher, ExploreRefreshInterval);
 
         if (_isLoaded)
             return;
@@ -169,6 +176,12 @@ public class GianHangFoodGalleryPage : ContentPage
             ShowStatus(GetText("load_failed"));
             System.Diagnostics.Debug.WriteLine($"[GianHangFoodGalleryPage] Load menu error: {ex.Message}");
         }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _refreshView.StopAutoRefresh();
     }
 
     private View BuildHeader()
@@ -393,9 +406,9 @@ public class GianHangFoodGalleryPage : ContentPage
         };
     }
 
-    private async Task LoadMenuAsync()
+    private async Task LoadMenuAsync(bool forceRefresh = false)
     {
-        var items = FilterMenuItems(await _monAnService.GetByGianHangAsync(_gianHang.IdGianHang, _menuLanguageCode));
+        var items = FilterMenuItems(await _monAnService.GetByGianHangAsync(_gianHang.IdGianHang, _menuLanguageCode, forceRefresh));
 
         if (items.Count == 0 && _gianHang.MonAns.Count > 0)
             items = FilterMenuItems(_gianHang.MonAns);

@@ -34,7 +34,8 @@ public class HomePage : ContentPage
     private bool _isLoadingNearby;
     private bool _hasRequestedExplorePreload;
     private DateTime _lastNearbyLoadAtUtc;
-    private static readonly TimeSpan NearbyReloadInterval = TimeSpan.FromMinutes(5);
+    private readonly AppRefreshView _refreshView;
+    private static readonly TimeSpan HomeRefreshInterval = TimeSpan.FromMinutes(2);
 
     public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine, LocalizationService localizationService)
     {
@@ -79,7 +80,12 @@ public class HomePage : ContentPage
             }
         };
 
-        root.Children.Add(scroll);
+        _refreshView = new AppRefreshView(
+            scroll,
+            async () => await LoadNearbyRestaurants(forceRefresh: true));
+
+        root.Children.Add(_refreshView);
+        Grid.SetRow(_refreshView, 0);
 
         var footer = new AppBottomBar(
             BottomBarTab.Home,
@@ -108,9 +114,12 @@ public class HomePage : ContentPage
 
         Appearing += async (_, __) =>
         {
+            _refreshView.StartAutoRefresh(Dispatcher, HomeRefreshInterval);
             await LoadNearbyRestaurants();
             QueueExplorePreload();
         };
+
+        Disappearing += (_, __) => _refreshView.StopAutoRefresh();
     }
 
     private void QueueExplorePreload()
@@ -158,7 +167,7 @@ public class HomePage : ContentPage
 
         if (!forceRefresh &&
             _hasLoadedNearby &&
-            DateTime.UtcNow - _lastNearbyLoadAtUtc < NearbyReloadInterval)
+            DateTime.UtcNow - _lastNearbyLoadAtUtc < HomeRefreshInterval)
         {
             return;
         }
@@ -169,7 +178,7 @@ public class HomePage : ContentPage
         {
             var locationTask = GetUserLocation();
 
-            var gianHangs = await _gianHangService.GetAllAsync(_loc.CurrentLanguage);
+            var gianHangs = await _gianHangService.GetAllAsync(_loc.CurrentLanguage, forceRefresh);
             await locationTask;
 
             _nearbySection.Children.Clear();

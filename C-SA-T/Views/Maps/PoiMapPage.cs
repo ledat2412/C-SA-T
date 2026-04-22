@@ -42,6 +42,7 @@ public partial class PoiMapPage : ContentPage
     // Sheet khám phá
     private readonly Grid _bottomSheet;
     private readonly ScrollView _poiScroll;
+    private readonly AppRefreshView _poiRefreshView;
     private readonly VerticalStackLayout _poiList;
 
     private readonly Label _titleLabel;
@@ -177,6 +178,9 @@ public partial class PoiMapPage : ContentPage
         {
             Content = _poiList
         };
+        _poiRefreshView = new AppRefreshView(
+            _poiScroll,
+            async () => await LoadRealPoisAsync(forceRefresh: true));
 
         _bottomSheet = CreateBottomSheet();
         _detailSheet = CreateDetailSheet();
@@ -245,6 +249,8 @@ public partial class PoiMapPage : ContentPage
 
             if (_isInitialLoadCompleted)
                 await LoadRealPoisAsync();
+
+            _poiRefreshView.StartAutoRefresh(Dispatcher, PoiReloadInterval);
 
             await EnsureExploreSheetVisibleAsync();
             await ShowCurrentLocationMarkerAsync(centerOnUser: false);
@@ -536,7 +542,7 @@ public partial class PoiMapPage : ContentPage
             _map.Pins.Clear();
             _pinsByPoiId.Clear();
 
-            var data = await _poiService.GetAllPoisAsync();
+            var data = await _poiService.GetAllPoisAsync(forceRefresh);
 
             System.Diagnostics.Debug.WriteLine($"[PoiMapPage] Loaded {data.Count} POIs from database");
 
@@ -846,8 +852,8 @@ public partial class PoiMapPage : ContentPage
         body.Children.Add(header);
         Grid.SetRow(header, 1);
 
-        body.Children.Add(_poiScroll);
-        Grid.SetRow(_poiScroll, 2);
+        body.Children.Add(_poiRefreshView);
+        Grid.SetRow(_poiRefreshView, 2);
 
         var panel = new Border
         {
@@ -2126,6 +2132,7 @@ public partial class PoiMapPage : ContentPage
         _pinRefreshCts?.Cancel();
         _pinRefreshCts?.Dispose();
         _pinRefreshCts = null;
+        _poiRefreshView.StopAutoRefresh();
         ResetAudioState();
         if (_isLiveLocationSubscribed)
         {

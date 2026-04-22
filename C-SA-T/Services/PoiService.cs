@@ -13,10 +13,10 @@ namespace MauiApp1.Services
             _loc = localizationService;
         }
 
-        public async Task<List<PoiItem>> GetAllPoisAsync()
+        public async Task<List<PoiItem>> GetAllPoisAsync(bool forceRefresh = false)
         {
             var lang = _loc.CurrentLanguage;
-            var appData = await _cacheService.GetAsync(lang);
+            var appData = await _cacheService.GetAsync(lang, forceRefresh);
 
             return appData.GianHangs
                 .Where(x => x.Lat.HasValue && x.Lon.HasValue)

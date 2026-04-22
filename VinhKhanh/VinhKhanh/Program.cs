@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using VinhKhanh.Data;
 using VinhKhanh.Middleware;
 using VinhKhanh.Services;
@@ -21,12 +22,24 @@ builder.Services.AddScoped<StoreRequestService>();
 builder.Services.AddScoped<DeviceService>();
 builder.Services.AddScoped<AccessSessionService>();
 builder.Services.AddScoped<PackageAccessEmailService>();
+builder.Services.AddSingleton<VietQrPayloadBuilder>();
 builder.Services.AddSingleton<GoogleTtsService>();
 
 builder.Services.AddSingleton<DeviceTouchQueue>();
 builder.Services.AddHostedService<DeviceTouchWorker>();
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                       ForwardedHeaders.XForwardedHost |
+                       ForwardedHeaders.XForwardedProto,
+    ForwardLimit = null,
+    RequireHeaderSymmetry = false,
+    KnownIPNetworks = { },
+    KnownProxies = { }
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 using MySqlConnector;
 using VinhKhanh.Data;
 using VinhKhanh.Dtos;
@@ -14,11 +17,19 @@ namespace VinhKhanh.Services
 
         private readonly MySqlDbContext _db;
         private readonly PackageAccessEmailService _emailService;
+        private readonly IConfiguration _configuration;
+        private readonly VietQrPayloadBuilder _vietQrPayloadBuilder;
 
-        public AccessSessionService(MySqlDbContext db, PackageAccessEmailService emailService)
+        public AccessSessionService(
+            MySqlDbContext db,
+            PackageAccessEmailService emailService,
+            IConfiguration configuration,
+            VietQrPayloadBuilder vietQrPayloadBuilder)
         {
             _db = db;
             _emailService = emailService;
+            _configuration = configuration;
+            _vietQrPayloadBuilder = vietQrPayloadBuilder;
         }
 
         public async Task<AccessSessionResponseDto> CreateFromQrAsync(ScanQrRequestDto request)
@@ -389,6 +400,202 @@ namespace VinhKhanh.Services
             };
         }
 
+        public async Task<PackagePaymentResponseDto> CreatePackagePaymentAsync(CreatePackagePaymentRequestDto request)
+        {
+            var email = request.Email?.Trim() ?? string.Empty;
+            var hasEmail = !string.IsNullOrWhiteSpace(email);
+
+            if (hasEmail && (!email.Contains('@') || !email.Contains('.')))
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Email khong hop le."
+                };
+            }
+
+            var clientDeviceId = NormalizeClientDeviceId(request.ClientDeviceId);
+            if (!IsClientManagedDeviceCode(clientDeviceId))
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Client device id khong hop le.",
+                    Email = email
+                };
+            }
+
+            var bankBin = _configuration["Payment:VietQr:BankBin"] ?? string.Empty;
+            var bankAccountNo = _configuration["Payment:VietQr:BankAccountNo"] ?? string.Empty;
+            var bankAccountName = _configuration["Payment:VietQr:BankAccountName"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(bankBin) ||
+                string.IsNullOrWhiteSpace(bankAccountNo) ||
+                string.IsNullOrWhiteSpace(bankAccountName))
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Chua cau hinh Payment:VietQr trong appsettings."
+                };
+            }
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await EnsurePaymentColumnsAsync(conn);
+
+            var package = await ResolvePackageAsync(conn, PackagePortalDeviceCode, request.IdGoi);
+            if (package is null)
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Khong tim thay goi dich vu hop le.",
+                    Email = email
+                };
+            }
+
+            await EnsureClientDeviceAsync(conn, clientDeviceId);
+
+            const string insertInvoiceSql = @"
+                INSERT INTO hoadon (idKhachHang, idPhienVaoApp, idGoi, email, tongTien, thoiGianTao, tinhTrang, ghiChu, maThietBi, guiEmail)
+                VALUES (NULL, NULL, @idGoi, @email, @tongTien, NOW(), 'moi_tao', @ghiChu, @maThietBi, @guiEmail);
+                SELECT LAST_INSERT_ID();";
+
+            int invoiceId;
+            using (var invoiceCmd = new MySqlCommand(insertInvoiceSql, conn))
+            {
+                invoiceCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
+                invoiceCmd.Parameters.AddWithValue("@email", hasEmail ? (object)email : DBNull.Value);
+                invoiceCmd.Parameters.AddWithValue("@tongTien", package.Price);
+                invoiceCmd.Parameters.AddWithValue("@ghiChu", "Cho thanh toan VietQR/Casso.");
+                invoiceCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
+                invoiceCmd.Parameters.AddWithValue("@guiEmail", request.SendEmail && hasEmail);
+                invoiceId = Convert.ToInt32(await invoiceCmd.ExecuteScalarAsync());
+            }
+
+            var paymentReference = $"CSAT{invoiceId}";
+            var paymentContent = VietQrPayloadBuilder.NormalizePaymentContent(invoiceId, package.IdGoi, clientDeviceId);
+            var paymentQrPayload = _vietQrPayloadBuilder.BuildPayload(
+                bankBin,
+                bankAccountNo,
+                bankAccountName,
+                package.Price,
+                paymentContent);
+
+            const string updateInvoiceSql = @"
+                UPDATE hoadon
+                SET maThanhToan = @maThanhToan,
+                    ghiChu = @ghiChu
+                WHERE idHoaDon = @idHoaDon;";
+
+            using (var updateCmd = new MySqlCommand(updateInvoiceSql, conn))
+            {
+                updateCmd.Parameters.AddWithValue("@maThanhToan", paymentReference);
+                updateCmd.Parameters.AddWithValue("@ghiChu", $"VietQR {paymentContent}; goi={package.IdGoi}; thietBi={clientDeviceId}");
+                updateCmd.Parameters.AddWithValue("@idHoaDon", invoiceId);
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            return new PackagePaymentResponseDto
+            {
+                Success = true,
+                Message = "Da tao ma QR thanh toan VietQR. Cho Casso webhook xac nhan giao dich.",
+                Email = email,
+                MaThietBi = clientDeviceId,
+                IdGoi = package.IdGoi,
+                TenGoi = package.TenGoi,
+                SoNgayHieuLuc = package.DurationDays,
+                IdHoaDon = invoiceId,
+                Amount = package.Price,
+                PaymentReference = paymentReference,
+                PaymentContent = paymentContent,
+                PaymentQrPayload = paymentQrPayload,
+                BankBin = bankBin,
+                BankAccountNo = bankAccountNo,
+                BankAccountName = bankAccountName,
+                PaymentCreatedAt = DateTime.UtcNow,
+                PaymentStatus = "moi_tao"
+            };
+        }
+
+        public async Task<PackagePaymentResponseDto> GetPackagePaymentStatusAsync(string paymentReference)
+        {
+            paymentReference = NormalizePaymentReference(paymentReference);
+            if (string.IsNullOrWhiteSpace(paymentReference))
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Thieu ma thanh toan."
+                };
+            }
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await EnsurePaymentColumnsAsync(conn);
+
+            return await BuildPaymentStatusResponseAsync(conn, paymentReference);
+        }
+
+        public bool IsValidCassoSecurityKey(string? providedKey)
+        {
+            var configuredKey = _configuration["Payment:Casso:WebhookSecurityKey"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(configuredKey))
+                return true;
+
+            return !string.IsNullOrWhiteSpace(providedKey) &&
+                   CryptographicOperations.FixedTimeEquals(
+                       System.Text.Encoding.UTF8.GetBytes(configuredKey),
+                       System.Text.Encoding.UTF8.GetBytes(providedKey));
+        }
+
+        public async Task<CassoWebhookProcessResultDto> HandleCassoWebhookAsync(JsonElement payload)
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await EnsurePaymentColumnsAsync(conn);
+
+            var transactions = ExtractCassoTransactions(payload);
+            var result = new CassoWebhookProcessResultDto
+            {
+                Success = true,
+                Message = "Da xu ly Casso webhook."
+            };
+
+            foreach (var transaction in transactions)
+            {
+                result.Processed++;
+
+                if (transaction.Amount <= 0 || string.IsNullOrWhiteSpace(transaction.Description))
+                {
+                    result.Ignored++;
+                    continue;
+                }
+
+                var paymentReference = ExtractPaymentReference(transaction.Description);
+                if (string.IsNullOrWhiteSpace(paymentReference))
+                {
+                    result.Ignored++;
+                    continue;
+                }
+
+                var activateResult = await ActivatePaidPackageInvoiceAsync(
+                    conn,
+                    paymentReference,
+                    transaction.Amount,
+                    transaction.TransactionId,
+                    transaction.PaidAt,
+                    transaction.Description);
+
+                if (activateResult.Success && !string.IsNullOrWhiteSpace(activateResult.AccessToken))
+                    result.Activated++;
+                else
+                    result.Ignored++;
+            }
+
+            return result;
+        }
+
         public async Task<AccessSessionResponseDto> ActivateTokenAsync(ActivateAccessTokenRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.AccessToken))
@@ -537,7 +744,449 @@ namespace VinhKhanh.Services
             };
         }
 
-        private static async Task<PackageInfo?> ResolvePackageAsync(MySqlConnection conn, string maThietBi, int? requestedPackageId)
+        private async Task<PackagePaymentResponseDto> BuildPaymentStatusResponseAsync(MySqlConnection conn, string paymentReference, MySqlTransaction? transaction = null)
+        {
+            const string sql = @"
+                SELECT hd.idHoaDon, hd.idPhienVaoApp, hd.idGoi, hd.email, hd.tongTien, hd.thoiGianTao, hd.tinhTrang,
+                       hd.ghiChu, hd.maThanhToan, hd.maThietBi, hd.guiEmail, hd.thoiGianThanhToan, hd.cassoTransactionId,
+                       gdv.ten AS tenGoi, gdv.thoiHanNgay,
+                       pva.accessToken, pva.qrRaw, pva.batDauLuc, pva.hetHanLuc, pva.trangThai AS trangThaiPhien
+                FROM hoadon hd
+                LEFT JOIN goidichvu gdv ON gdv.idGoi = hd.idGoi
+                LEFT JOIN phien_vao_app pva ON pva.id = hd.idPhienVaoApp
+                WHERE hd.maThanhToan = @maThanhToan
+                LIMIT 1;";
+
+            using var cmd = CreateCommand(sql, conn, transaction);
+            cmd.Parameters.AddWithValue("@maThanhToan", paymentReference);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = "Khong tim thay yeu cau thanh toan."
+                };
+            }
+
+            var status = reader["tinhTrang"]?.ToString() ?? "moi_tao";
+            var accessToken = reader["accessToken"]?.ToString();
+            var qrRaw = reader["qrRaw"]?.ToString();
+
+            return new PackagePaymentResponseDto
+            {
+                Success = true,
+                Message = string.Equals(status, "da_thanh_toan", StringComparison.OrdinalIgnoreCase) &&
+                          !string.IsNullOrWhiteSpace(accessToken)
+                    ? "Thanh toan da duoc xac nhan va QR token da san sang."
+                    : "Chua nhan duoc xac nhan thanh toan tu Casso.",
+                Email = reader["email"]?.ToString() ?? string.Empty,
+                MaThietBi = reader["maThietBi"]?.ToString(),
+                IdGoi = reader["idGoi"] == DBNull.Value ? null : Convert.ToInt32(reader["idGoi"]),
+                TenGoi = reader["tenGoi"]?.ToString(),
+                SoNgayHieuLuc = reader["thoiHanNgay"] == DBNull.Value ? null : NormalizeDurationDays(reader["thoiHanNgay"]),
+                IdHoaDon = Convert.ToInt32(reader["idHoaDon"]),
+                Amount = reader["tongTien"] == DBNull.Value ? 0 : Convert.ToDecimal(reader["tongTien"]),
+                PaymentReference = reader["maThanhToan"]?.ToString(),
+                PaymentContent = reader["ghiChu"]?.ToString(),
+                PaymentStatus = status,
+                PaymentCreatedAt = reader["thoiGianTao"] == DBNull.Value ? null : Convert.ToDateTime(reader["thoiGianTao"]),
+                PaymentPaidAt = reader["thoiGianThanhToan"] == DBNull.Value ? null : Convert.ToDateTime(reader["thoiGianThanhToan"]),
+                AccessToken = accessToken,
+                QrTokenPayload = qrRaw,
+                BatDauLuc = reader["batDauLuc"] == DBNull.Value ? null : Convert.ToDateTime(reader["batDauLuc"]),
+                HetHanLuc = reader["hetHanLuc"] == DBNull.Value ? null : Convert.ToDateTime(reader["hetHanLuc"]),
+                TrangThai = reader["trangThaiPhien"]?.ToString(),
+                EmailSent = false,
+                EmailStatusMessage = string.Empty
+            };
+        }
+
+        private async Task<RegisterPackageAccessResponseDto> ActivatePaidPackageInvoiceAsync(
+            MySqlConnection conn,
+            string paymentReference,
+            decimal paidAmount,
+            string? transactionId,
+            DateTime? paidAt,
+            string transactionDescription)
+        {
+            await using var transaction = await conn.BeginTransactionAsync();
+
+            try
+            {
+                var result = await ActivatePaidPackageInvoiceLockedAsync(
+                    conn,
+                    transaction,
+                    paymentReference,
+                    paidAmount,
+                    transactionId,
+                    paidAt,
+                    transactionDescription);
+
+                await transaction.CommitAsync();
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task<RegisterPackageAccessResponseDto> ActivatePaidPackageInvoiceLockedAsync(
+            MySqlConnection conn,
+            MySqlTransaction transaction,
+            string paymentReference,
+            decimal paidAmount,
+            string? transactionId,
+            DateTime? paidAt,
+            string transactionDescription)
+        {
+            if (!string.IsNullOrWhiteSpace(transactionId))
+            {
+                const string duplicateSql = @"
+                    SELECT maThanhToan
+                    FROM hoadon
+                    WHERE cassoTransactionId = @cassoTransactionId
+                      AND cassoTransactionId IS NOT NULL
+                      AND cassoTransactionId <> ''
+                    LIMIT 1
+                    FOR UPDATE;";
+
+                using var duplicateCmd = CreateCommand(duplicateSql, conn, transaction);
+                duplicateCmd.Parameters.AddWithValue("@cassoTransactionId", transactionId);
+                var existingRef = await duplicateCmd.ExecuteScalarAsync();
+                if (existingRef != null && existingRef != DBNull.Value &&
+                    !string.Equals(existingRef.ToString(), paymentReference, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new RegisterPackageAccessResponseDto
+                    {
+                        Success = false,
+                        Message = "Giao dich Casso da duoc gan cho hoa don khac."
+                    };
+                }
+            }
+
+            const string invoiceSql = @"
+                SELECT idHoaDon, idPhienVaoApp, idGoi, email, tongTien, tinhTrang, maThietBi, guiEmail
+                FROM hoadon
+                WHERE maThanhToan = @maThanhToan
+                LIMIT 1
+                FOR UPDATE;";
+
+            int invoiceId;
+            long? existingSessionId;
+            int packageId;
+            string email;
+            decimal invoiceAmount;
+            string invoiceStatus;
+            string clientDeviceId;
+            bool sendEmail;
+
+            using (var invoiceCmd = CreateCommand(invoiceSql, conn, transaction))
+            {
+                invoiceCmd.Parameters.AddWithValue("@maThanhToan", paymentReference);
+                using var reader = await invoiceCmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync())
+                {
+                    return new RegisterPackageAccessResponseDto
+                    {
+                        Success = false,
+                        Message = "Khong tim thay hoa don theo noi dung chuyen khoan."
+                    };
+                }
+
+                invoiceId = Convert.ToInt32(reader["idHoaDon"]);
+                existingSessionId = reader["idPhienVaoApp"] == DBNull.Value ? null : Convert.ToInt64(reader["idPhienVaoApp"]);
+                packageId = reader["idGoi"] == DBNull.Value ? 0 : Convert.ToInt32(reader["idGoi"]);
+                email = reader["email"]?.ToString() ?? string.Empty;
+                invoiceAmount = reader["tongTien"] == DBNull.Value ? 0 : Convert.ToDecimal(reader["tongTien"]);
+                invoiceStatus = reader["tinhTrang"]?.ToString() ?? "moi_tao";
+                clientDeviceId = NormalizeClientDeviceId(reader["maThietBi"]?.ToString());
+                sendEmail = reader["guiEmail"] != DBNull.Value && Convert.ToBoolean(reader["guiEmail"]);
+            }
+
+            if (paidAmount < invoiceAmount)
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "So tien giao dich nho hon so tien goi."
+                };
+            }
+
+            if (string.Equals(invoiceStatus, "da_thanh_toan", StringComparison.OrdinalIgnoreCase) &&
+                existingSessionId.HasValue)
+            {
+                var paidStatus = await BuildPaymentStatusResponseAsync(conn, paymentReference, transaction);
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = paidStatus.Success,
+                    Message = paidStatus.Message,
+                    Email = paidStatus.Email,
+                    MaThietBi = paidStatus.MaThietBi,
+                    IdGoi = paidStatus.IdGoi,
+                    TenGoi = paidStatus.TenGoi,
+                    SoNgayHieuLuc = paidStatus.SoNgayHieuLuc,
+                    AccessToken = paidStatus.AccessToken,
+                    BatDauLuc = paidStatus.BatDauLuc,
+                    HetHanLuc = paidStatus.HetHanLuc,
+                    TrangThai = paidStatus.TrangThai,
+                    QrTokenPayload = paidStatus.QrTokenPayload,
+                    IdHoaDon = paidStatus.IdHoaDon
+                };
+            }
+
+            if (!string.Equals(invoiceStatus, "moi_tao", StringComparison.OrdinalIgnoreCase))
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "Hoa don khong o trang thai cho thanh toan."
+                };
+            }
+
+            if (packageId <= 0 || !IsClientManagedDeviceCode(clientDeviceId))
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "Hoa don thieu ma goi hoac ma thiet bi."
+                };
+            }
+
+            var package = await ResolvePackageAsync(conn, PackagePortalDeviceCode, packageId, transaction);
+            if (package is null)
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "Goi dich vu tren hoa don khong hop le."
+                };
+            }
+
+            var batDauLuc = DateTime.UtcNow;
+            var hetHanLuc = batDauLuc.AddDays(package.DurationDays);
+            var accessToken = GenerateAccessToken();
+            var qrTokenPayload = $"vkaccess://login?token={accessToken}";
+            var deviceId = await EnsureClientDeviceAsync(conn, clientDeviceId, transaction);
+
+            await ExpireActiveClientSessionsForDeviceAsync(conn, clientDeviceId, transaction: transaction);
+
+            const string insertSessionSql = @"
+                INSERT INTO phien_vao_app (idThietBi, maThietBi, idGoi, qrRaw, accessToken, batDauLuc, hetHanLuc, trangThai)
+                VALUES (@idThietBi, @maThietBi, @idGoi, @qrRaw, @accessToken, @batDauLuc, @hetHanLuc, 'hieu_luc');
+                SELECT LAST_INSERT_ID();";
+
+            long sessionId;
+            using (var sessionCmd = CreateCommand(insertSessionSql, conn, transaction))
+            {
+                sessionCmd.Parameters.AddWithValue("@idThietBi", deviceId);
+                sessionCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
+                sessionCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
+                sessionCmd.Parameters.AddWithValue("@qrRaw", qrTokenPayload);
+                sessionCmd.Parameters.AddWithValue("@accessToken", accessToken);
+                sessionCmd.Parameters.AddWithValue("@batDauLuc", batDauLuc);
+                sessionCmd.Parameters.AddWithValue("@hetHanLuc", hetHanLuc);
+                sessionId = Convert.ToInt64(await sessionCmd.ExecuteScalarAsync());
+            }
+
+            const string updateInvoiceSql = @"
+                UPDATE hoadon
+                SET idPhienVaoApp = @idPhienVaoApp,
+                    tinhTrang = 'da_thanh_toan',
+                    thoiGianThanhToan = @thoiGianThanhToan,
+                    cassoTransactionId = @cassoTransactionId,
+                    ghiChu = @ghiChu
+                WHERE idHoaDon = @idHoaDon;";
+
+            using (var updateCmd = CreateCommand(updateInvoiceSql, conn, transaction))
+            {
+                updateCmd.Parameters.AddWithValue("@idPhienVaoApp", sessionId);
+                updateCmd.Parameters.AddWithValue("@thoiGianThanhToan", paidAt ?? DateTime.UtcNow);
+                updateCmd.Parameters.AddWithValue("@cassoTransactionId", string.IsNullOrWhiteSpace(transactionId) ? DBNull.Value : transactionId);
+                updateCmd.Parameters.AddWithValue("@ghiChu", $"Casso xac nhan: {transactionDescription}");
+                updateCmd.Parameters.AddWithValue("@idHoaDon", invoiceId);
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            await TouchDeviceAsync(conn, deviceId, transaction);
+
+            var hasEmail = !string.IsNullOrWhiteSpace(email);
+            var emailResult = sendEmail && hasEmail
+                ? await _emailService.TrySendQrTokenEmailAsync(
+                    email,
+                    package.TenGoi,
+                    accessToken,
+                    qrTokenPayload,
+                    hetHanLuc)
+                : (Sent: false, Message: "Nguoi dung chon tai QR ve may thay vi nhan email.");
+
+            return new RegisterPackageAccessResponseDto
+            {
+                Success = true,
+                Message = "Casso da xac nhan thanh toan, kich hoat token va sinh QR token dang nhap thanh cong.",
+                Email = email,
+                MaThietBi = clientDeviceId,
+                IdGoi = package.IdGoi,
+                TenGoi = package.TenGoi,
+                SoNgayHieuLuc = package.DurationDays,
+                AccessToken = accessToken,
+                BatDauLuc = batDauLuc,
+                HetHanLuc = hetHanLuc,
+                TrangThai = "hieu_luc",
+                QrTokenPayload = qrTokenPayload,
+                EmailSent = emailResult.Sent,
+                EmailStatusMessage = emailResult.Message,
+                IdHoaDon = invoiceId
+            };
+        }
+
+        private static IEnumerable<CassoTransaction> ExtractCassoTransactions(JsonElement payload)
+        {
+            if (payload.ValueKind != JsonValueKind.Object ||
+                !payload.TryGetProperty("data", out var data))
+            {
+                yield break;
+            }
+
+            if (data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("records", out var records))
+            {
+                data = records;
+            }
+
+            if (data.ValueKind != JsonValueKind.Array)
+                yield break;
+
+            foreach (var item in data.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                yield return new CassoTransaction(
+                    TransactionId: GetJsonString(item, "id") ?? GetJsonString(item, "tid"),
+                    Description: GetJsonString(item, "description") ?? string.Empty,
+                    Amount: GetJsonDecimal(item, "amount"),
+                    PaidAt: GetJsonDateTime(item, "when") ?? GetJsonDateTime(item, "createdAt"));
+            }
+        }
+
+        private static string? GetJsonString(JsonElement item, string propertyName)
+        {
+            if (!item.TryGetProperty(propertyName, out var value))
+                return null;
+
+            return value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null
+            };
+        }
+
+        private static decimal GetJsonDecimal(JsonElement item, string propertyName)
+        {
+            if (!item.TryGetProperty(propertyName, out var value))
+                return 0;
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+                return number;
+
+            if (value.ValueKind == JsonValueKind.String &&
+                decimal.TryParse(value.GetString(), out var parsed))
+                return parsed;
+
+            return 0;
+        }
+
+        private static DateTime? GetJsonDateTime(JsonElement item, string propertyName)
+        {
+            if (!item.TryGetProperty(propertyName, out var value))
+                return null;
+
+            if (value.ValueKind == JsonValueKind.String &&
+                DateTime.TryParse(value.GetString(), out var parsed))
+                return parsed;
+
+            return null;
+        }
+
+        private static string NormalizePaymentReference(string? value)
+        {
+            var raw = value?.Trim().ToUpperInvariant() ?? string.Empty;
+            var match = Regex.Match(raw, @"CSAT\d+", RegexOptions.IgnoreCase);
+            return match.Success ? match.Value.ToUpperInvariant() : raw;
+        }
+
+        private static string? ExtractPaymentReference(string description)
+        {
+            var match = Regex.Match(description ?? string.Empty, @"CSAT\d+", RegexOptions.IgnoreCase);
+            return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
+        private static async Task EnsurePaymentColumnsAsync(MySqlConnection conn)
+        {
+            var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["maThanhToan"] = "ALTER TABLE hoadon ADD COLUMN maThanhToan varchar(32) DEFAULT NULL AFTER idGoi",
+                ["maThietBi"] = "ALTER TABLE hoadon ADD COLUMN maThietBi varchar(100) DEFAULT NULL AFTER maThanhToan",
+                ["guiEmail"] = "ALTER TABLE hoadon ADD COLUMN guiEmail tinyint(1) NOT NULL DEFAULT 0 AFTER email",
+                ["thoiGianThanhToan"] = "ALTER TABLE hoadon ADD COLUMN thoiGianThanhToan datetime DEFAULT NULL AFTER thoiGianTao",
+                ["cassoTransactionId"] = "ALTER TABLE hoadon ADD COLUMN cassoTransactionId varchar(80) DEFAULT NULL AFTER tinhTrang"
+            };
+
+            const string existingColumnsSql = @"
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'hoadon';";
+
+            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var cmd = new MySqlCommand(existingColumnsSql, conn))
+            using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                    existing.Add(reader.GetString("COLUMN_NAME"));
+            }
+
+            foreach (var column in columns)
+            {
+                if (existing.Contains(column.Key))
+                    continue;
+
+                using var alterCmd = new MySqlCommand(column.Value, conn);
+                await alterCmd.ExecuteNonQueryAsync();
+            }
+
+            await EnsureIndexAsync(conn, "uq_hoadon_maThanhToan", "CREATE UNIQUE INDEX uq_hoadon_maThanhToan ON hoadon (maThanhToan)");
+            await EnsureIndexAsync(conn, "idx_hoadon_maThietBi", "CREATE INDEX idx_hoadon_maThietBi ON hoadon (maThietBi)");
+            await EnsureIndexAsync(conn, "idx_hoadon_cassoTransactionId", "CREATE INDEX idx_hoadon_cassoTransactionId ON hoadon (cassoTransactionId)");
+        }
+
+        private static async Task EnsureIndexAsync(MySqlConnection conn, string indexName, string createSql)
+        {
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'hoadon'
+                  AND INDEX_NAME = @indexName;";
+
+            using (var cmd = new MySqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("@indexName", indexName);
+                var exists = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+                if (exists)
+                    return;
+            }
+
+            using var createCmd = new MySqlCommand(createSql, conn);
+            await createCmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task<PackageInfo?> ResolvePackageAsync(MySqlConnection conn, string maThietBi, int? requestedPackageId, MySqlTransaction? transaction = null)
         {
             const string explicitPackageSql = @"
                 SELECT idGoi, ten, thoiHanNgay, gia
@@ -548,7 +1197,7 @@ namespace VinhKhanh.Services
 
             if (requestedPackageId.HasValue)
             {
-                using var explicitCmd = new MySqlCommand(explicitPackageSql, conn);
+                using var explicitCmd = CreateCommand(explicitPackageSql, conn, transaction);
                 explicitCmd.Parameters.AddWithValue("@idGoi", requestedPackageId.Value);
 
                 using var explicitReader = await explicitCmd.ExecuteReaderAsync();
@@ -574,7 +1223,7 @@ namespace VinhKhanh.Services
                 ORDER BY pva.batDauLuc DESC, pva.id DESC
                 LIMIT 1;";
 
-            using var lastRegisteredCmd = new MySqlCommand(lastRegisteredPackageSql, conn);
+            using var lastRegisteredCmd = CreateCommand(lastRegisteredPackageSql, conn, transaction);
             lastRegisteredCmd.Parameters.AddWithValue("@maThietBi", maThietBi);
 
             using var lastRegisteredReader = await lastRegisteredCmd.ExecuteReaderAsync();
@@ -615,7 +1264,7 @@ namespace VinhKhanh.Services
             return Convert.ToInt32(await insertCmd.ExecuteScalarAsync());
         }
 
-        private static async Task<int> EnsureClientDeviceAsync(MySqlConnection conn, string clientDeviceId)
+        private static async Task<int> EnsureClientDeviceAsync(MySqlConnection conn, string clientDeviceId, MySqlTransaction? transaction = null)
         {
             const string selectSql = @"
                 SELECT idThietBi
@@ -623,7 +1272,7 @@ namespace VinhKhanh.Services
                 WHERE maThietBi = @maThietBi
                 LIMIT 1;";
 
-            using (var selectCmd = new MySqlCommand(selectSql, conn))
+            using (var selectCmd = CreateCommand(selectSql, conn, transaction))
             {
                 selectCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
                 var existing = await selectCmd.ExecuteScalarAsync();
@@ -640,13 +1289,13 @@ namespace VinhKhanh.Services
                 VALUES (@maThietBi, @maKichHoat, NULL, 1, NOW(), NOW(), NOW(), 'hoat_dong', 'app_client');
                 SELECT LAST_INSERT_ID();";
 
-            using var insertCmd = new MySqlCommand(insertSql, conn);
+            using var insertCmd = CreateCommand(insertSql, conn, transaction);
             insertCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
             insertCmd.Parameters.AddWithValue("@maKichHoat", maKichHoat);
             return Convert.ToInt32(await insertCmd.ExecuteScalarAsync());
         }
 
-        private static async Task ExpireActiveClientSessionsForDeviceAsync(MySqlConnection conn, string clientDeviceId, string? excludeAccessToken = null)
+        private static async Task ExpireActiveClientSessionsForDeviceAsync(MySqlConnection conn, string clientDeviceId, string? excludeAccessToken = null, MySqlTransaction? transaction = null)
         {
             const string sql = @"
                 UPDATE phien_vao_app
@@ -655,22 +1304,31 @@ namespace VinhKhanh.Services
                   AND trangThai = 'hieu_luc'
                   AND (@excludeAccessToken IS NULL OR accessToken <> @excludeAccessToken);";
 
-            using var cmd = new MySqlCommand(sql, conn);
+            using var cmd = CreateCommand(sql, conn, transaction);
             cmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
             cmd.Parameters.AddWithValue("@excludeAccessToken", string.IsNullOrWhiteSpace(excludeAccessToken) ? DBNull.Value : excludeAccessToken);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        private static async Task TouchDeviceAsync(MySqlConnection conn, int idThietBi)
+        private static async Task TouchDeviceAsync(MySqlConnection conn, int idThietBi, MySqlTransaction? transaction = null)
         {
             const string sql = @"
                 UPDATE thietbi
                 SET lanCuoiHoatDong = NOW()
                 WHERE idThietBi = @idThietBi;";
 
-            using var cmd = new MySqlCommand(sql, conn);
+            using var cmd = CreateCommand(sql, conn, transaction);
             cmd.Parameters.AddWithValue("@idThietBi", idThietBi);
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static MySqlCommand CreateCommand(string commandText, MySqlConnection conn, MySqlTransaction? transaction = null)
+        {
+            var cmd = new MySqlCommand(commandText, conn);
+            if (transaction is not null)
+                cmd.Transaction = transaction;
+
+            return cmd;
         }
 
         private static bool IsClientManagedDeviceCode(string? maThietBi)
@@ -698,5 +1356,6 @@ namespace VinhKhanh.Services
         }
 
         private sealed record PackageInfo(int IdGoi, string TenGoi, int DurationDays, decimal Price);
+        private sealed record CassoTransaction(string? TransactionId, string Description, decimal Amount, DateTime? PaidAt);
     }
 }

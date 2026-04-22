@@ -187,6 +187,88 @@ namespace MauiApp1.Services
             }
         }
 
+        public async Task<PackagePaymentResult> CreatePackagePaymentAsync(string email, int idGoi, bool sendEmail = false)
+        {
+            try
+            {
+                MarkRequestSent();
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl("api/access/package/payment"), new
+                {
+                    Email = email,
+                    IdGoi = idGoi,
+                    SendEmail = sendEmail,
+                    ClientDeviceId = _clientDeviceIdentityService.GetOrCreateClientDeviceId()
+                });
+
+                PackagePaymentResult? result = null;
+
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<PackagePaymentResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new PackagePaymentResult
+                {
+                    Success = response.IsSuccessStatusCode,
+                    Message = response.ReasonPhrase ?? "Khong tao duoc ma QR thanh toan."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                return new PackagePaymentResult
+                {
+                    Success = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
+        }
+
+        public async Task<PackagePaymentResult> GetPackagePaymentStatusAsync(string paymentReference)
+        {
+            if (string.IsNullOrWhiteSpace(paymentReference))
+            {
+                return new PackagePaymentResult
+                {
+                    Success = false,
+                    Message = "Thieu ma thanh toan."
+                };
+            }
+
+            try
+            {
+                MarkRequestSent();
+                var url = BuildApiUrl($"api/access/package/payment/{Uri.EscapeDataString(paymentReference)}");
+                var response = await _httpClient.GetAsync(url);
+
+                PackagePaymentResult? result = null;
+
+                try
+                {
+                    result = await response.Content.ReadFromJsonAsync<PackagePaymentResult>();
+                }
+                catch
+                {
+                }
+
+                return result ?? new PackagePaymentResult
+                {
+                    Success = response.IsSuccessStatusCode,
+                    Message = response.ReasonPhrase ?? "Khong kiem tra duoc thanh toan."
+                };
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                return new PackagePaymentResult
+                {
+                    Success = false,
+                    Message = BuildNetworkErrorMessage(ex)
+                };
+            }
+        }
+
         public async Task<ValidateAccessResult> ValidateAccessAsync(string accessToken)
         {
             if (string.IsNullOrWhiteSpace(accessToken))
@@ -493,6 +575,20 @@ namespace MauiApp1.Services
 
     public class PackageAccessRegistrationResult : QrScanResult
     {
+    }
+
+    public class PackagePaymentResult : PackageAccessRegistrationResult
+    {
+        public string? PaymentReference { get; set; }
+        public string? PaymentQrPayload { get; set; }
+        public string? PaymentContent { get; set; }
+        public decimal Amount { get; set; }
+        public string? BankBin { get; set; }
+        public string? BankAccountNo { get; set; }
+        public string? BankAccountName { get; set; }
+        public DateTime? PaymentCreatedAt { get; set; }
+        public DateTime? PaymentPaidAt { get; set; }
+        public string? PaymentStatus { get; set; }
     }
 
     public class HeartbeatResult

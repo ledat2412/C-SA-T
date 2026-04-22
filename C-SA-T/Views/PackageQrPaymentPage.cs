@@ -21,9 +21,17 @@ public class PackageQrPaymentPage : ContentPage
     private readonly VerticalStackLayout _bypassChoiceLayout;
     private readonly Label _statusLabel;
     private readonly Label _helperLabel;
+    private readonly Label _paymentReferenceLabel;
+    private readonly Label _paymentAmountLabel;
+    private readonly BarcodeGeneratorView _paymentQrView;
     private readonly VerticalStackLayout _successLayout;
     private bool _isSubmitting;
+    private bool _isCheckingPayment;
     private bool _hasActivated;
+    private bool _paymentInitialized;
+    private IDispatcherTimer? _paymentStatusTimer;
+    private string _paymentReference = string.Empty;
+    private static readonly TimeSpan PaymentStatusPollInterval = TimeSpan.FromSeconds(5);
 
     public PackageQrPaymentPage(AccessFlowService accessFlowService, LocalizationService localizationService, PackagePlanOption plan, string email, IImageGallerySaver? gallerySaver = null)
     {
@@ -62,6 +70,31 @@ public class PackageQrPaymentPage : ContentPage
             PlaceholderColor = MauiColor.FromArgb("#94A3B8")
         };
         _emailEntry.TextChanged += (_, __) => RefreshBypassButtons();
+
+        _paymentReferenceLabel = new Label
+        {
+            Text = string.Empty,
+            FontSize = 12,
+            TextColor = MauiColor.FromArgb("#334155"),
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        _paymentAmountLabel = new Label
+        {
+            Text = string.Empty,
+            FontSize = 12,
+            TextColor = MauiColor.FromArgb("#334155"),
+            LineBreakMode = LineBreakMode.WordWrap
+        };
+
+        _paymentQrView = new BarcodeGeneratorView
+        {
+            Value = "CSAT-PAYMENT-LOADING",
+            Format = ZXing.Net.Maui.BarcodeFormat.QrCode,
+            WidthRequest = 220,
+            HeightRequest = 220,
+            ForegroundColor = Colors.Black
+        };
 
         _bypassEmailButton = new Button
         {
@@ -145,8 +178,6 @@ public class PackageQrPaymentPage : ContentPage
         tap.Tapped += async (_, __) => await Navigation.PopAsync();
         backButton.GestureRecognizers.Add(tap);
 
-        var paymentPayload = $"PAYQR|goi={_plan.BackendPackageId}|gia={_plan.Price:0}";
-
         Content = new ScrollView
         {
             Content = new VerticalStackLayout
@@ -205,15 +236,10 @@ public class PackageQrPaymentPage : ContentPage
                                     StrokeShape = new RoundRectangle { CornerRadius = 18 },
                                     Padding = new Thickness(18),
                                     HorizontalOptions = LayoutOptions.Center,
-                                    Content = new BarcodeGeneratorView
-                                    {
-                                        Value = paymentPayload,
-                                        Format = ZXing.Net.Maui.BarcodeFormat.QrCode,
-                                        WidthRequest = 220,
-                                        HeightRequest = 220,
-                                        ForegroundColor = Colors.Black
-                                    }
+                                    Content = _paymentQrView
                                 },
+                                _paymentReferenceLabel,
+                                _paymentAmountLabel,
                                 _statusLabel,
                                 _helperLabel,
                                 new HorizontalStackLayout
@@ -238,11 +264,123 @@ public class PackageQrPaymentPage : ContentPage
                 }
             }
         };
+
+        Loaded += async (_, __) => await InitializePaymentAsync();
     }
 
     private void RefreshBypassButtons()
     {
         _bypassEmailButton.IsEnabled = !_isSubmitting && !_hasActivated && IsValidEmail(_emailEntry.Text);
+    }
+
+    private async Task InitializePaymentAsync()
+    {
+        if (_paymentInitialized)
+            return;
+
+        _paymentInitialized = true;
+        _statusLabel.Text = GetText("status_creating_payment");
+        _helperLabel.Text = GetText("helper_creating_payment");
+
+        var result = await _accessFlowService.CreatePackagePaymentAsync(string.Empty, _plan.BackendPackageId, sendEmail: false);
+        if (!result.Success || string.IsNullOrWhiteSpace(result.PaymentQrPayload))
+        {
+            _statusLabel.Text = GetText("status_failed");
+            _helperLabel.Text = result.Message;
+            return;
+        }
+
+        _paymentReference = result.PaymentReference ?? string.Empty;
+        _paymentQrView.Value = result.PaymentQrPayload;
+        _paymentReferenceLabel.Text = string.Format(GetText("payment_reference"), result.PaymentContent ?? _paymentReference);
+        _paymentAmountLabel.Text = string.Format(GetText("payment_amount"), result.Amount);
+        _statusLabel.Text = GetText("status_waiting");
+        _helperLabel.Text = GetText("helper_auto_waiting");
+        StartPaymentStatusPolling();
+        await CheckPaymentAsync(showPendingAlert: false);
+    }
+
+    private async Task CheckPaymentAsync(bool showPendingAlert)
+    {
+        if (_isSubmitting || _isCheckingPayment || _hasActivated || string.IsNullOrWhiteSpace(_paymentReference))
+            return;
+
+        _isCheckingPayment = true;
+        try
+        {
+            if (showPendingAlert)
+            {
+                _statusLabel.Text = GetText("status_checking_payment");
+                _helperLabel.Text = GetText("helper_checking_payment");
+            }
+
+            var result = await _accessFlowService.ConfirmPackagePaymentAsync(_paymentReference, string.Empty, _plan.BackendPackageId);
+            if (!result.Success)
+            {
+                _statusLabel.Text = GetText("status_waiting");
+                _helperLabel.Text = showPendingAlert ? result.Message : GetText("helper_auto_waiting");
+                if (showPendingAlert)
+                    await DisplayAlertAsync(GetText("pending_title"), result.Message, _loc.Get("alert_ok"));
+                return;
+            }
+
+            StopPaymentStatusPolling();
+            _hasActivated = true;
+            _statusLabel.Text = GetText("status_activated");
+            _helperLabel.Text = result.EmailSent
+                ? GetText("helper_email_sent")
+                : GetText("helper_qr_ready");
+
+            ShowSuccess(result);
+
+            var payload = result.QrTokenPayload ?? result.AccessToken;
+            if (!string.IsNullOrWhiteSpace(payload))
+                await SaveAndShareQrAsync(payload);
+        }
+        finally
+        {
+            _isCheckingPayment = false;
+        }
+    }
+
+    private void StartPaymentStatusPolling()
+    {
+        StopPaymentStatusPolling();
+
+        _paymentStatusTimer = Dispatcher.CreateTimer();
+        _paymentStatusTimer.Interval = PaymentStatusPollInterval;
+        _paymentStatusTimer.IsRepeating = true;
+        _paymentStatusTimer.Tick += OnPaymentStatusTimerTick;
+        _paymentStatusTimer.Start();
+    }
+
+    private void StopPaymentStatusPolling()
+    {
+        if (_paymentStatusTimer is null)
+            return;
+
+        _paymentStatusTimer.Stop();
+        _paymentStatusTimer.Tick -= OnPaymentStatusTimerTick;
+        _paymentStatusTimer = null;
+    }
+
+    private async void OnPaymentStatusTimerTick(object? sender, EventArgs e)
+    {
+        await CheckPaymentAsync(showPendingAlert: false);
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+
+        if (_paymentInitialized && !_hasActivated && !string.IsNullOrWhiteSpace(_paymentReference))
+            StartPaymentStatusPolling();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        StopPaymentStatusPolling();
     }
 
     private static bool IsValidEmail(string? email)
@@ -257,10 +395,13 @@ public class PackageQrPaymentPage : ContentPage
         if (_isSubmitting || _hasActivated)
             return;
 
+        StopPaymentStatusPolling();
         var email = _emailEntry.Text?.Trim() ?? string.Empty;
         if (sendEmail && !IsValidEmail(email))
         {
             await DisplayAlertAsync(GetText("failed_title"), GetText("invalid_email"), _loc.Get("alert_ok"));
+            if (!string.IsNullOrWhiteSpace(_paymentReference))
+                StartPaymentStatusPolling();
             return;
         }
 
@@ -310,6 +451,8 @@ public class PackageQrPaymentPage : ContentPage
             {
                 _bypassDownloadButton.IsEnabled = true;
                 RefreshBypassButtons();
+                if (!string.IsNullOrWhiteSpace(_paymentReference))
+                    StartPaymentStatusPolling();
             }
         }
     }
@@ -515,7 +658,16 @@ public class PackageQrPaymentPage : ContentPage
             "en" => key switch
             {
                 "status_waiting" => "Waiting for payment confirmation",
-                "helper_waiting" => "The QR payment flow is currently simulated. Check bypass to skip the real payment step, then choose to receive the QR by email or download it directly.",
+                "status_creating_payment" => "Creating VietQR payment code...",
+                "helper_creating_payment" => "The backend is creating a pending invoice with the package and this device code.",
+                "status_checking_payment" => "Checking Casso payment confirmation...",
+                "helper_checking_payment" => "If Casso has received the bank transfer webhook, the login QR token will be created now.",
+                "helper_waiting" => "Scan this VietQR with your banking app. The transfer content contains the package code and this device code so Casso can match the webhook.",
+                "helper_auto_waiting" => "Scan this VietQR with your banking app. The app will check Casso automatically and open the login QR when payment is confirmed.",
+                "check_payment" => "I paid, check now",
+                "pending_title" => "Payment pending",
+                "payment_reference" => "Transfer content: {0}",
+                "payment_amount" => "Amount: {0:N0} VND",
                 "bypass_button" => "Confirm bypass",
                 "back" => "Back",
                 "title" => "QR payment",
@@ -557,7 +709,16 @@ public class PackageQrPaymentPage : ContentPage
             "ko" => key switch
             {
                 "status_waiting" => "결제 확인 대기 중",
-                "helper_waiting" => "현재 QR 결제 흐름은 시뮬레이션입니다. bypass를 체크해 결제를 건너뛴 뒤 이메일 수신 또는 기기에 직접 다운로드를 선택하세요.",
+                "status_creating_payment" => "Creating VietQR payment code...",
+                "helper_creating_payment" => "Creating a pending invoice with this package and device code.",
+                "status_checking_payment" => "Checking Casso payment confirmation...",
+                "helper_checking_payment" => "If Casso has received the webhook, the login QR token will be created now.",
+                "helper_waiting" => "Scan this VietQR with your banking app. The transfer content identifies the package and device.",
+                "helper_auto_waiting" => "Scan this VietQR with your banking app. The app checks Casso automatically and opens the login QR after payment.",
+                "check_payment" => "I paid, check now",
+                "pending_title" => "Payment pending",
+                "payment_reference" => "Transfer content: {0}",
+                "payment_amount" => "Amount: {0:N0} VND",
                 "bypass_button" => "bypass 확인",
                 "back" => "뒤로",
                 "title" => "QR 결제",
@@ -599,7 +760,16 @@ public class PackageQrPaymentPage : ContentPage
             "ja" => key switch
             {
                 "status_waiting" => "支払い確認待ち",
-                "helper_waiting" => "現在のQR決済フローはシミュレーションです。bypass をチェックして支払いを飛ばし、その後メール受信または端末に直接ダウンロードを選んでください。",
+                "status_creating_payment" => "Creating VietQR payment code...",
+                "helper_creating_payment" => "Creating a pending invoice with this package and device code.",
+                "status_checking_payment" => "Checking Casso payment confirmation...",
+                "helper_checking_payment" => "If Casso has received the webhook, the login QR token will be created now.",
+                "helper_waiting" => "Scan this VietQR with your banking app. The transfer content identifies the package and device.",
+                "helper_auto_waiting" => "Scan this VietQR with your banking app. The app checks Casso automatically and opens the login QR after payment.",
+                "check_payment" => "I paid, check now",
+                "pending_title" => "Payment pending",
+                "payment_reference" => "Transfer content: {0}",
+                "payment_amount" => "Amount: {0:N0} VND",
                 "bypass_button" => "bypass を確認",
                 "back" => "戻る",
                 "title" => "QR決済",
@@ -641,7 +811,16 @@ public class PackageQrPaymentPage : ContentPage
             _ => key switch
             {
                 "status_waiting" => "Chờ xác nhận thanh toán",
-                "helper_waiting" => "Luồng QR thanh toán hiện đang mô phỏng. Tick bypass để bỏ qua thanh toán thật, sau đó chọn nhận QR qua email hoặc tải trực tiếp về máy.",
+                "status_creating_payment" => "Dang tao ma thanh toan VietQR...",
+                "helper_creating_payment" => "Backend dang tao hoa don cho thanh toan voi ma goi va ma thiet bi hien tai.",
+                "status_checking_payment" => "Dang kiem tra xac nhan thanh toan Casso...",
+                "helper_checking_payment" => "Neu Casso da gui webhook giao dich ngan hang, he thong se kich hoat goi va sinh QR token dang nhap.",
+                "helper_waiting" => "Quet VietQR nay bang app ngan hang. Noi dung chuyen khoan co ma goi va ma thiet bi de Casso webhook khop dung hoa don.",
+                "helper_auto_waiting" => "Quet VietQR nay bang app ngan hang. App se tu kiem tra Casso va mo QR token dang nhap khi thanh toan duoc xac nhan.",
+                "check_payment" => "Da thanh toan, kiem tra",
+                "pending_title" => "Chua co thanh toan",
+                "payment_reference" => "Noi dung chuyen khoan: {0}",
+                "payment_amount" => "So tien: {0:N0} VND",
                 "bypass_button" => "Xác thực bypass",
                 "back" => "Quay lại",
                 "title" => "Thanh toán QR",

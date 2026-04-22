@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VinhKhanh.Dtos;
 using VinhKhanh.Services;
@@ -53,6 +54,73 @@ namespace VinhKhanh.Controllers
                 return BadRequest(result);
 
             return Ok(result);
+        }
+
+        [HttpPost("package/payment")]
+        public async Task<IActionResult> CreatePackagePayment([FromBody] CreatePackagePaymentRequestDto request)
+        {
+            var result = await _accessSessionService.CreatePackagePaymentAsync(request);
+
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+
+        [HttpGet("package/payment/{paymentReference}")]
+        public async Task<IActionResult> GetPackagePaymentStatus([FromRoute] string paymentReference)
+        {
+            var result = await _accessSessionService.GetPackagePaymentStatusAsync(paymentReference);
+
+            if (!result.Success)
+                return NotFound(result);
+
+            return Ok(result);
+        }
+
+        [HttpPost("casso/webhook")]
+        [HttpPost("~/api/webhook/casso")]
+        public async Task<IActionResult> CassoWebhook([FromBody] JsonElement payload)
+        {
+            var securityKey = ResolveCassoSecurityKey();
+            if (!_accessSessionService.IsValidCassoSecurityKey(securityKey))
+                return Unauthorized(new { success = false, message = "Casso security key khong hop le." });
+
+            var result = await _accessSessionService.HandleCassoWebhookAsync(payload);
+            return Ok(new
+            {
+                success = result.Success,
+                message = result.Message,
+                processed = result.Processed,
+                activated = result.Activated,
+                ignored = result.Ignored
+            });
+        }
+
+        private string? ResolveCassoSecurityKey()
+        {
+            foreach (var headerName in new[]
+            {
+                "secure-token",
+                "Secure-Token",
+                "x-casso-secure-token",
+                "X-Casso-Secure-Token",
+                "x-api-key",
+                "X-Api-Key"
+            })
+            {
+                if (Request.Headers.TryGetValue(headerName, out var value) &&
+                    !string.IsNullOrWhiteSpace(value.ToString()))
+                {
+                    return value.ToString();
+                }
+            }
+
+            var authorization = Request.Headers.Authorization.ToString();
+            if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                return authorization["Bearer ".Length..].Trim();
+
+            return null;
         }
     }
 }
