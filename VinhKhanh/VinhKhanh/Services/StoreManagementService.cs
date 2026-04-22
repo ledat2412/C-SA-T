@@ -37,8 +37,8 @@ namespace VinhKhanh.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                INSERT INTO gianhang (idChuQuanLy, ten, diaChi, lat, lon, tinhTrang, phiHangThang, ngayDangKy, thoiGianCapNhat)
-                VALUES (@idChuQuanLy, @ten, @diaChi, @lat, @lon, @tinhTrang, @phiHangThang, NOW(), NOW());
+                INSERT INTO gianhang (idChuQuanLy, ten, diaChi, lat, lon, vongBo, tinhTrang, phiHangThang, ngayDangKy, thoiGianCapNhat)
+                VALUES (@idChuQuanLy, @ten, @diaChi, @lat, @lon, @vongBo, @tinhTrang, @phiHangThang, NOW(), NOW());
                 SELECT LAST_INSERT_ID();";
 
             using var cmd = new MySqlCommand(sql, conn);
@@ -47,6 +47,7 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@vongBo", request.VongBo ?? 10m);
             cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrang));
             cmd.Parameters.AddWithValue("@phiHangThang", request.PhiHangThang);
 
@@ -68,6 +69,7 @@ namespace VinhKhanh.Services
                     diaChi = @diaChi,
                     lat = @lat,
                     lon = @lon,
+                    vongBo = COALESCE(@vongBo, vongBo),
                     tinhTrang = @tinhTrang,
                     phiHangThang = @phiHangThang,
                     thoiGianCapNhat = NOW()
@@ -80,6 +82,7 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@vongBo", request.VongBo.HasValue ? request.VongBo.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrang));
             cmd.Parameters.AddWithValue("@phiHangThang", request.PhiHangThang);
 
@@ -90,7 +93,7 @@ namespace VinhKhanh.Services
             return await GetOwnerStoreByIdAsync(idGianHang, conn);
         }
 
-        public async Task<OwnerStoreDto?> UpdateStoreByOwnerAsync(int idGianHang, UpsertStoreRequestDto request)
+        public async Task<OwnerStoreDto?> UpdateStoreByOwnerAsync(int idGianHang, int idTaiKhoan, UpsertStoreRequestDto request)
         {
             ValidateStoreRequestForOwner(request);
 
@@ -98,17 +101,20 @@ namespace VinhKhanh.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                UPDATE gianhang
-                SET ten = @ten,
-                    diaChi = @diaChi,
-                    lat = @lat,
-                    lon = @lon,
-                    tinhTrang = @tinhTrang,
-                    thoiGianCapNhat = NOW()
-                WHERE idGianHang = @idGianHang;";
+                UPDATE gianhang gh
+                INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
+                SET gh.ten = @ten,
+                    gh.diaChi = @diaChi,
+                    gh.lat = @lat,
+                    gh.lon = @lon,
+                    gh.tinhTrang = @tinhTrang,
+                    gh.thoiGianCapNhat = NOW()
+                WHERE gh.idGianHang = @idGianHang
+                  AND cql.idTaiKhoan = @idTaiKhoan;";
 
             using var cmd = new MySqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+            cmd.Parameters.AddWithValue("@idTaiKhoan", idTaiKhoan);
             cmd.Parameters.AddWithValue("@ten", request.Ten);
             cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
@@ -403,6 +409,7 @@ namespace VinhKhanh.Services
                     gh.diaChi,
                     gh.lat,
                     gh.lon,
+                    gh.vongBo,
                     gh.tinhTrang,
                     gh.phiHangThang,
                     gh.ngayDangKy,
@@ -446,6 +453,7 @@ namespace VinhKhanh.Services
                 HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString()),
                 Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]),
                 Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
+                VongBo = reader.GetDecimal("vongBo"),
                 TinhTrang = reader["tinhTrang"]?.ToString(),
                 PhiHangThang = reader.GetDecimal("phiHangThang"),
                 NgayDangKy = Convert.ToDateTime(reader["ngayDangKy"]),
@@ -554,6 +562,7 @@ namespace VinhKhanh.Services
                     gh.diaChi,
                     gh.lat,
                     gh.lon,
+                    gh.vongBo,
                     gh.tinhTrang,
                     (
                         SELECT hgg.duongDan
@@ -582,6 +591,7 @@ namespace VinhKhanh.Services
                 DiaChi = reader["diaChi"]?.ToString(),
                 Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDouble(reader["lat"]),
                 Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
+                VongBo = reader.GetDecimal("vongBo"),
                 TinhTrang = reader["tinhTrang"]?.ToString(),
                 HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString()),
                 PhiHangThang = reader.GetDecimal("phiHangThang"),
@@ -634,6 +644,8 @@ namespace VinhKhanh.Services
                 throw new ArgumentException("Ten gian hang khong duoc rong.");
             if (request.PhiHangThang < 0)
                 throw new ArgumentException("Phi hang thang khong hop le.");
+            if (request.VongBo.HasValue && request.VongBo.Value <= 0)
+                throw new ArgumentException("Vong bo phai lon hon 0.");
             var status = NormalizeStoreStatus(request.TinhTrang);
             ValidateStoreCoordinates(request, requireCoordinates: status == "dang_hoat_dong");
         }

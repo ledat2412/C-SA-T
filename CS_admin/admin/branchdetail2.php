@@ -33,9 +33,9 @@ function store_form_owner_options_url($idTaiKhoan)
     return backend_api_url('Admin/owners') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
-function store_form_description_url($idGianHang)
+function store_form_description_url($idGianHang, $idTaiKhoan)
 {
-    return backend_api_url('GianHang/' . rawurlencode((string) $idGianHang) . '/update-mo-ta');
+    return backend_api_url('GianHang/' . rawurlencode((string) $idGianHang) . '/update-mo-ta') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
 function store_form_request_collection_url($idTaiKhoan)
@@ -53,12 +53,12 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $error = '';
     $conn = admin_db_connection();
     if (!$conn instanceof mysqli) {
-        $error = 'Khong the mo ket noi DB de luu yeu cau.';
+        $error = 'Không thể mở kết nối DB để lưu yêu cầu.';
         return 0;
     }
 
     if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Khong the khoi tao bang yeu cau: ' . $conn->error;
+        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
         $conn->close();
         return 0;
     }
@@ -86,7 +86,7 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
 
     $ownerId = isset($ownerRow['idChuQuanLy']) ? (int) $ownerRow['idChuQuanLy'] : 0;
     if ($ownerId <= 0) {
-        $error = 'Tai khoan hien tai chua co ho so chu quan ly.';
+        $error = 'Tài khoản hiện tại chưa có hồ sơ chủ quản lý.';
         $conn->close();
         return 0;
     }
@@ -126,12 +126,62 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $stmt->execute();
     $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
     if ($stmt->errno !== 0) {
-        $error = $stmt->error !== '' ? $stmt->error : 'Khong the luu yeu cau moi.';
+        $error = $stmt->error !== '' ? $stmt->error : 'Không thể lưu yêu cầu mới.';
     }
 
     $stmt->close();
     $conn->close();
     return $newId;
+}
+
+function store_form_can_access_store($role, $idTaiKhoan, $idGianHang, &$error)
+{
+    $error = '';
+    if ($role !== 'chu_quan_ly') {
+        return true;
+    }
+
+    if ((int) $idTaiKhoan <= 0 || (int) $idGianHang <= 0) {
+        $error = 'Phiên đăng nhập hoặc gian hàng không hợp lệ.';
+        return false;
+    }
+
+    $conn = admin_db_connection();
+    if (!$conn instanceof mysqli) {
+        $error = 'Không thể kết nối DB để kiểm tra quyền gian hàng.';
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM gianhang gh
+        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
+        WHERE gh.idGianHang = ?
+          AND cql.idTaiKhoan = ?
+        LIMIT 1
+    ");
+    if (!$stmt) {
+        $error = $conn->error;
+        $conn->close();
+        return false;
+    }
+
+    $stmt->bind_param('ii', $idGianHang, $idTaiKhoan);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $allowed = $result ? $result->fetch_assoc() : null;
+    if ($result) {
+        $result->free();
+    }
+    $stmt->close();
+    $conn->close();
+
+    if (!is_array($allowed)) {
+        $error = 'Bạn không có quyền xem hoặc chỉnh sửa gian hàng này.';
+        return false;
+    }
+
+    return true;
 }
 
 function store_form_call_json($method, $url, $payload, &$error, &$httpCode = 0)
@@ -193,7 +243,7 @@ function store_form_call_file_upload($url, $fieldName, $fileInfo, &$error, &$htt
     $httpCode = 0;
 
     if (!is_array($fileInfo) || empty($fileInfo['tmp_name']) || !is_file($fileInfo['tmp_name'])) {
-        $error = 'Khong tim thay file tam de tai len.';
+        $error = 'Không tìm thấy file tạm để tải lên.';
         return null;
     }
 
@@ -214,7 +264,7 @@ function store_form_call_file_upload($url, $fieldName, $fileInfo, &$error, &$htt
 
     $body = curl_exec($ch);
     if ($body === false) {
-        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Khong the tai anh len backend.';
+        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Không thể tải ảnh lên backend.';
         curl_close($ch);
         return null;
     }
@@ -227,13 +277,13 @@ function store_form_call_file_upload($url, $fieldName, $fileInfo, &$error, &$htt
         if (is_array($decoded) && !empty($decoded['message'])) {
             $error = (string) $decoded['message'];
         } else {
-            $error = 'API tra ve HTTP ' . $httpCode . '.';
+            $error = 'API trả về HTTP ' . $httpCode . '.';
         }
         return null;
     }
 
     if ($decoded === null && trim($body) !== '') {
-        $error = 'Phan hoi tai anh khong hop le.';
+        $error = 'Phản hồi tải ảnh không hợp lệ.';
         return null;
     }
 
@@ -284,16 +334,34 @@ function store_form_coordinate_error($value, $min, $max, $label, $required)
 {
     $value = trim((string) $value);
     if ($value === '') {
-        return $required ? $label . ' khong duoc de trong khi gian hang dang hoat dong.' : '';
+        return $required ? $label . ' không được để trống khi gian hàng đang hoạt động.' : '';
     }
 
     if (!is_numeric($value)) {
-        return $label . ' khong hop le.';
+        return $label . ' không hợp lệ.';
     }
 
     $number = (float) $value;
     if ($number < $min || $number > $max) {
-        return $label . ' phai nam trong khoang ' . $min . ' den ' . $max . '.';
+        return $label . ' phải nằm trong khoảng ' . $min . ' đến ' . $max . '.';
+    }
+
+    return '';
+}
+
+function store_form_positive_number_error($value, $label, $required)
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return $required ? $label . ' không được để trống.' : '';
+    }
+
+    if (!is_numeric($value)) {
+        return $label . ' không hợp lệ.';
+    }
+
+    if ((float) $value <= 0) {
+        return $label . ' phải lớn hơn 0.';
     }
 
     return '';
@@ -319,6 +387,7 @@ function store_form_prepare_form_data($store)
         'moTa' => isset($store['moTa']) && $store['moTa'] !== null ? (string) $store['moTa'] : '',
         'lat' => isset($store['lat']) && $store['lat'] !== null ? (string) $store['lat'] : '',
         'lon' => isset($store['lon']) && $store['lon'] !== null ? (string) $store['lon'] : '',
+        'vongBo' => isset($store['vongBo']) && $store['vongBo'] !== null ? (string) $store['vongBo'] : '10',
         'phiHangThang' => isset($store['phiHangThang']) ? (string) $store['phiHangThang'] : '0',
         'currentPhiHangThang' => isset($store['phiHangThang']) ? (string) $store['phiHangThang'] : '0',
         'tinhTrang' => store_form_normalize_status(isset($store['tinhTrang']) ? $store['tinhTrang'] : ''),
@@ -418,6 +487,7 @@ if ($flash === 'created') {
 $isOwnerRequestMode = $isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $isOwnerStoreEditMode = !$isCreateMode && $loaiTaiKhoan === 'chu_quan_ly';
 $showOwnerEmailInput = $loaiTaiKhoan === 'admin';
+$canEditVongBo = $loaiTaiKhoan === 'admin';
 if ($showOwnerEmailInput && $idTaiKhoan > 0) {
     $ownerOptionsResult = store_form_call_json('GET', store_form_owner_options_url($idTaiKhoan), null, $ownerOptionsError);
     if (is_array($ownerOptionsResult)) {
@@ -436,6 +506,7 @@ $formData = array(
     'moTa' => '',
     'lat' => '',
     'lon' => '',
+    'vongBo' => '10',
     'phiHangThang' => '0',
     'currentPhiHangThang' => '0',
     'tinhTrang' => 'dang_hoat_dong',
@@ -449,6 +520,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
         'moTa' => trim((string) ($_POST['moTa'] ?? '')),
         'lat' => trim((string) ($_POST['lat'] ?? '')),
         'lon' => trim((string) ($_POST['lon'] ?? '')),
+        'vongBo' => trim((string) ($_POST['vongBo'] ?? '10')),
         'phiHangThang' => trim((string) ($_POST['phiHangThang'] ?? '0')),
         'currentPhiHangThang' => trim((string) ($_POST['currentPhiHangThang'] ?? '0')),
         'tinhTrang' => store_form_normalize_status($_POST['tinhTrang'] ?? ''),
@@ -461,24 +533,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
     if ($uploadedImage !== null && isset($uploadedImage['error'])) {
         $uploadErrorCode = (int) $uploadedImage['error'];
         if ($uploadErrorCode !== UPLOAD_ERR_OK && $uploadErrorCode !== UPLOAD_ERR_NO_FILE) {
-            $imageUploadError = 'Tai file anh len that bai. Vui long chon lai anh hop le.';
+            $imageUploadError = 'Tải file ảnh lên thất bại. Vui lòng chọn lại ảnh hợp lệ.';
         }
     }
 
     $requiresCoordinates = !$isOwnerRequestMode && $formData['tinhTrang'] === 'dang_hoat_dong';
-    $latError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lat'], -90, 90, 'Vi do', $requiresCoordinates) : '';
-    $lonError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lon'], -180, 180, 'Kinh do', $requiresCoordinates) : '';
+    $latError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lat'], -90, 90, 'Vĩ độ', $requiresCoordinates) : '';
+    $lonError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lon'], -180, 180, 'Kinh độ', $requiresCoordinates) : '';
+    $vongBoError = $canEditVongBo ? store_form_positive_number_error($formData['vongBo'], 'Vòng bò', true) : '';
+    $storeAccessError = '';
+    $hasStoreAccess = $isCreateMode || store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $storeAccessError);
 
     if ($formData['ten'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng không được để trống.');
     } elseif ($idTaiKhoan <= 0) {
         $pageMessage = array('type' => 'error', 'text' => 'Phiên đăng nhập không hợp lệ, không thể lưu dữ liệu.');
+    } elseif (!$hasStoreAccess) {
+        $pageMessage = array('type' => 'error', 'text' => $storeAccessError);
     } elseif ($showOwnerEmailInput && $formData['emailChuQuanLy'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Admin cần nhập email của chủ gian hàng.');
     } elseif ($latError !== '') {
         $pageMessage = array('type' => 'error', 'text' => $latError);
     } elseif ($lonError !== '') {
         $pageMessage = array('type' => 'error', 'text' => $lonError);
+    } elseif ($vongBoError !== '') {
+        $pageMessage = array('type' => 'error', 'text' => $vongBoError);
     } elseif ($imageUploadError !== '') {
         $pageMessage = array('type' => 'error', 'text' => $imageUploadError);
     } else {
@@ -499,6 +578,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
             'phiHangThang' => $effectivePhiHangThang,
             'tinhTrang' => $formData['tinhTrang'],
         );
+
+        if ($canEditVongBo) {
+            $payload['vongBo'] = (float) $formData['vongBo'];
+        }
 
         if ($showOwnerEmailInput) {
             $payload['emailChuQuanLy'] = $formData['emailChuQuanLy'];
@@ -551,7 +634,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                         $descriptionError = '';
                         $descriptionResult = store_form_call_json(
                             'PUT',
-                            store_form_description_url($newId),
+                            store_form_description_url($newId, $idTaiKhoan),
                             array('languageCode' => $selectedLanguage, 'moTa' => $formData['moTa']),
                             $descriptionError
                         );
@@ -583,7 +666,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                 $descriptionError = '';
                 $descriptionResult = store_form_call_json(
                     'PUT',
-                    store_form_description_url($idGianHang),
+                    store_form_description_url($idGianHang, $idTaiKhoan),
                     array('languageCode' => $selectedLanguage, 'moTa' => $formData['moTa']),
                     $descriptionError
                 );
@@ -613,16 +696,21 @@ if (!$isCreateMode) {
     if ($idGianHang <= 0) {
         $pageError = 'Không xác định được gian hàng cần chỉnh sửa.';
     } else {
-        $detailError = '';
-        $detailResult = store_form_call_json('GET', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError);
+        $accessError = '';
+        if (!store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $accessError)) {
+            $pageError = $accessError;
+        } else {
+            $detailError = '';
+            $detailResult = store_form_call_json('GET', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError);
 
-        if (is_array($detailResult)) {
-            $store = $detailResult;
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $pageMessage === null || $pageMessage['type'] !== 'error') {
-                $formData = store_form_prepare_form_data($store);
+            if (is_array($detailResult)) {
+                $store = $detailResult;
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $pageMessage === null || $pageMessage['type'] !== 'error') {
+                    $formData = store_form_prepare_form_data($store);
+                }
+            } elseif ($pageError === '') {
+                $pageError = 'Không tải được thông tin gian hàng: ' . $detailError;
             }
-        } elseif ($pageError === '') {
-            $pageError = 'Không tải được thông tin gian hàng: ' . $detailError;
         }
     }
 }
@@ -757,7 +845,7 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
                 <span><?php echo $isOwnerRequestMode ? 'Ghi chú gửi' : ('Mô tả (' . htmlspecialchars(store_form_language_label($selectedLanguage), ENT_QUOTES, 'UTF-8') . ')'); ?></span>
                 <textarea name="moTa" rows="5"><?php echo htmlspecialchars($formData['moTa'], ENT_QUOTES, 'UTF-8'); ?></textarea>
                 <?php if ($isOwnerRequestMode) { ?>
-                <small class="form-help">Chu quan ly chi gui ghi chu cho admin tham khao khi duyet yeu cau.</small>
+                <small class="form-help">Chủ quản lý chỉ gửi ghi chú cho admin tham khảo khi duyệt yêu cầu.</small>
                 <?php } else { ?>
                 <small class="form-help">Nội dung này được tải và lưu theo ngôn ngữ đang chọn ở góc trên.</small>
                 <?php } ?>
@@ -772,6 +860,18 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
               <label class="form-field">
                 <span>Kinh độ (Lon)</span>
                 <input type="number" min="-180" max="180" step="0.000001" name="lon" value="<?php echo htmlspecialchars($formData['lon'], ENT_QUOTES, 'UTF-8'); ?>" />
+              </label>
+
+              <label class="form-field">
+                <span>Vòng bò (m)</span>
+                <?php if ($canEditVongBo) { ?>
+                <input type="number" min="0.01" step="0.01" name="vongBo" value="<?php echo htmlspecialchars($formData['vongBo'], ENT_QUOTES, 'UTF-8'); ?>" required />
+                <small class="form-help">Bán kính geofence của gian hàng, phải lớn hơn 0 mét.</small>
+                <?php } else { ?>
+                <input type="hidden" name="vongBo" value="<?php echo htmlspecialchars($formData['vongBo'], ENT_QUOTES, 'UTF-8'); ?>" />
+                <input type="text" value="<?php echo htmlspecialchars($formData['vongBo'] . ' m', ENT_QUOTES, 'UTF-8'); ?>" readonly />
+                <small class="form-help">Chỉ admin mới được chỉnh sửa vòng bò của gian hàng.</small>
+                <?php } ?>
               </label>
 
               <label class="form-field">

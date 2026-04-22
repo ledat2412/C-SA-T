@@ -173,7 +173,7 @@ function service_name_exists_in_database($packageName, $excludeId, &$error)
     $error = '';
     $conn = admin_db_connection();
     if (!$conn instanceof mysqli) {
-        $error = 'KhÃ´ng thá»ƒ má»Ÿ káº¿t ná»‘i DB fallback.';
+        $error = 'Không thể mở kết nối DB fallback.';
         return null;
     }
 
@@ -363,7 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $duplicateCheckError = '';
         $isDuplicateName = service_name_exists_in_database($payload['ten'], $idGoi, $duplicateCheckError);
         if ($isDuplicateName === true) {
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', 'TÃªn gÃ³i dá»‹ch vá»¥ Ä‘Ã£ tá»“n táº¡i trong há»‡ thá»‘ng.'));
+            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', 'Tên gói dịch vụ đã tồn tại trong hệ thống.'));
             exit;
         }
 
@@ -531,28 +531,28 @@ foreach ($packages as $package) {
       <?php if ($serviceError !== '') { ?>
       <div class="service-toast error" role="alert">
         <div class="service-toast-copy">
-          <strong>Loi thao tac</strong>
+          <strong>Lỗi thao tác</strong>
           <p><?php echo htmlspecialchars($serviceError, ENT_QUOTES, 'UTF-8'); ?></p>
         </div>
-        <button class="service-toast-close" type="button" aria-label="Dong thong bao">&times;</button>
+        <button class="service-toast-close" type="button" aria-label="Đóng thông báo">&times;</button>
       </div>
       <?php } ?>
       <?php if ($serviceNotice !== '') { ?>
       <div class="service-toast warning" role="status">
         <div class="service-toast-copy">
-          <strong>Luu y</strong>
+          <strong>Lưu ý</strong>
           <p><?php echo htmlspecialchars($serviceNotice, ENT_QUOTES, 'UTF-8'); ?></p>
         </div>
-        <button class="service-toast-close" type="button" aria-label="Dong thong bao">&times;</button>
+        <button class="service-toast-close" type="button" aria-label="Đóng thông báo">&times;</button>
       </div>
       <?php } ?>
       <?php if ($serviceMessage !== '') { ?>
       <div class="service-toast success" role="status">
         <div class="service-toast-copy">
-          <strong>Thanh cong</strong>
+          <strong>Thành công</strong>
           <p><?php echo htmlspecialchars($serviceMessage, ENT_QUOTES, 'UTF-8'); ?></p>
         </div>
-        <button class="service-toast-close" type="button" aria-label="Dong thong bao">&times;</button>
+        <button class="service-toast-close" type="button" aria-label="Đóng thông báo">&times;</button>
       </div>
       <?php } ?>
     </div>

@@ -46,10 +46,6 @@
   gap:6px;
 }
 
-.sidebar-nav [data-sidebar-item="dashboard"]{
-  display:none !important;
-}
-
 .nav-item{
   display:flex;
   align-items:center;

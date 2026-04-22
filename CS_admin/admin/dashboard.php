@@ -1,8 +1,477 @@
+<?php
+$auth = isset($_SESSION['admin_auth']) && is_array($_SESSION['admin_auth']) ? $_SESSION['admin_auth'] : array();
+$idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
+$dashboardError = '';
+
+function dashboard_range_options()
+{
+    return array(
+        '7' => '7 ngày gần nhất',
+        '30' => '30 ngày gần nhất',
+        'month' => 'Tháng này',
+    );
+}
+
+function dashboard_selected_range()
+{
+    $range = isset($_GET['range']) ? strtolower(trim((string) $_GET['range'])) : '7';
+    return array_key_exists($range, dashboard_range_options()) ? $range : '7';
+}
+
+function dashboard_store_month_options()
+{
+    return array(
+        1 => '1 tháng',
+        3 => '3 tháng',
+        6 => '6 tháng',
+        12 => '12 tháng',
+    );
+}
+
+function dashboard_selected_store_months()
+{
+    $months = isset($_GET['store_months']) ? (int) $_GET['store_months'] : 6;
+    return array_key_exists($months, dashboard_store_month_options()) ? $months : 6;
+}
+
+function dashboard_days_for_range($range)
+{
+    if ($range === '30') {
+        return 30;
+    }
+
+    if ($range === 'month') {
+        return max(1, (int) date('j'));
+    }
+
+    return 7;
+}
+
+function dashboard_query_value($conn, $sql, $types = '', $params = array(), $fallback = 0)
+{
+    if (!$conn instanceof mysqli) {
+        return $fallback;
+    }
+
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return $fallback;
+    }
+
+    if ($types !== '' && count($params) > 0) {
+        dashboard_bind_params($stmt, $types, $params);
+    }
+
+    if (!$stmt->execute()) {
+        $stmt->close();
+        return $fallback;
+    }
+
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_row() : null;
+    if ($result) {
+        $result->free();
+    }
+    $stmt->close();
+
+    return $row && isset($row[0]) ? $row[0] : $fallback;
+}
+
+function dashboard_query_rows($conn, $sql, $types = '', $params = array())
+{
+    if (!$conn instanceof mysqli) {
+        return array();
+    }
+
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return array();
+    }
+
+    if ($types !== '' && count($params) > 0) {
+        dashboard_bind_params($stmt, $types, $params);
+    }
+
+    if (!$stmt->execute()) {
+        $stmt->close();
+        return array();
+    }
+
+    $result = $stmt->get_result();
+    $rows = array();
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $result->free();
+    }
+    $stmt->close();
+
+    return $rows;
+}
+
+function dashboard_bind_params($stmt, $types, $params)
+{
+    $bindParams = array($types);
+    foreach ($params as $key => $value) {
+        $bindParams[] = &$params[$key];
+    }
+
+    call_user_func_array(array($stmt, 'bind_param'), $bindParams);
+}
+
+function dashboard_money($value)
+{
+    return number_format((float) $value, 0, ',', '.') . 'đ';
+}
+
+function dashboard_money_short($value)
+{
+    return number_format((float) $value, 0, ',', '.');
+}
+
+function dashboard_number($value)
+{
+    return number_format((float) $value, 0, ',', '.');
+}
+
+function dashboard_initials($name)
+{
+    $name = trim((string) $name);
+    if ($name === '') {
+        return 'GH';
+    }
+
+    $parts = preg_split('/\s+/u', $name);
+    $letters = '';
+    foreach ($parts as $part) {
+        if ($part === '') {
+            continue;
+        }
+        $letters .= function_exists('mb_substr') ? mb_substr($part, 0, 1, 'UTF-8') : substr($part, 0, 1);
+        if ((function_exists('mb_strlen') ? mb_strlen($letters, 'UTF-8') : strlen($letters)) >= 2) {
+            break;
+        }
+    }
+
+    return function_exists('mb_strtoupper') ? mb_strtoupper($letters, 'UTF-8') : strtoupper($letters);
+}
+
+function dashboard_status_meta($status)
+{
+    $status = strtolower(trim((string) $status));
+    if (in_array($status, array('dang_hoat_dong', 'hoat_dong', 'da_thanh_toan', 'da_duyet', 'con_ban'), true)) {
+        return array('label' => 'Hoạt động', 'class' => 'success');
+    }
+    if (in_array($status, array('cho_duyet', 'chua_thanh_toan', 'moi_tao', 'het_mon'), true)) {
+        return array('label' => 'Chờ', 'class' => 'warning');
+    }
+    if (in_array($status, array('tam_ngung', 'tam_dung'), true)) {
+        return array('label' => 'Tạm ngưng', 'class' => 'info');
+    }
+    return array('label' => 'Đóng', 'class' => 'danger');
+}
+
+function dashboard_activity_time($value)
+{
+    if (empty($value)) {
+        return 'Chưa cập nhật';
+    }
+
+    $timestamp = strtotime((string) $value);
+    if ($timestamp === false) {
+        return 'Chưa cập nhật';
+    }
+
+    return date('d/m/Y H:i', $timestamp);
+}
+
+function dashboard_chart_path($values, $width = 760, $height = 240)
+{
+    $count = count($values);
+    if ($count === 0) {
+        return 'M 0 ' . $height . ' L ' . $width . ' ' . $height;
+    }
+
+    $max = max($values);
+    $max = $max > 0 ? $max : 1;
+    $step = $count > 1 ? $width / ($count - 1) : $width;
+    $points = array();
+
+    foreach ($values as $index => $value) {
+        $x = $count > 1 ? $index * $step : $width / 2;
+        $y = $height - (((float) $value / $max) * ($height - 28)) - 12;
+        $points[] = array(round($x, 2), round($y, 2));
+    }
+
+    if (count($points) === 1) {
+        return 'M 0 ' . $points[0][1] . ' L ' . $width . ' ' . $points[0][1];
+    }
+
+    $path = 'M ' . $points[0][0] . ' ' . $points[0][1];
+    for ($i = 1; $i < count($points); $i++) {
+        $path .= ' L ' . $points[$i][0] . ' ' . $points[$i][1];
+    }
+
+    return $path;
+}
+
+function dashboard_chart_area_path($linePath, $width = 760, $height = 320)
+{
+    return $linePath . ' L ' . $width . ' ' . $height . ' L 0 ' . $height . ' Z';
+}
+
+function dashboard_percent($part, $total)
+{
+    $total = (float) $total;
+    if ($total <= 0) {
+        return 0;
+    }
+
+    return max(0, min(100, round(((float) $part / $total) * 100)));
+}
+
+$range = dashboard_selected_range();
+$rangeDays = dashboard_days_for_range($range);
+$rangeOptions = dashboard_range_options();
+$storeMonthOptions = dashboard_store_month_options();
+$storeMonthRange = dashboard_selected_store_months();
+$periodStart = $range === 'month'
+    ? date('Y-m-01 00:00:00')
+    : date('Y-m-d 00:00:00', strtotime('-' . ($rangeDays - 1) . ' days'));
+
+$summary = array(
+    'stores' => 0,
+    'activeOwners' => 0,
+    'foods' => 0,
+    'visitorRevenue' => 0,
+    'storeRevenue' => 0,
+    'revenue' => 0,
+    'averageVisitorOrder' => 0,
+    'paidOrders' => 0,
+    'pendingRequests' => 0,
+    'activeDevices' => 0,
+);
+$chartLabels = array();
+$chartValues = array();
+$storeMonthLabels = array();
+$storeMonthValues = array();
+$storeMonthSeries = array();
+$topStores = array();
+$activities = array();
+
+$conn = admin_db_connection();
+if (!$conn instanceof mysqli) {
+    $dashboardError = 'Không thể kết nối CSDL để tải dashboard.';
+} else {
+    $summary['stores'] = (int) dashboard_query_value($conn, 'SELECT COUNT(*) FROM gianhang');
+    $summary['activeOwners'] = (int) dashboard_query_value($conn, "
+        SELECT COUNT(DISTINCT cql.idChuQuanLy)
+        FROM chu_quan_ly cql
+        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+        WHERE tk.tinhTrang = 'hoat_dong'
+    ");
+    $summary['foods'] = (int) dashboard_query_value($conn, 'SELECT COUNT(*) FROM monan');
+    $summary['paidOrders'] = (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM hoadon
+        WHERE tinhTrang = 'da_thanh_toan'
+          AND thoiGianTao >= ?
+    ", 's', array($periodStart));
+    $summary['pendingRequests'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM yeucaugianhang WHERE trangThai = 'cho_duyet'");
+    $summary['activeDevices'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong'");
+
+    $visitorRevenue = (float) dashboard_query_value($conn, "
+        SELECT COALESCE(SUM(tongTien), 0)
+        FROM hoadon
+        WHERE tinhTrang = 'da_thanh_toan'
+          AND thoiGianTao >= ?
+    ", 's', array($periodStart));
+    $storeInvoiceRevenue = (float) dashboard_query_value($conn, "
+        SELECT COALESCE(SUM(tongTien), 0)
+        FROM hoadongianhang
+        WHERE trangThai = 'da_thanh_toan'
+          AND ngayTao >= ?
+    ", 's', array($periodStart));
+    $summary['visitorRevenue'] = $visitorRevenue;
+    $summary['storeRevenue'] = $storeInvoiceRevenue;
+    $summary['revenue'] = $visitorRevenue + $storeInvoiceRevenue;
+    $summary['averageVisitorOrder'] = $summary['paidOrders'] > 0 ? $visitorRevenue / $summary['paidOrders'] : 0;
+
+    $rawChartRows = dashboard_query_rows($conn, "
+        SELECT DATE(thoiGianTao) AS ngay, COALESCE(SUM(tongTien), 0) AS tongTien
+        FROM hoadon
+        WHERE tinhTrang = 'da_thanh_toan'
+          AND thoiGianTao >= ?
+        GROUP BY DATE(thoiGianTao)
+        ORDER BY ngay
+    ", 's', array($periodStart));
+
+    $chartByDay = array();
+    foreach ($rawChartRows as $row) {
+        $chartByDay[(string) $row['ngay']] = (float) $row['tongTien'];
+    }
+
+    for ($i = $rangeDays - 1; $i >= 0; $i--) {
+        $day = date('Y-m-d', strtotime('-' . $i . ' days'));
+        $chartLabels[] = date('d/m', strtotime($day));
+        $chartValues[] = isset($chartByDay[$day]) ? $chartByDay[$day] : 0;
+    }
+
+    $storeMonthStart = date('Y-m-01 00:00:00', strtotime('-11 months'));
+    $rawStoreMonthRows = dashboard_query_rows($conn, "
+        SELECT DATE_FORMAT(hd.thoiGianTao, '%Y-%m') AS thang, COALESCE(SUM(ctd.soLuong * ctd.donGia), 0) AS tongTien
+        FROM hoadon hd
+        INNER JOIN chitiethoadon ctd ON ctd.idHoaDon = hd.idHoaDon
+        INNER JOIN monan ma ON ma.idMonAn = ctd.idMonAn
+        WHERE hd.tinhTrang = 'da_thanh_toan'
+          AND hd.thoiGianTao >= ?
+        GROUP BY DATE_FORMAT(hd.thoiGianTao, '%Y-%m')
+        ORDER BY thang
+    ", 's', array($storeMonthStart));
+
+    $storeRevenueByMonth = array();
+    foreach ($rawStoreMonthRows as $row) {
+        $storeRevenueByMonth[(string) $row['thang']] = (float) $row['tongTien'];
+    }
+
+    for ($i = 11; $i >= 0; $i--) {
+        $monthKey = date('Y-m', strtotime('-' . $i . ' months'));
+        $monthLabel = date('m/Y', strtotime($monthKey . '-01'));
+        $monthValue = isset($storeRevenueByMonth[$monthKey]) ? $storeRevenueByMonth[$monthKey] : 0;
+        $storeMonthSeries[] = array(
+            'label' => $monthLabel,
+            'value' => $monthValue,
+        );
+    }
+
+    $visibleStoreMonthSeries = array_slice($storeMonthSeries, -$storeMonthRange);
+    foreach ($visibleStoreMonthSeries as $monthItem) {
+        $storeMonthLabels[] = $monthItem['label'];
+        $storeMonthValues[] = $monthItem['value'];
+    }
+
+    $topStores = dashboard_query_rows($conn, "
+        SELECT
+            gh.idGianHang,
+            gh.ten,
+            gh.phiHangThang,
+            COUNT(DISTINCT ma.idMonAn) AS soMon,
+            COALESCE(SUM(CASE WHEN hd.tinhTrang = 'da_thanh_toan' AND hd.thoiGianTao >= ? THEN ctd.soLuong * ctd.donGia ELSE 0 END), 0) AS doanhThu
+        FROM gianhang gh
+        LEFT JOIN monan ma ON ma.idGianHang = gh.idGianHang
+        LEFT JOIN chitiethoadon ctd ON ctd.idMonAn = ma.idMonAn
+        LEFT JOIN hoadon hd ON hd.idHoaDon = ctd.idHoaDon
+        GROUP BY gh.idGianHang, gh.ten, gh.phiHangThang
+        ORDER BY doanhThu DESC, gh.phiHangThang DESC, gh.idGianHang ASC
+        LIMIT 5
+    ", 's', array($periodStart));
+
+    $activities = dashboard_query_rows($conn, "
+        SELECT *
+        FROM (
+            SELECT
+                gh.idGianHang AS idRef,
+                gh.ten AS tenGianHang,
+                COALESCE(cql.hoTen, tk.username, tk.email, 'Chua gan chu') AS nguoiQuanLy,
+                'Gian hang' AS nhom,
+                CONCAT('Cập nhật thông tin: ', gh.tinhTrang) AS hoatDong,
+                gh.phiHangThang AS soTien,
+                gh.tinhTrang AS trangThai,
+                COALESCE(gh.thoiGianCapNhat, gh.ngayDangKy) AS thoiGian
+            FROM gianhang gh
+            LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
+            LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+
+            UNION ALL
+
+            SELECT
+                ma.idGianHang AS idRef,
+                gh.ten AS tenGianHang,
+                ma.ten AS nguoiQuanLy,
+                'Món ăn' AS nhom,
+                CONCAT('Cập nhật món: ', ma.ten) AS hoatDong,
+                ma.donGia AS soTien,
+                ma.tinhTrang AS trangThai,
+                COALESCE(ma.thoiGianCapNhat, gh.thoiGianCapNhat, gh.ngayDangKy) AS thoiGian
+            FROM monan ma
+            INNER JOIN gianhang gh ON gh.idGianHang = ma.idGianHang
+
+            UNION ALL
+
+            SELECT
+                COALESCE(ycg.idGianHang, 0) AS idRef,
+                ycg.tenDeNghi AS tenGianHang,
+                COALESCE(cql.hoTen, tk.username, tk.email, 'Chủ quản lý') AS nguoiQuanLy,
+                'Yêu cầu' AS nhom,
+                'Gửi yêu cầu mở gian hàng' AS hoatDong,
+                0 AS soTien,
+                ycg.trangThai AS trangThai,
+                ycg.ngayGui AS thoiGian
+            FROM yeucaugianhang ycg
+            INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
+            INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+
+            UNION ALL
+
+            SELECT
+                COALESCE(hd.idGoi, 0) AS idRef,
+                COALESCE(gdv.ten, 'Gói tham quan') AS tenGianHang,
+                COALESCE(hd.email, CONCAT('Phiên #', hd.idPhienVaoApp), 'Du khách') AS nguoiQuanLy,
+                'Du khách' AS nhom,
+                CONCAT('Thanh toán ', COALESCE(gdv.ten, 'gói tham quan')) AS hoatDong,
+                hd.tongTien AS soTien,
+                hd.tinhTrang AS trangThai,
+                hd.thoiGianTao AS thoiGian
+            FROM hoadon hd
+            LEFT JOIN goidichvu gdv ON gdv.idGoi = hd.idGoi
+            WHERE hd.tinhTrang = 'da_thanh_toan'
+        ) activity
+        ORDER BY thoiGian DESC
+        LIMIT 8
+    ");
+
+    $conn->close();
+}
+
+$linePath = dashboard_chart_path($chartValues);
+$areaPath = dashboard_chart_area_path($linePath);
+$visitorPeak = count($chartValues) > 0 ? max($chartValues) : 0;
+$visitorMoneyAxisValues = $visitorPeak > 0
+    ? array($visitorPeak, $visitorPeak * 0.66, $visitorPeak * 0.33, 0)
+    : array(0, 0, 0, 0);
+$storeMonthTotal = array_sum($storeMonthValues);
+$storeMonthPeak = count($storeMonthValues) > 0 ? max($storeMonthValues) : 0;
+$storeMonthMax = $storeMonthPeak > 0 ? $storeMonthPeak : 1;
+$storeMonthLinePath = dashboard_chart_path($storeMonthValues);
+$storeMonthAreaPath = dashboard_chart_area_path($storeMonthLinePath);
+$storeMoneyAxisValues = $storeMonthPeak > 0
+    ? array($storeMonthPeak, $storeMonthPeak * 0.66, $storeMonthPeak * 0.33, 0)
+    : array(0, 0, 0, 0);
+$visitorShare = dashboard_percent($summary['visitorRevenue'], $summary['revenue']);
+$storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
+?>
 <main class="main-content">
     <section class="page-header">
-      <h2>Dashboard Overview</h2>
-      <p>Real-time performance and booth management metrics</p>
+      <div>
+        <h2>Tổng quan hệ thống</h2>
+        <p>Dữ liệu trực tiếp từ cơ sở dữ liệu quản trị gian hàng.</p>
+      </div>
+      <form class="dashboard-range-form" method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
+        <input type="hidden" name="usecase" value="dashboard" />
+        <input type="hidden" name="store_months" value="<?php echo (int) $storeMonthRange; ?>" />
+        <label for="dashboard-range">Kỳ dữ liệu</label>
+        <select id="dashboard-range" name="range" onchange="this.form.submit()">
+          <?php foreach ($rangeOptions as $rangeKey => $rangeLabel) { ?>
+          <option value="<?php echo htmlspecialchars($rangeKey, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (string) $range === (string) $rangeKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($rangeLabel, ENT_QUOTES, 'UTF-8'); ?></option>
+          <?php } ?>
+        </select>
+      </form>
     </section>
+
+    <?php if ($dashboardError !== '') { ?>
+    <div class="dashboard-alert"><?php echo htmlspecialchars($dashboardError, ENT_QUOTES, 'UTF-8'); ?></div>
+    <?php } ?>
 
     <section class="stats-grid">
       <div class="stat-card">
@@ -10,10 +479,10 @@
           <div class="stat-icon">
             <i class="fa-solid fa-shop"></i>
           </div>
-          <span class="stat-growth positive">+8.4% â†‘</span>
+          <span class="stat-growth live">DB</span>
         </div>
-        <p class="stat-label">Total Booths</p>
-        <h3>128</h3>
+        <p class="stat-label">Tổng gian hàng</p>
+        <h3><?php echo htmlspecialchars(dashboard_number($summary['stores']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
       <div class="stat-card">
@@ -21,232 +490,440 @@
           <div class="stat-icon">
             <i class="fa-solid fa-users"></i>
           </div>
-          <span class="stat-growth positive">+4.2% â†‘</span>
+          <span class="stat-growth positive"><?php echo htmlspecialchars(dashboard_number($summary['pendingRequests']), ENT_QUOTES, 'UTF-8'); ?> chờ duyệt</span>
         </div>
-        <p class="stat-label">Active Vendors</p>
-        <h3>96</h3>
+        <p class="stat-label">Chủ quản lý hoạt động</p>
+        <h3><?php echo htmlspecialchars(dashboard_number($summary['activeOwners']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon">
-            <i class="fa-solid fa-boxes-stacked"></i>
+            <i class="fa-solid fa-bowl-food"></i>
           </div>
-          <span class="stat-growth positive">+11.3% â†‘</span>
+          <span class="stat-growth live"><?php echo htmlspecialchars(dashboard_number($summary['activeDevices']), ENT_QUOTES, 'UTF-8'); ?> thiết bị</span>
         </div>
-        <p class="stat-label">Total Products</p>
-        <h3>2,430</h3>
+        <p class="stat-label">Tổng món ăn</p>
+        <h3><?php echo htmlspecialchars(dashboard_number($summary['foods']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-top">
-          <div class="stat-icon">
-            <i class="fa-solid fa-wallet"></i>
+    </section>
+
+    <section class="revenue-grid">
+      <div class="panel chart-panel visitor-chart-panel">
+        <div class="panel-header">
+          <div>
+            <h3>Doanh thu du khách</h3>
+            <p>Hóa đơn gói tham quan - <?php echo htmlspecialchars($rangeOptions[$range], ENT_QUOTES, 'UTF-8'); ?></p>
           </div>
-          <span class="stat-growth live">This Month</span>
+
+          <form method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
+            <input type="hidden" name="usecase" value="dashboard" />
+            <input type="hidden" name="store_months" value="<?php echo (int) $storeMonthRange; ?>" />
+            <select class="select-btn" name="range" onchange="this.form.submit()">
+              <?php foreach ($rangeOptions as $rangeKey => $rangeLabel) { ?>
+              <option value="<?php echo htmlspecialchars($rangeKey, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (string) $range === (string) $rangeKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($rangeLabel, ENT_QUOTES, 'UTF-8'); ?></option>
+              <?php } ?>
+            </select>
+          </form>
         </div>
-        <p class="stat-label">Platform Revenue</p>
-        <h3>$52,300</h3>
+
+        <div class="chart-summary-row">
+          <div>
+            <span>Tổng doanh thu du khách</span>
+            <strong><?php echo htmlspecialchars(dashboard_money($summary['visitorRevenue']), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+          <div>
+            <span>Hóa đơn đã thanh toán</span>
+            <strong><?php echo htmlspecialchars(dashboard_number($summary['paidOrders']), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+          <div>
+            <span>Trung bình / hóa đơn</span>
+            <strong><?php echo htmlspecialchars(dashboard_money($summary['averageVisitorOrder']), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+        </div>
+
+        <div class="visitor-chart-layout">
+          <div class="store-money-axis">
+            <?php foreach ($visitorMoneyAxisValues as $axisValue) { ?>
+            <span><?php echo htmlspecialchars(dashboard_money_short($axisValue), ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php } ?>
+          </div>
+          <div class="chart-area">
+            <div class="chart-grid-line line-1"></div>
+            <div class="chart-grid-line line-2"></div>
+            <div class="chart-grid-line line-3"></div>
+
+            <svg viewBox="0 0 760 320" preserveAspectRatio="none" class="chart-svg">
+              <defs>
+                <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#27d3d2" stop-opacity="0.28" />
+                  <stop offset="100%" stop-color="#27d3d2" stop-opacity="0.02" />
+                </linearGradient>
+              </defs>
+
+              <path d="<?php echo htmlspecialchars($areaPath, ENT_QUOTES, 'UTF-8'); ?>" fill="url(#areaFill)"></path>
+              <path d="<?php echo htmlspecialchars($linePath, ENT_QUOTES, 'UTF-8'); ?>" fill="none" stroke="#18cfd0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+
+            <div class="chart-labels">
+              <?php
+              $labelStep = max(1, (int) ceil(count($chartLabels) / 7));
+              foreach ($chartLabels as $index => $label) {
+                  if ($index % $labelStep !== 0 && $index !== count($chartLabels) - 1) {
+                      continue;
+                  }
+              ?>
+              <span><?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?></span>
+              <?php } ?>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel revenue-panel">
+        <div class="panel-header simple">
+          <div>
+            <h3>Cơ cấu doanh thu</h3>
+            <p><?php echo htmlspecialchars($rangeOptions[$range], ENT_QUOTES, 'UTF-8'); ?></p>
+          </div>
+        </div>
+
+        <div class="revenue-total">
+          <span>Tổng doanh thu</span>
+          <strong><?php echo htmlspecialchars(dashboard_money($summary['revenue']), ENT_QUOTES, 'UTF-8'); ?></strong>
+        </div>
+
+        <div class="revenue-breakdown">
+          <div class="revenue-breakdown-item">
+            <div class="revenue-breakdown-head">
+              <span><i class="fa-solid fa-ticket"></i> Du khách</span>
+              <strong><?php echo htmlspecialchars(dashboard_money($summary['visitorRevenue']), ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <div class="revenue-progress">
+              <span style="width:<?php echo (int) $visitorShare; ?>%"></span>
+            </div>
+            <small><?php echo (int) $visitorShare; ?>% tổng doanh thu</small>
+          </div>
+
+          <div class="revenue-breakdown-item store">
+            <div class="revenue-breakdown-head">
+              <span><i class="fa-solid fa-store"></i> Gian hàng</span>
+              <strong><?php echo htmlspecialchars(dashboard_money($summary['storeRevenue']), ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <div class="revenue-progress">
+              <span style="width:<?php echo (int) $storeShare; ?>%"></span>
+            </div>
+            <small><?php echo (int) $storeShare; ?>% tổng doanh thu</small>
+          </div>
+        </div>
+
+        <div class="revenue-mini-grid">
+          <div>
+            <span>Thiết bị hoạt động</span>
+            <strong><?php echo htmlspecialchars(dashboard_number($summary['activeDevices']), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+          <div>
+            <span>Yêu cầu chờ duyệt</span>
+            <strong><?php echo htmlspecialchars(dashboard_number($summary['pendingRequests']), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+        </div>
       </div>
     </section>
 
     <section class="overview-grid">
-      <div class="panel chart-panel">
-        <div class="panel-header">
-          <div>
-            <h3>Booth Performance</h3>
-            <p>Revenue trends for the last 7 days</p>
-          </div>
-
-          <button class="select-btn">
-            Last 7 Days
-            <i class="fa-solid fa-chevron-down"></i>
-          </button>
-        </div>
-
-        <div class="chart-area">
-          <div class="chart-grid-line line-1"></div>
-          <div class="chart-grid-line line-2"></div>
-          <div class="chart-grid-line line-3"></div>
-
-          <svg viewBox="0 0 760 320" preserveAspectRatio="none" class="chart-svg">
-            <defs>
-              <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#27d3d2" stop-opacity="0.28" />
-                <stop offset="100%" stop-color="#27d3d2" stop-opacity="0.02" />
-              </linearGradient>
-            </defs>
-
-            <path
-              d="M 0 240
-                 C 70 230, 100 205, 150 170
-                 C 200 135, 255 130, 310 165
-                 C 355 190, 410 215, 470 205
-                 C 530 195, 565 140, 610 95
-                 C 650 60, 710 58, 760 110
-                 L 760 320 L 0 320 Z"
-              fill="url(#areaFill)"
-            ></path>
-
-            <path
-              d="M 0 240
-                 C 70 230, 100 205, 150 170
-                 C 200 135, 255 130, 310 165
-                 C 355 190, 410 215, 470 205
-                 C 530 195, 565 140, 610 95
-                 C 650 60, 710 58, 760 110"
-              fill="none"
-              stroke="#18cfd0"
-              stroke-width="4"
-              stroke-linecap="round"
-            ></path>
-          </svg>
-
-          <div class="chart-labels">
-            <span>Mon</span>
-            <span>Tue</span>
-            <span>Wed</span>
-            <span>Thu</span>
-            <span>Fri</span>
-            <span>Sat</span>
-            <span>Sun</span>
-          </div>
-        </div>
-      </div>
-
       <div class="panel rank-panel">
         <div class="panel-header simple">
           <div>
-            <h3>Top Performing Booths</h3>
+            <h3>Phí hàng tháng các gian hàng</h3>
           </div>
         </div>
 
         <div class="rank-list">
+          <?php if (count($topStores) === 0) { ?>
+          <p class="empty-note">Chưa có dữ liệu gian hàng.</p>
+          <?php } ?>
+          <?php foreach ($topStores as $index => $store) { ?>
+          <?php $revenue = (float) ($store['doanhThu'] ?? 0); ?>
           <div class="rank-item">
-            <div class="rank-badge">1</div>
+            <div class="rank-badge"><?php echo $index + 1; ?></div>
             <div class="rank-info">
-              <h4>Booth A - Fashion</h4>
-              <p>134 orders this week</p>
+              <h4><?php echo htmlspecialchars((string) ($store['ten'] ?? 'Gian hàng'), ENT_QUOTES, 'UTF-8'); ?></h4>
+              <p><?php echo htmlspecialchars(dashboard_number($store['soMon'] ?? 0), ENT_QUOTES, 'UTF-8'); ?> món - phí tháng <?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
-            <strong>$4,200</strong>
+            <strong><?php echo htmlspecialchars(dashboard_money($revenue > 0 ? $revenue : ($store['phiHangThang'] ?? 0)), ENT_QUOTES, 'UTF-8'); ?></strong>
           </div>
+          <?php } ?>
+        </div>
 
-          <div class="rank-item">
-            <div class="rank-badge">2</div>
-            <div class="rank-info">
-              <h4>Booth B - Food</h4>
-              <p>118 orders this week</p>
-            </div>
-            <strong>$3,850</strong>
+        <button class="outline-btn" type="button" onclick="window.location.href='<?php echo htmlspecialchars(admin_url('index1st.php?usecase=store'), ENT_QUOTES, 'UTF-8'); ?>'">Xem danh sách gian hàng</button>
+      </div>
+
+      <div class="panel store-month-panel" data-store-month-chart>
+        <div class="panel-header">
+          <div>
+            <h3>Doanh thu tất cả gian hàng theo tháng</h3>
+            <p>Tổng tiền món ăn đã thanh toán theo kỳ đang chọn.</p>
           </div>
-
-          <div class="rank-item">
-            <div class="rank-badge">3</div>
-            <div class="rank-info">
-              <h4>Booth C - Accessories</h4>
-              <p>96 orders this week</p>
-            </div>
-            <strong>$2,900</strong>
-          </div>
-
-          <div class="rank-item">
-            <div class="rank-badge">4</div>
-            <div class="rank-info">
-              <h4>Booth D - Drinks</h4>
-              <p>81 orders this week</p>
-            </div>
-            <strong>$2,100</strong>
+          <div class="store-month-form">
+            <label for="store-months">Kỳ tháng</label>
+            <select id="store-months" class="select-btn" name="store_months" data-store-month-select>
+              <?php foreach ($storeMonthOptions as $monthValue => $monthLabel) { ?>
+              <option value="<?php echo (int) $monthValue; ?>" <?php echo $storeMonthRange === (int) $monthValue ? 'selected' : ''; ?>><?php echo htmlspecialchars($monthLabel, ENT_QUOTES, 'UTF-8'); ?></option>
+              <?php } ?>
+            </select>
           </div>
         </div>
 
-        <button class="outline-btn">View All Booths</button>
+        <div class="store-month-summary">
+          <div>
+            <span>Tổng kỳ chọn</span>
+            <strong data-store-month-total><?php echo htmlspecialchars(dashboard_money($storeMonthTotal), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+          <div>
+            <span>Tháng cao nhất</span>
+            <strong data-store-month-peak><?php echo htmlspecialchars(dashboard_money($storeMonthPeak), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+          <div>
+            <span>Trung bình / tháng</span>
+            <strong data-store-month-average><?php echo htmlspecialchars(dashboard_money(count($storeMonthValues) > 0 ? $storeMonthTotal / count($storeMonthValues) : 0), ENT_QUOTES, 'UTF-8'); ?></strong>
+          </div>
+        </div>
+
+        <div class="store-line-chart" aria-label="Doanh thu gian hàng theo tháng">
+          <div class="store-money-axis" data-store-money-axis>
+            <?php foreach ($storeMoneyAxisValues as $axisValue) { ?>
+            <span><?php echo htmlspecialchars(dashboard_money_short($axisValue), ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php } ?>
+          </div>
+          <div class="store-line-plot">
+            <div class="chart-grid-line line-1"></div>
+            <div class="chart-grid-line line-2"></div>
+            <div class="chart-grid-line line-3"></div>
+
+            <svg viewBox="0 0 760 320" preserveAspectRatio="none" class="chart-svg store-chart-svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="storeLineAreaFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#27d3d2" stop-opacity="0.24" />
+                  <stop offset="100%" stop-color="#27d3d2" stop-opacity="0.02" />
+                </linearGradient>
+              </defs>
+
+              <path data-store-area-path d="<?php echo htmlspecialchars($storeMonthAreaPath, ENT_QUOTES, 'UTF-8'); ?>" fill="url(#storeLineAreaFill)"></path>
+              <path data-store-line-path d="<?php echo htmlspecialchars($storeMonthLinePath, ENT_QUOTES, 'UTF-8'); ?>" fill="none" stroke="#18cfd0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+
+            <div class="store-line-points" data-store-line-points></div>
+
+            <div class="chart-labels store-month-labels" data-store-month-labels>
+              <?php foreach ($storeMonthLabels as $label) { ?>
+              <span><?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?></span>
+              <?php } ?>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
+    <script>
+    (function(){
+      var series = <?php echo json_encode($storeMonthSeries, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+      var root = document.querySelector('[data-store-month-chart]');
+      if (!root || !Array.isArray(series)) {
+        return;
+      }
+
+      var select = root.querySelector('[data-store-month-select]');
+      var areaPath = root.querySelector('[data-store-area-path]');
+      var linePath = root.querySelector('[data-store-line-path]');
+      var axisNode = root.querySelector('[data-store-money-axis]');
+      var labelsNode = root.querySelector('[data-store-month-labels]');
+      var pointsNode = root.querySelector('[data-store-line-points]');
+      var totalNode = root.querySelector('[data-store-month-total]');
+      var peakNode = root.querySelector('[data-store-month-peak]');
+      var averageNode = root.querySelector('[data-store-month-average]');
+      var chartWidth = 760;
+      var chartHeight = 240;
+      var areaHeight = 320;
+
+      function formatMoney(value) {
+        return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0) + 'đ';
+      }
+
+      function formatMoneyShort(value) {
+        return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number(value) || 0);
+      }
+
+      function lineChartPath(values, maxValue) {
+        if (!values.length) {
+          return 'M 0 ' + chartHeight + ' L ' + chartWidth + ' ' + chartHeight;
+        }
+
+        var step = values.length > 1 ? chartWidth / (values.length - 1) : chartWidth;
+        var points = values.map(function(value, index) {
+          var x = values.length > 1 ? index * step : chartWidth / 2;
+          var y = chartHeight - ((value / maxValue) * (chartHeight - 28)) - 12;
+          return [Math.round(x * 100) / 100, Math.round(y * 100) / 100];
+        });
+
+        if (points.length === 1) {
+          return 'M 0 ' + points[0][1] + ' L ' + chartWidth + ' ' + points[0][1];
+        }
+
+        return points.reduce(function(path, point, index) {
+          return path + (index === 0 ? 'M ' : ' L ') + point[0] + ' ' + point[1];
+        }, '');
+      }
+
+      function updateMoneyAxis(peak) {
+        if (!axisNode) {
+          return;
+        }
+
+        var values = peak > 0 ? [peak, peak * 0.66, peak * 0.33, 0] : [0, 0, 0, 0];
+        axisNode.innerHTML = '';
+        values.forEach(function(value) {
+          var label = document.createElement('span');
+          label.textContent = formatMoneyShort(value);
+          axisNode.appendChild(label);
+        });
+      }
+
+      function renderLabels(visible) {
+        if (!labelsNode) {
+          return;
+        }
+
+        labelsNode.innerHTML = '';
+        visible.forEach(function(item) {
+          var label = document.createElement('span');
+          label.textContent = item.label;
+          labelsNode.appendChild(label);
+        });
+      }
+
+      function renderPoints(visible, maxValue) {
+        if (!pointsNode) {
+          return;
+        }
+
+        pointsNode.innerHTML = '';
+        visible.forEach(function(item, index) {
+          var value = Number(item.value) || 0;
+          var x = visible.length > 1 ? (index / (visible.length - 1)) * 100 : 50;
+          var y = chartHeight - ((value / maxValue) * (chartHeight - 28)) - 12;
+          var point = document.createElement('button');
+          var tooltip = document.createElement('span');
+
+          point.type = 'button';
+          point.className = 'store-line-point';
+          point.style.left = x + '%';
+          point.style.top = ((y / chartHeight) * 100) + '%';
+          point.setAttribute('aria-label', item.label + ': ' + formatMoney(value));
+
+          tooltip.className = 'store-line-tooltip';
+          tooltip.textContent = item.label + ' - ' + formatMoney(value);
+          point.appendChild(tooltip);
+          pointsNode.appendChild(point);
+        });
+      }
+
+      function updateLineChart(visible, maxValue) {
+        var values = visible.map(function(item) {
+          return Number(item.value) || 0;
+        });
+        var line = lineChartPath(values, maxValue);
+        if (linePath) {
+          linePath.setAttribute('d', line);
+        }
+        if (areaPath) {
+          areaPath.setAttribute('d', line + ' L ' + chartWidth + ' ' + areaHeight + ' L 0 ' + areaHeight + ' Z');
+        }
+        renderLabels(visible);
+        renderPoints(visible, maxValue);
+      }
+
+      function renderStoreChart() {
+        var months = parseInt(select ? select.value : '6', 10) || 6;
+        var visible = series.slice(-months);
+        var total = visible.reduce(function(sum, item) {
+          return sum + (Number(item.value) || 0);
+        }, 0);
+        var peak = visible.reduce(function(max, item) {
+          return Math.max(max, Number(item.value) || 0);
+        }, 0);
+        var maxValue = peak > 0 ? peak : 1;
+
+        if (totalNode) {
+          totalNode.textContent = formatMoney(total);
+        }
+        if (peakNode) {
+          peakNode.textContent = formatMoney(peak);
+        }
+        if (averageNode) {
+          averageNode.textContent = formatMoney(visible.length > 0 ? total / visible.length : 0);
+        }
+
+        document.querySelectorAll('input[name="store_months"]').forEach(function(input) {
+          input.value = months;
+        });
+
+        updateMoneyAxis(peak);
+        updateLineChart(visible, maxValue);
+      }
+
+      if (select) {
+        select.addEventListener('change', renderStoreChart);
+      }
+      renderStoreChart();
+    })();
+    </script>
+
     <section class="panel table-panel">
       <div class="table-header">
-        <h3>Recent Booth Activities</h3>
-        <a href="#">Refresh List</a>
+        <h3>Hoạt động gần đây</h3>
+        <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=dashboard&range=' . rawurlencode($range)), ENT_QUOTES, 'UTF-8'); ?>">Làm mới</a>
       </div>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>BOOTH ID</th>
-              <th>VENDOR</th>
-              <th>CATEGORY</th>
-              <th>ACTIVITY</th>
-              <th>REVENUE</th>
-              <th>STATUS</th>
-              <th>TIME</th>
+              <th>GIAN HÀNG</th>
+              <th>NGƯỜI LIÊN QUAN</th>
+              <th>NHÓM</th>
+              <th>HOẠT ĐỘNG</th>
+              <th>GIÁ TRỊ</th>
+              <th>TRẠNG THÁI</th>
+              <th>THỜI GIAN</th>
             </tr>
           </thead>
 
           <tbody>
+            <?php if (count($activities) === 0) { ?>
             <tr>
-              <td class="booth-id">#BTH-1284</td>
+              <td colspan="7" class="empty-table">Chưa có hoạt động nào.</td>
+            </tr>
+            <?php } ?>
+            <?php foreach ($activities as $index => $activity) { ?>
+            <?php $statusMeta = dashboard_status_meta($activity['trangThai'] ?? ''); ?>
+            <tr>
+              <td class="booth-id">#GH-<?php echo str_pad((string) (int) ($activity['idRef'] ?? 0), 3, '0', STR_PAD_LEFT); ?></td>
               <td>
                 <div class="vendor-cell">
-                  <div class="avatar avatar-1">N</div>
-                  <span>Nguyen Van A</span>
+                  <div class="avatar avatar-<?php echo ($index % 4) + 1; ?>"><?php echo htmlspecialchars(dashboard_initials($activity['nguoiQuanLy'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
+                  <span><?php echo htmlspecialchars((string) ($activity['nguoiQuanLy'] ?? 'Hệ thống'), ENT_QUOTES, 'UTF-8'); ?></span>
                 </div>
               </td>
-              <td>Fashion</td>
-              <td>Added 12 new products</td>
-              <td class="money">$320</td>
-              <td><span class="status-badge success">ACTIVE</span></td>
-              <td>2 mins ago</td>
+              <td><?php echo htmlspecialchars((string) ($activity['nhom'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td><?php echo htmlspecialchars((string) ($activity['hoatDong'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td class="money"><?php echo htmlspecialchars(dashboard_money($activity['soTien'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td><span class="status-badge <?php echo htmlspecialchars($statusMeta['class'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($statusMeta['label'], ENT_QUOTES, 'UTF-8'); ?></span></td>
+              <td><?php echo htmlspecialchars(dashboard_activity_time($activity['thoiGian'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
             </tr>
-
-            <tr>
-              <td class="booth-id">#BTH-1283</td>
-              <td>
-                <div class="vendor-cell">
-                  <div class="avatar avatar-2">T</div>
-                  <span>Tran Thi B</span>
-                </div>
-              </td>
-              <td>Food</td>
-              <td>Updated booth information</td>
-              <td class="money">$150</td>
-              <td><span class="status-badge warning">PENDING</span></td>
-              <td>10 mins ago</td>
-            </tr>
-
-            <tr>
-              <td class="booth-id">#BTH-1282</td>
-              <td>
-                <div class="vendor-cell">
-                  <div class="avatar avatar-3">L</div>
-                  <span>Le Van C</span>
-                </div>
-              </td>
-              <td>Accessories</td>
-              <td>Received new booth booking</td>
-              <td class="money">$520</td>
-              <td><span class="status-badge info">RUNNING</span></td>
-              <td>15 mins ago</td>
-            </tr>
-
-            <tr>
-              <td class="booth-id">#BTH-1281</td>
-              <td>
-                <div class="vendor-cell">
-                  <div class="avatar avatar-4">P</div>
-                  <span>Pham Thi D</span>
-                </div>
-              </td>
-              <td>Drinks</td>
-              <td>Submitted booth renewal</td>
-              <td class="money">$210</td>
-              <td><span class="status-badge danger">CLOSED</span></td>
-              <td>24 mins ago</td>
-            </tr>
+            <?php } ?>
           </tbody>
         </table>
       </div>
     </section>
 </main>
-
-

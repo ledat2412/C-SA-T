@@ -8,10 +8,12 @@ namespace VinhKhanh.Controllers
     public class GianHangController : ControllerBase
     {
         private readonly GianHangService _gianHangService;
+        private readonly AccountAccessService _accountAccessService;
 
-        public GianHangController(GianHangService gianHangService)
+        public GianHangController(GianHangService gianHangService, AccountAccessService accountAccessService)
         {
             _gianHangService = gianHangService;
+            _accountAccessService = accountAccessService;
         }
 
         public class UpdateMoTaRequest
@@ -65,8 +67,18 @@ namespace VinhKhanh.Controllers
         }
 
         [HttpPut("{id}/update-mo-ta")]
-        public async Task<IActionResult> UpdateMoTa(int id, [FromBody] UpdateMoTaRequest request)
+        public async Task<IActionResult> UpdateMoTa(int id, [FromQuery] int idTaiKhoan, [FromBody] UpdateMoTaRequest request)
         {
+            var isAdmin = await _accountAccessService.IsAdminAsync(idTaiKhoan);
+            var ownsStore = !isAdmin && await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, id);
+            if (!isAdmin && !ownsStore)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "Tai khoan khong co quyen cap nhat mo ta gian hang nay."
+                });
+            }
+
             if (request == null || string.IsNullOrWhiteSpace(request.MoTa))
             {
                 return BadRequest(new

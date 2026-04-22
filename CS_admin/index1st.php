@@ -8,7 +8,7 @@ if (!isset($_SESSION['admin_auth']) || empty($_SESSION['admin_auth']['isLoggedIn
 }
 
 $accountRole = isset($_SESSION['admin_auth']['loaiTaiKhoan']) ? $_SESSION['admin_auth']['loaiTaiKhoan'] : 'admin';
-$useCase = isset($_GET['usecase']) ? $_GET['usecase'] : 'store';
+$useCase = isset($_GET['usecase']) ? $_GET['usecase'] : ($accountRole === 'chu_quan_ly' ? 'store' : 'dashboard');
 
 $availableUseCases = array(
     'dashboard' => array(
@@ -24,7 +24,7 @@ $availableUseCases = array(
         'styles' => array('asset/admin/css/store-content.css'),
     ),
     'poi-map' => array(
-        'title' => 'Ban do POI 3D',
+        'title' => 'Bản đồ POI 3D',
         'active' => 'poi-map',
         'view' => __DIR__ . '/admin/poi_map.php',
         'styles' => array('asset/admin/css/poi-map-content.css'),
@@ -36,7 +36,7 @@ $availableUseCases = array(
         'styles' => array('asset/admin/css/branchdetail2-content.css'),
     ),
     'menu' => array(
-        'title' => 'Quáº£n lÃ½ mÃ³n Äƒn',
+        'title' => 'Quản lý món ăn',
         'active' => 'store',
         'view' => __DIR__ . '/admin/menu.php',
         'styles' => array('asset/admin/css/menu-content.css'),
@@ -78,10 +78,6 @@ if ($accountRole === 'chu_quan_ly') {
     if (!in_array($useCase, $allowedUseCases, true)) {
         $useCase = 'store';
     }
-}
-
-if ($accountRole !== 'chu_quan_ly' && $useCase === 'dashboard') {
-    $useCase = 'store';
 }
 
 if (!isset($availableUseCases[$useCase])) {

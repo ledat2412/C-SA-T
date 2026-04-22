@@ -9,6 +9,7 @@ namespace VinhKhanh.Dtos
         public string? HinhAnh { get; set; }
         public double? Lat { get; set; }
         public double? Lon { get; set; }
+        public decimal VongBo { get; set; }
         public string? TinhTrang { get; set; }
         public decimal PhiHangThang { get; set; }
         public DateTime NgayDangKy { get; set; }

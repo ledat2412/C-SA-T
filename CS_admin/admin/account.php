@@ -652,7 +652,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
     if ($targetAccountId <= 0) {
         $accountError = 'Không xác định được tài khoản cần cập nhật.';
     } elseif ($idTaiKhoan > 0 && $targetAccountId === $idTaiKhoan && $targetStatus === 'khoa') {
-        $accountError = 'Khong the khoa chinh tai khoan admin dang dang nhap. Hay dang nhap bang mot admin khac neu muon doi trang thai tai khoan nay.';
+        $accountError = 'Không thể khóa chính tài khoản admin đang đăng nhập. Hãy đăng nhập bằng một admin khác nếu muốn đổi trạng thái tài khoản này.';
     } elseif (!array_key_exists($targetStatus, account_status_options())) {
         $accountError = 'Tình trạng tài khoản không hợp lệ.';
     } else {
@@ -1002,7 +1002,7 @@ if ($selectedAccount === null && $filteredCount > 0) {
               <?php if (($selectedAccount['loaiTaiKhoan'] ?? '') === 'chu_quan_ly') { ?>
               <small>Nếu khóa chủ quản lý, toàn bộ gian hàng của chủ này sẽ tự chuyển sang trạng thái tạm ngừng.</small>
               <?php } elseif ((int) ($selectedAccount['idTaiKhoan'] ?? 0) === $idTaiKhoan) { ?>
-              <small>Admin dang dang nhap khong the tu khoa. Hay dang nhap bang mot admin khac neu muon doi trang thai tai khoan nay.</small>
+              <small>Admin đang đăng nhập không thể tự khóa. Hãy đăng nhập bằng một admin khác nếu muốn đổi trạng thái tài khoản này.</small>
               <small>Bạn không thể khóa chính tài khoản admin đang đăng nhập.</small>
               <?php } ?>
             </label>

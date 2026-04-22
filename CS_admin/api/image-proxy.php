@@ -13,7 +13,18 @@ if ($rawPath === '') {
 if (stripos($rawPath, 'http://') === 0 || stripos($rawPath, 'https://') === 0) {
     $targetUrl = $rawPath;
 } else {
-    $targetUrl = backend_public_url($rawPath);
+    $cleanPath = str_replace('\\', '/', $rawPath);
+    $cleanPath = ltrim($cleanPath, '/');
+
+    if (
+        stripos($cleanPath, 'images/') !== 0 &&
+        stripos($cleanPath, 'uploads/') !== 0 &&
+        stripos($cleanPath, 'content/') !== 0
+    ) {
+        $cleanPath = 'images/' . $cleanPath;
+    }
+
+    $targetUrl = backend_public_url($cleanPath);
 }
 
 $ch = curl_init($targetUrl);

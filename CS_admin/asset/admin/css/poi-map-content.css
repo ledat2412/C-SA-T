@@ -441,6 +441,22 @@
   display:block;
 }
 
+.poi-local-popup-media{
+  width:100%;
+  height:96px;
+  border-radius:7px;
+  overflow:hidden;
+  background:#eef2f7;
+  margin-bottom:10px;
+}
+
+.poi-local-popup-media img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+
 .poi-local-popup strong{
   display:block;
   margin-bottom:6px;
@@ -824,6 +840,22 @@
 .poi-info-window{
   max-width:260px;
   color:#0f172a;
+}
+
+.poi-info-media{
+  width:240px;
+  height:116px;
+  border-radius:7px;
+  overflow:hidden;
+  background:#eef2f7;
+  margin-bottom:10px;
+}
+
+.poi-info-media img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
 }
 
 .poi-info-window strong{

@@ -81,14 +81,14 @@ if (!function_exists('poi_map_status_meta')) {
         switch ($status) {
             case 'dang_hoat_dong':
             case 'hoat_dong':
-                return array('label' => 'Dang hoat dong', 'class' => 'active');
+                return array('label' => 'Đang hoạt động', 'class' => 'active');
             case 'tam_ngung':
             case 'tam_dung':
-                return array('label' => 'Tam ngung', 'class' => 'paused');
+                return array('label' => 'Tạm ngưng', 'class' => 'paused');
             case 'dong_cua':
-                return array('label' => 'Dong cua', 'class' => 'closed');
+                return array('label' => 'Đóng cửa', 'class' => 'closed');
             default:
-                return array('label' => 'Khong ro', 'class' => 'unknown');
+                return array('label' => 'Không rõ', 'class' => 'unknown');
         }
     }
 }
@@ -96,7 +96,7 @@ if (!function_exists('poi_map_status_meta')) {
 if (!function_exists('poi_map_money')) {
     function poi_map_money($value)
     {
-        return number_format((float) $value, 0, ',', '.') . 'd';
+        return number_format((float) $value, 0, ',', '.') . 'đ';
     }
 }
 
@@ -106,7 +106,7 @@ if (!function_exists('poi_map_fetch_pois')) {
         $error = '';
         $conn = admin_db_connection();
         if (!$conn instanceof mysqli) {
-            $error = 'Khong the ket noi DB de tai POI.';
+            $error = 'Không thể kết nối DB để tải POI.';
             return array();
         }
 
@@ -187,8 +187,8 @@ if (!function_exists('poi_map_fetch_pois')) {
             $fee = isset($row['phiHangThang']) ? (float) $row['phiHangThang'] : 0.0;
             $pois[] = array(
                 'id' => isset($row['idGianHang']) ? (int) $row['idGianHang'] : 0,
-                'name' => isset($row['ten']) ? (string) $row['ten'] : 'Gian hang',
-                'address' => !empty($row['diaChi']) ? (string) $row['diaChi'] : 'Chua cap nhat dia chi',
+                'name' => isset($row['ten']) ? (string) $row['ten'] : 'Gian hàng',
+                'address' => !empty($row['diaChi']) ? (string) $row['diaChi'] : 'Chưa cập nhật địa chỉ',
                 'lat' => (float) $row['lat'],
                 'lng' => (float) $row['lon'],
                 'radiusMeters' => $radius,
@@ -197,7 +197,7 @@ if (!function_exists('poi_map_fetch_pois')) {
                 'statusClass' => $statusMeta['class'],
                 'monthlyFee' => $fee,
                 'monthlyFeeLabel' => poi_map_money($fee),
-                'ownerName' => $ownerName !== '' ? $ownerName : 'Chua gan chu quan ly',
+                'ownerName' => $ownerName !== '' ? $ownerName : 'Chưa gán chủ quản lý',
                 'imageUrl' => !empty($row['hinhAnh']) ? poi_map_image_url((string) $row['hinhAnh']) : '',
             );
         }
@@ -260,12 +260,12 @@ $mapConfig = json_encode(array(
     <div class="poi-map-header">
       <div>
         <p class="poi-map-kicker">POI Map 3D</p>
-        <h2>Ban do POI gian hang</h2>
-        <p>Theo doi vi tri, vung geofence va trang thai cua cac cua hang tren ban do nghieng 3D.</p>
+        <h2>Bản đồ POI gian hàng</h2>
+        <p>Theo dõi vị trí, vùng geofence và trạng thái của các cửa hàng trên bản đồ nghiêng 3D.</p>
       </div>
       <a class="poi-map-action" href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=store'), ENT_QUOTES, 'UTF-8'); ?>">
         <i class="fa-solid fa-store"></i>
-        <span>Danh sach gian hang</span>
+        <span>Danh sách gian hàng</span>
       </a>
     </div>
 
@@ -277,30 +277,30 @@ $mapConfig = json_encode(array(
     <?php } elseif ($googleMapsApiKey === '') { ?>
     <div class="poi-map-alert warning">
       <i class="fa-solid fa-key"></i>
-      <span>Chua cau hinh Google Maps browser key. Dat key web vao CS_admin/Secret/google-maps-browser-key.txt de hien thi ban do.</span>
+      <span>Chưa cấu hình Google Maps browser key. Đặt key web vào CS_admin/Secret/google-maps-browser-key.txt để hiển thị bản đồ.</span>
     </div>
     <?php } elseif ($googleMapsApiKeySource !== 'file') { ?>
     <div class="poi-map-alert warning">
       <i class="fa-solid fa-globe"></i>
-      <span>Dang dung Google Maps key tu bien moi truong. Neu Google Maps van khong hien, hay cho phep key nay dung Maps JavaScript API voi HTTP referrer localhost trong Google Cloud.</span>
+      <span>Đang dùng Google Maps key từ biến môi trường. Nếu Google Maps vẫn không hiện, hãy cho phép key này dùng Maps JavaScript API với HTTP referrer localhost trong Google Cloud.</span>
     </div>
     <?php } ?>
 
     <div class="poi-map-stats">
       <div class="poi-stat">
-        <span>Tong POI</span>
+        <span>Tổng POI</span>
         <strong><?php echo count($pois); ?></strong>
       </div>
       <div class="poi-stat active">
-        <span>Dang hoat dong</span>
+        <span>Đang hoạt động</span>
         <strong><?php echo $activeCount; ?></strong>
       </div>
       <div class="poi-stat paused">
-        <span>Tam ngung</span>
+        <span>Tạm ngưng</span>
         <strong><?php echo $pausedCount; ?></strong>
       </div>
       <div class="poi-stat">
-        <span>Phi thang</span>
+        <span>Phí tháng</span>
         <strong><?php echo htmlspecialchars(poi_map_money($totalFee), ENT_QUOTES, 'UTF-8'); ?></strong>
       </div>
     </div>
@@ -310,24 +310,24 @@ $mapConfig = json_encode(array(
         <div class="poi-map-toolbar">
           <label class="poi-search">
             <i class="fa-solid fa-magnifying-glass"></i>
-            <input id="poiMapSearch" type="search" placeholder="Tim POI, dia chi, chu quan ly" autocomplete="off" />
+            <input id="poiMapSearch" type="search" placeholder="Tìm POI, địa chỉ, chủ quản lý" autocomplete="off" />
           </label>
-          <div class="poi-map-filter" aria-label="Loc POI">
-            <button type="button" class="active" data-poi-status="all">Tat ca</button>
-            <button type="button" data-poi-status="active">Hoat dong</button>
-            <button type="button" data-poi-status="paused">Tam ngung</button>
-            <button type="button" data-poi-status="closed">Dong cua</button>
+          <div class="poi-map-filter" aria-label="Lọc POI">
+            <button type="button" class="active" data-poi-status="all">Tất cả</button>
+            <button type="button" data-poi-status="active">Hoạt động</button>
+            <button type="button" data-poi-status="paused">Tạm ngưng</button>
+            <button type="button" data-poi-status="closed">Đóng cửa</button>
           </div>
         </div>
 
-        <div id="poiGoogleMap" class="poi-google-map" aria-label="Ban do POI 3D">
+        <div id="poiGoogleMap" class="poi-google-map" aria-label="Bản đồ POI 3D">
           <div class="poi-map-loading">
             <i class="fa-solid fa-map-location-dot"></i>
-            <span>Dang tai Google Maps 3D...</span>
+            <span>Đang tải Google Maps 3D...</span>
           </div>
         </div>
 
-        <div class="poi-camera-panel" aria-label="Dieu khien camera 3D">
+        <div class="poi-camera-panel" aria-label="Điều khiển camera 3D">
           <label>
             <span>Tilt <output id="poiTiltValue">62</output></span>
             <input id="poiTiltSlider" type="range" min="0" max="68" step="1" value="62" />
@@ -339,16 +339,16 @@ $mapConfig = json_encode(array(
         </div>
 
         <div class="poi-map-controls">
-          <button type="button" id="poiFitBounds" title="Can vua tat ca POI" aria-label="Can vua tat ca POI">
+          <button type="button" id="poiFitBounds" title="Căn vừa tất cả POI" aria-label="Căn vừa tất cả POI">
             <i class="fa-solid fa-compress"></i>
           </button>
-          <button type="button" id="poiToggleTilt" title="Bat/tat nghieng 3D" aria-label="Bat/tat nghieng 3D">
+          <button type="button" id="poiToggleTilt" title="Bật/tắt nghiêng 3D" aria-label="Bật/tắt nghiêng 3D">
             <i class="fa-solid fa-cube"></i>
           </button>
-          <button type="button" id="poiRotateLeft" title="Xoay trai" aria-label="Xoay trai">
+          <button type="button" id="poiRotateLeft" title="Xoay trái" aria-label="Xoay trái">
             <i class="fa-solid fa-rotate-left"></i>
           </button>
-          <button type="button" id="poiRotateRight" title="Xoay phai" aria-label="Xoay phai">
+          <button type="button" id="poiRotateRight" title="Xoay phải" aria-label="Xoay phải">
             <i class="fa-solid fa-rotate-right"></i>
           </button>
         </div>
@@ -357,8 +357,8 @@ $mapConfig = json_encode(array(
       <aside class="poi-map-panel">
         <div class="poi-panel-head">
           <div>
-            <h3>POI cua hang</h3>
-            <p><span id="poiVisibleCount"><?php echo count($pois); ?></span> diem co toa do hop le</p>
+            <h3>POI cửa hàng</h3>
+            <p><span id="poiVisibleCount"><?php echo count($pois); ?></span> điểm có tọa độ hợp lệ</p>
           </div>
           <span class="poi-live-pill">3D</span>
         </div>
@@ -367,8 +367,8 @@ $mapConfig = json_encode(array(
 
         <div class="poi-empty" id="poiEmptyState">
           <i class="fa-regular fa-map"></i>
-          <strong>Khong co POI phu hop</strong>
-          <span>Thu bo loc khac hoac cap nhat toa do gian hang.</span>
+          <strong>Không có POI phù hợp</strong>
+          <span>Thử bộ lọc khác hoặc cập nhật tọa độ gian hàng.</span>
         </div>
       </aside>
     </div>

@@ -216,11 +216,6 @@ function fetch_real_stores($role, $idTaiKhoan, $auth, &$error)
 
 $storeError = '';
 $cards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
-$usingFallback = false;
-if (count($cards) === 0) {
-    $cards = store_default_cards();
-    $usingFallback = true;
-}
 ?>
 <main class="main-content">
   <section class="booth-page">
@@ -269,9 +264,9 @@ if (count($cards) === 0) {
       </div>
     </div>
 
-    <?php if ($usingFallback && $storeError !== '') { ?>
+    <?php if ($storeError !== '') { ?>
       <div class="store-debug-panel">
-        Không tải được dữ liệu thật nên đang hiển thị giao diện dự phòng.
+        Không tải được dữ liệu gian hàng.
         <span><?php echo htmlspecialchars($storeError, ENT_QUOTES, 'UTF-8'); ?></span>
       </div>
     <?php } ?>
@@ -339,11 +334,11 @@ if (count($cards) === 0) {
       </div>
       <?php } ?>
 
-      <?php if ($usingFallback) { ?>
+      <?php if (count($cards) === 0 && $storeError === '') { ?>
       <div class="add-card" onclick="window.location.href='<?php echo htmlspecialchars(admin_url('index1st.php?usecase=branchdetail2&mode=create'), ENT_QUOTES, 'UTF-8'); ?>'">
         <div class="add-circle"><i class="fa-solid fa-plus"></i></div>
-        <h3>Thêm gian hàng mới</h3>
-        <p>Mở rộng mạng lưới đối tác của bạn</p>
+        <h3>Chưa có gian hàng</h3>
+        <p><?php echo $loaiTaiKhoan === 'chu_quan_ly' ? 'Gửi yêu cầu mở gian hàng mới để admin duyệt.' : 'Thêm gian hàng mới cho hệ thống.'; ?></p>
       </div>
       <?php } ?>
     </div>

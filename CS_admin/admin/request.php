@@ -71,7 +71,7 @@ function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 
     $body = curl_exec($ch);
     if ($body === false) {
-        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Khong the ket noi backend.';
+        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Không thể kết nối backend.';
         curl_close($ch);
         return null;
     }
@@ -81,7 +81,7 @@ function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 
     if ($body === '') {
         if ($httpCode >= 400) {
-            $error = 'API tra ve HTTP ' . $httpCode . '.';
+            $error = 'API trả về HTTP ' . $httpCode . '.';
             return null;
         }
 
@@ -90,7 +90,7 @@ function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 
     $decoded = json_decode($body, true);
     if ($decoded === null && strtolower(trim($body)) !== 'null') {
-        $error = 'Phan hoi tu backend khong hop le.';
+        $error = 'Phản hồi từ backend không hợp lệ.';
         return null;
     }
 
@@ -98,7 +98,7 @@ function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
         if (is_array($decoded) && !empty($decoded['message'])) {
             $error = (string) $decoded['message'];
         } else {
-            $error = 'API tra ve HTTP ' . $httpCode . '.';
+            $error = 'API trả về HTTP ' . $httpCode . '.';
         }
 
         return null;
@@ -146,12 +146,12 @@ function request_fetch_from_database($idTaiKhoan, $isOwnerRequestViewer, &$error
     $error = '';
     $conn = admin_db_connection();
     if (!$conn instanceof mysqli) {
-        $error = 'Khong the mo ket noi DB fallback.';
+        $error = 'Không thể mở kết nối DB fallback.';
         return array();
     }
 
     if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Khong the khoi tao bang yeu cau: ' . $conn->error;
+        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
         $conn->close();
         return array();
     }
@@ -203,7 +203,7 @@ function request_fetch_from_database($idTaiKhoan, $isOwnerRequestViewer, &$error
 
     $result = $conn->query($sql);
     if (!$result) {
-        $error = 'Khong the doc du lieu yeu cau: ' . $conn->error;
+        $error = 'Không thể đọc dữ liệu yêu cầu: ' . $conn->error;
         $conn->close();
         return array();
     }
@@ -223,32 +223,32 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     $error = '';
     $conn = admin_db_connection();
     if (!$conn instanceof mysqli) {
-        $error = 'Khong the mo ket noi DB fallback.';
+        $error = 'Không thể mở kết nối DB fallback.';
         return null;
     }
 
     if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Khong the khoi tao bang yeu cau: ' . $conn->error;
+        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
         $conn->close();
         return null;
     }
 
     $decision = strtolower(trim((string) $decision));
     if (!in_array($decision, array('da_duyet', 'tu_choi'), true)) {
-        $error = 'Trang thai xu ly khong hop le.';
+        $error = 'Trạng thái xử lý không hợp lệ.';
         $conn->close();
         return null;
     }
 
     if ($decision === 'da_duyet') {
         if ($phiHangThang === null || (float) $phiHangThang < 0) {
-            $error = 'Admin phai nhap phi hang thang hop le truoc khi phe duyet.';
+            $error = 'Admin phải nhập phí hàng tháng hợp lệ trước khi phê duyệt.';
             $conn->close();
             return null;
         }
 
         if ($lat === null || $lon === null) {
-            $error = 'Admin phai nhap day du vi do va kinh do truoc khi phe duyet.';
+            $error = 'Admin phải nhập đầy đủ vĩ độ và kinh độ trước khi phê duyệt.';
             $conn->close();
             return null;
         }
@@ -281,14 +281,14 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     if (!is_array($row)) {
         $conn->rollback();
         $conn->close();
-        $error = 'Khong tim thay yeu cau.';
+        $error = 'Không tìm thấy yêu cầu.';
         return null;
     }
 
     if (($row['trangThai'] ?? '') !== 'cho_duyet') {
         $conn->rollback();
         $conn->close();
-        $error = 'Yeu cau nay da duoc xu ly truoc do.';
+        $error = 'Yêu cầu này đã được xử lý trước đó.';
         return null;
     }
 
@@ -325,7 +325,7 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
         $insertStoreStmt->bind_param('issddd', $ownerId, $tenGianHang, $diaChi, $lat, $lon, $phiHangThangToSave);
         $insertStoreStmt->execute();
         if ($insertStoreStmt->errno !== 0) {
-            $error = $insertStoreStmt->error !== '' ? $insertStoreStmt->error : 'Khong the tao gian hang tu yeu cau.';
+            $error = $insertStoreStmt->error !== '' ? $insertStoreStmt->error : 'Không thể tạo gian hàng từ yêu cầu.';
             $insertStoreStmt->close();
             $conn->rollback();
             $conn->close();
@@ -366,7 +366,7 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     }
     $updateStmt->execute();
     if ($updateStmt->errno !== 0) {
-        $error = $updateStmt->error !== '' ? $updateStmt->error : 'Khong the cap nhat trang thai yeu cau.';
+        $error = $updateStmt->error !== '' ? $updateStmt->error : 'Không thể cập nhật trạng thái yêu cầu.';
         $updateStmt->close();
         $conn->rollback();
         $conn->close();
@@ -388,12 +388,12 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
     $lon = isset($_POST['lon']) && $_POST['lon'] !== '' ? (float) $_POST['lon'] : null;
 
     if ($targetRequestId <= 0) {
-        header('Location: ' . request_page_url($statusFilter, 0, '', 'Khong xac dinh duoc yeu cau can xu ly.', $flashNotice));
+        header('Location: ' . request_page_url($statusFilter, 0, '', 'Không xác định được yêu cầu cần xử lý.', $flashNotice));
         exit;
     }
 
     if (!in_array($decision, array('da_duyet', 'tu_choi'), true)) {
-        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', 'Trang thai xu ly khong hop le.', $flashNotice));
+        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', 'Trạng thái xử lý không hợp lệ.', $flashNotice));
         exit;
     }
 
@@ -425,12 +425,12 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
             exit;
         }
 
-        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $fallbackError !== '' ? $fallbackError : 'Khong the xu ly yeu cau.', $flashNotice));
+        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $fallbackError !== '' ? $fallbackError : 'Không thể xử lý yêu cầu.', $flashNotice));
         exit;
     }
 
     if ($result === null) {
-        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $apiError !== '' ? $apiError : 'Khong the xu ly yeu cau.', $flashNotice));
+        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $apiError !== '' ? $apiError : 'Không thể xử lý yêu cầu.', $flashNotice));
         exit;
     }
 

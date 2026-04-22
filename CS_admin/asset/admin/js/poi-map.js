@@ -119,6 +119,16 @@
     return 'poi-marker ' + escapeHtml(poi.statusClass || 'unknown') + (selectedId === poi.id ? ' selected' : '');
   }
 
+  function poiPopupImage(poi, className) {
+    if (!poi || !poi.imageUrl) {
+      return '';
+    }
+
+    return '<div class="' + escapeHtml(className) + '">' +
+      '<img src="' + escapeHtml(poi.imageUrl) + '" alt="" loading="lazy" />' +
+    '</div>';
+  }
+
   function buildMarkerContent(poi) {
     var wrap = document.createElement('div');
     wrap.className = markerClass(poi);
@@ -136,6 +146,42 @@
     } else if (typeof entry.marker.setMap === 'function') {
       entry.marker.setMap(targetMap);
     }
+  }
+
+  function focusPoiCamera(poi) {
+    if (!map || !poi) {
+      return;
+    }
+
+    var center = { lat: poi._lat, lng: poi._lng };
+    var currentZoom = typeof map.getZoom === 'function' ? Number(map.getZoom()) : 18;
+    if (!isFinite(currentZoom)) {
+      currentZoom = 18;
+    }
+
+    var camera = {
+      center: center,
+      zoom: Math.max(currentZoom, 18),
+      tilt: currentTilt(),
+      heading: currentHeading()
+    };
+
+    if (typeof map.moveCamera === 'function') {
+      map.moveCamera(camera);
+    } else {
+      map.panTo(center);
+      if (typeof map.setZoom === 'function' && camera.zoom !== currentZoom) {
+        map.setZoom(camera.zoom);
+      }
+      if (typeof map.setTilt === 'function') {
+        map.setTilt(camera.tilt);
+      }
+      if (typeof map.setHeading === 'function') {
+        map.setHeading(camera.heading);
+      }
+    }
+
+    syncCameraControls();
   }
 
   function refreshMarkerSelection() {
@@ -163,6 +209,7 @@
 
     infoWindow.setContent(
       '<div class="poi-info-window">' +
+        poiPopupImage(poi, 'poi-info-media') +
         '<strong>' + escapeHtml(poi.name) + '</strong>' +
         '<span>' + escapeHtml(poi.address) + '</span>' +
         '<span>' + escapeHtml(poi.statusLabel) + ' - Radius ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
@@ -176,10 +223,7 @@
       infoWindow.open(map, marker);
     }
 
-    map.panTo({ lat: poi._lat, lng: poi._lng });
-    if (map.getZoom() < 18) {
-      map.setZoom(18);
-    }
+    focusPoiCamera(poi);
   }
 
   function createMarkers() {
@@ -194,7 +238,7 @@
       }
     });
     markerEntries = [];
-    infoWindow = new google.maps.InfoWindow();
+    infoWindow = new google.maps.InfoWindow({ disableAutoPan: true });
 
     var canUseAdvanced = !!(config.mapId && config.mapId !== 'DEMO_MAP_ID' && google.maps.marker && google.maps.marker.AdvancedMarkerElement);
 
@@ -480,6 +524,7 @@
     }
 
     localState.popup.innerHTML =
+      poiPopupImage(poi, 'poi-local-popup-media') +
       '<strong>' + escapeHtml(poi.name) + '</strong>' +
       '<span>' + escapeHtml(poi.address) + '</span>' +
       '<span>' + escapeHtml(poi.statusLabel) + ' - ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
@@ -795,8 +840,7 @@
           }
           openInfo(poi, entry.marker);
         } else if (map) {
-          map.panTo({ lat: poi._lat, lng: poi._lng });
-          map.setZoom(18);
+          focusPoiCamera(poi);
         }
       });
 
@@ -926,11 +970,6 @@
     wireUi();
     renderList();
 
-    if (!pois.length) {
-      showMapMessage('Chua co gian hang nao co toa do hop le.');
-      return;
-    }
-
     renderLocal3DMap();
   }
 
@@ -951,11 +990,6 @@
       return;
     }
 
-    if (!pois.length) {
-      showMapMessage('Chua co gian hang nao co toa do hop le.');
-      return;
-    }
-
     if (googleAuthFailed || !config.hasApiKey || !window.google || !google.maps) {
       bootLocalMap();
       return;
@@ -966,10 +1000,20 @@
 
     var center = config.center || {};
     try {
+      var fallbackPoi = pois.length ? pois[0] : {};
+      var centerLat = Number(center.lat != null ? center.lat : fallbackPoi.lat);
+      var centerLng = Number(center.lng != null ? center.lng : fallbackPoi.lng);
+      if (!isFinite(centerLat)) {
+        centerLat = 10.762622;
+      }
+      if (!isFinite(centerLng)) {
+        centerLng = 106.660172;
+      }
+
       var mapOptions = {
         center: {
-          lat: Number(center.lat || pois[0].lat),
-          lng: Number(center.lng || pois[0].lng)
+          lat: centerLat,
+          lng: centerLng
         },
         zoom: 18,
         tilt: 62,

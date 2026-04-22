@@ -93,7 +93,7 @@ namespace VinhKhanh.Controllers
             if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
                 return ForbiddenResult();
 
-            var result = await storeManagementService.UpdateStoreByOwnerAsync(idGianHang, request);
+            var result = await storeManagementService.UpdateStoreByOwnerAsync(idGianHang, idTaiKhoan, request);
             if (result == null)
                 return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
 
