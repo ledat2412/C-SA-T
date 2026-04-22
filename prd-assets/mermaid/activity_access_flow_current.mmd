@@ -1,48 +1,58 @@
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#f8fafc", "primaryBorderColor": "#475569", "primaryTextColor": "#0f172a", "lineColor": "#334155", "tertiaryColor": "#ffffff", "fontFamily": "Arial"}}}%%
 flowchart TD
     A([Bắt đầu]) --> B[Người dùng mở app]
-    B --> C{Đã có token truy cập<br/>lưu trên máy?}
+    B --> C{Thiết bị có kết nối mạng?}
 
-    C -->|Có| D[Hệ thống kiểm tra token]
-    D --> E{Token còn hạn<br/>và đúng máy đã kích hoạt?}
+    C -->|Có| D[Hệ thống kiểm tra quyền truy cập<br/>trên server/database]
+    D --> E{Quyền truy cập còn hiệu lực<br/>và đúng thiết bị?}
     E -->|Có| Z[Mở nội dung chính của app]
-    E -->|Không| F[Xóa token không hợp lệ trên máy]
-    F --> G[Hiển thị màn hình truy cập]
+    E -->|Không| F[Hiển thị màn hình chọn cách truy cập]
 
-    C -->|Không| G
+    C -->|Không| G[Hệ thống kiểm tra quyền truy cập<br/>đã lưu trên thiết bị]
+    G --> H{Dữ liệu offline còn hạn<br/>và đúng thiết bị?}
+    H -->|Có| I[Cho vào app bằng quyền truy cập đã lưu]
+    I --> Z
+    H -->|Không| J[Thông báo cần kết nối mạng<br/>để xác thực quyền truy cập]
+    J --> F
 
-    G --> H{Người dùng chọn cách truy cập}
+    F --> K{Người dùng chọn cách truy cập}
 
-    %% LUỒNG 1: QUÉT QR TOKEN
-    H -->|Quét QR token đăng nhập| I[Mở màn hình quét QR]
-    I --> J[Người dùng quét QR token<br/>đã nhận qua email]
-    J --> K[Hệ thống đọc token trong QR]
-    K --> L{Token tồn tại<br/>và còn hạn?}
-
-    L -->|Không| M[Báo lỗi QR không hợp lệ<br/>hoặc token đã hết hạn]
-    M --> G
-
-    L -->|Có| Q{Máy hiện tại có đúng<br/>máy đã kích hoạt token?}
-    Q -->|Có| R[Lưu lại token trên máy]
+    %% LUỒNG 1: QUÉT QR TOKEN ĐĂNG NHẬP
+    K -->|Quét QR token đăng nhập| L[Mở màn hình quét QR]
+    L --> M[Người dùng quét QR hoặc tải ảnh QR]
+    M --> N{Thiết bị có kết nối mạng<br/>để xác thực QR?}
+    N -->|Không| O[Thông báo không thể xác thực QR khi offline]
+    O --> F
+    N -->|Có| P[Hệ thống kiểm tra QR token<br/>trên server/database]
+    P --> Q{QR token hợp lệ,<br/>còn hạn và đúng thiết bị?}
+    Q -->|Có| R[Lưu quyền truy cập trên thiết bị]
     R --> Z
-    Q -->|Không| S[Báo lỗi token chỉ dùng được<br/>trên một máy]
-    S --> G
+    Q -->|Không| S[Thông báo QR không hợp lệ<br/>hoặc không dùng được trên thiết bị này]
+    S --> F
 
-    %% LUỒNG 2: ĐĂNG KÝ GÓI
-    H -->|Đăng ký gói| T[Hiển thị danh sách gói dịch vụ]
-    T --> U[Người dùng chọn gói]
-    U --> V[Người dùng nhập email nhận QR token đăng nhập]
-    V --> W[Hiển thị QR thanh toán]
-    W --> X{Thanh toán được xác nhận?}
+    %% LUỒNG 2: ĐĂNG KÝ GÓI DỊCH VỤ
+    K -->|Đăng ký gói dịch vụ| T{Thiết bị có kết nối mạng<br/>để đăng ký gói?}
+    T -->|Không| U[Thông báo cần kết nối mạng<br/>để đăng ký gói]
+    U --> F
+    T -->|Có| V[Hiển thị danh sách gói dịch vụ]
+    V --> W[Người dùng chọn gói]
+    W --> X[Hiển thị QR thanh toán]
+    X --> Y{Thanh toán được xác nhận?}
 
-    X -->|Không| Y[Chờ thanh toán<br/>hoặc cho phép thử lại]
-    Y --> W
+    Y -->|Không| AA[Chờ thanh toán hoặc cho phép thử lại]
+    AA --> X
 
-    X -->|Có| AA[Tạo token theo gói đã mua]
-    AA --> AB[Khóa token vào máy hiện tại]
-    AB --> AC[Tạo một QR chứa token]
-    AC --> AD[Gửi QR token đăng nhập<br/>đến email người dùng]
-    AD --> AE[Lưu token trên máy]
-    AE --> AF[Người dùng bấm nút Vào app]
-    AF --> Z
+    Y -->|Có| AB[Hệ thống tạo quyền truy cập theo gói]
+    AB --> AC[Khóa quyền truy cập vào thiết bị hiện tại]
+    AC --> AD[Tạo QR token đăng nhập]
+    AD --> AE{Người dùng muốn nhận QR token<br/>bằng cách nào?}
+
+    AE -->|Gửi qua email| AF[Gửi QR token đến email người dùng]
+    AE -->|Tải trực tiếp| AG[Cho phép tải QR token về thiết bị]
+
+    AF --> AH[Lưu quyền truy cập trên thiết bị]
+    AG --> AH
+    AH --> AI[Người dùng bấm Vào app]
+    AI --> Z
 
     Z --> ZZ([Kết thúc])
