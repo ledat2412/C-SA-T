@@ -65,7 +65,10 @@ public partial class PoiMapPage
             $"[PoiMapPage] User location pin {(shouldRecreatePin ? "created" : "refreshed")} at {pinLocation.Latitude:F6}, {pinLocation.Longitude:F6}");
 
         if (centerOnUser)
+        {
             _map.MoveToRegion(MapSpan.FromCenterAndRadius(pinLocation, Distance.FromMeters(350)));
+            RestoreMapModeAfterRegionMove();
+        }
     }
 
     private async Task InitializeGeofenceAsync()

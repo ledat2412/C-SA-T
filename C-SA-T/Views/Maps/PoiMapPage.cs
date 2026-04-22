@@ -34,6 +34,8 @@ public partial class PoiMapPage : ContentPage
     private readonly View _footer;
     private readonly Grid _topBar;
     private readonly MapActionButton _currentLocationButton;
+    private readonly MapActionButton _mapModeButton;
+    private readonly Label _mapModeLabel;
 
     private const string DefaultLanguageCode = "vi";
 
@@ -125,6 +127,7 @@ public partial class PoiMapPage : ContentPage
     private readonly List<NgonNgu> _languages = new();
     private string _selectedLanguageCode = DefaultLanguageCode; // overridden in constructor
     private bool _isLiveLocationSubscribed;
+    private bool _isMap3DEnabled;
 
 #if ANDROID
     private GoogleMap? _androidGoogleMap;
@@ -185,6 +188,8 @@ public partial class PoiMapPage : ContentPage
         _bottomSheet = CreateBottomSheet();
         _detailSheet = CreateDetailSheet();
         _currentLocationButton = CreateCurrentLocationButton();
+        _mapModeLabel = CreateMapModeLabel();
+        _mapModeButton = CreateMapModeButton();
         _footer = new AppBottomBar(
             BottomBarTab.Explore,
             localizationService,
@@ -204,6 +209,7 @@ public partial class PoiMapPage : ContentPage
         localizationService.LanguageChanged += () => MainThread.BeginInvokeOnMainThread(() =>
         {
             UpdateLocalizedText();
+            UpdateMapModeButtonVisual();
             _selectedLanguageCode = _loc.CurrentLanguage;
             RenderLanguageOptions();
             _ = ApplySelectedLanguageToCurrentDetailAsync();
@@ -213,6 +219,7 @@ public partial class PoiMapPage : ContentPage
         UpdateLocalizedText();
 
         Content = BuildLayout();
+        Connectivity.Current.ConnectivityChanged += OnConnectivityChanged;
 
 #if ANDROID
         _map.HandlerChanged += (_, __) => TryInitializeAndroidMap();
@@ -250,6 +257,10 @@ public partial class PoiMapPage : ContentPage
             if (_isInitialLoadCompleted)
                 await LoadRealPoisAsync();
 
+            if (_isMap3DEnabled && !HasInternet())
+                await SetMap3DModeAsync(false, animate: true);
+
+            UpdateMapModeButtonVisual();
             _poiRefreshView.StartAutoRefresh(Dispatcher, PoiReloadInterval);
 
             await EnsureExploreSheetVisibleAsync();
@@ -285,6 +296,34 @@ public partial class PoiMapPage : ContentPage
 
         button.Clicked += async (_, __) => await CenterOnCurrentLocationAsync();
 
+        return button;
+    }
+
+    private Label CreateMapModeLabel()
+    {
+        return new Label
+        {
+            Text = "3D",
+            FontSize = 14,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#DC2626"),
+            HorizontalTextAlignment = TextAlignment.Center,
+            VerticalTextAlignment = TextAlignment.Center,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center
+        };
+    }
+
+    private MapActionButton CreateMapModeButton()
+    {
+        var button = new MapActionButton(_mapModeLabel)
+        {
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Center,
+            ZIndex = 21
+        };
+
+        button.Clicked += async (_, __) => await ToggleMapModeAsync();
         return button;
     }
 
@@ -364,9 +403,10 @@ public partial class PoiMapPage : ContentPage
             ColumnDefinitions =
             {
                 new ColumnDefinition { Width = GridLength.Star },
+                new ColumnDefinition { Width = GridLength.Auto },
                 new ColumnDefinition { Width = GridLength.Auto }
             },
-            ColumnSpacing = 10,
+            ColumnSpacing = 8,
             VerticalOptions = LayoutOptions.Start,
             HorizontalOptions = LayoutOptions.Fill,
             ZIndex = 20
@@ -375,8 +415,11 @@ public partial class PoiMapPage : ContentPage
         topBar.Children.Add(searchBox);
         Grid.SetColumn(searchBox, 0);
 
+        topBar.Children.Add(_mapModeButton);
+        Grid.SetColumn(_mapModeButton, 1);
+
         topBar.Children.Add(_currentLocationButton);
-        Grid.SetColumn(_currentLocationButton, 1);
+        Grid.SetColumn(_currentLocationButton, 2);
 
         return topBar;
     }
@@ -501,6 +544,92 @@ public partial class PoiMapPage : ContentPage
         return Connectivity.Current.NetworkAccess == NetworkAccess.Internet;
     }
 
+    private async Task ToggleMapModeAsync()
+    {
+        if (_isMap3DEnabled)
+        {
+            await SetMap3DModeAsync(false, animate: true);
+            return;
+        }
+
+        if (!HasInternet())
+        {
+            UpdateMapModeButtonVisual();
+            await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("map_3d_requires_internet"), _loc.Get("alert_ok"));
+            return;
+        }
+
+#if !ANDROID
+        await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("map_3d_android_only"), _loc.Get("alert_ok"));
+        return;
+#else
+        await SetMap3DModeAsync(true, animate: true);
+#endif
+    }
+
+    private async Task SetMap3DModeAsync(bool enabled, bool animate)
+    {
+        if (enabled && !HasInternet())
+        {
+            UpdateMapModeButtonVisual();
+            await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("map_3d_requires_internet"), _loc.Get("alert_ok"));
+            return;
+        }
+
+        _isMap3DEnabled = enabled;
+        UpdateMapModeButtonVisual();
+
+#if ANDROID
+        ApplyAndroidMapMode(animate);
+#endif
+
+        await Task.CompletedTask;
+    }
+
+    private void UpdateMapModeButtonVisual()
+    {
+        if (_mapModeLabel is null)
+            return;
+
+        _mapModeLabel.Text = _isMap3DEnabled ? "2D" : "3D";
+        _mapModeLabel.TextColor = _isMap3DEnabled
+            ? Color.FromArgb("#9A3412")
+            : Color.FromArgb("#DC2626");
+        _mapModeLabel.Opacity = !_isMap3DEnabled && !HasInternet() ? 0.48 : 1;
+
+        SemanticProperties.SetDescription(
+            _mapModeButton,
+            _isMap3DEnabled ? _loc.Get("map_switch_to_2d") : _loc.Get("map_switch_to_3d"));
+    }
+
+    private void OnConnectivityChanged(object? sender, ConnectivityChangedEventArgs e)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (_isMap3DEnabled && e.NetworkAccess != NetworkAccess.Internet)
+            {
+                await SetMap3DModeAsync(false, animate: true);
+                return;
+            }
+
+            UpdateMapModeButtonVisual();
+        });
+    }
+
+    private void RestoreMapModeAfterRegionMove()
+    {
+#if ANDROID
+        if (!_isMap3DEnabled)
+            return;
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await Task.Delay(260);
+            ApplyAndroidMapMode(animate: true);
+        });
+#endif
+    }
+
     private async Task InitializePageAsync()
     {
         try
@@ -564,6 +693,7 @@ public partial class PoiMapPage : ContentPage
                     MapSpan.FromCenterAndRadius(
                         new Location(first.Latitude, first.Longitude),
                         Distance.FromKilometers(1)));
+                RestoreMapModeAfterRegionMove();
             }
 
             RefreshVisiblePins();
@@ -1753,8 +1883,42 @@ public partial class PoiMapPage : ContentPage
         {
             _androidGoogleMap = map;
             _androidGoogleMap.UiSettings.ZoomControlsEnabled = true;
+            ApplyAndroidMapMode(animate: false);
             UpdateAndroidMapPadding();
         }));
+    }
+
+    private void ApplyAndroidMapMode(bool animate)
+    {
+        if (_androidGoogleMap is null)
+            return;
+
+        var currentCamera = _androidGoogleMap.CameraPosition;
+        var target = currentCamera.Target;
+        var targetZoom = _isMap3DEnabled
+            ? Math.Max(currentCamera.Zoom, 17.5f)
+            : currentCamera.Zoom;
+        var targetTilt = _isMap3DEnabled ? 58f : 0f;
+        var targetBearing = _isMap3DEnabled
+            ? Math.Abs(currentCamera.Bearing) < 1f ? 32f : currentCamera.Bearing
+            : 0f;
+
+        _androidGoogleMap.BuildingsEnabled = _isMap3DEnabled;
+        _androidGoogleMap.UiSettings.TiltGesturesEnabled = _isMap3DEnabled;
+        _androidGoogleMap.UiSettings.RotateGesturesEnabled = _isMap3DEnabled;
+
+        var camera = new CameraPosition.Builder()
+            .Target(target)
+            .Zoom(targetZoom)
+            .Tilt(targetTilt)
+            .Bearing(targetBearing)
+            .Build();
+
+        var update = CameraUpdateFactory.NewCameraPosition(camera);
+        if (animate)
+            _androidGoogleMap.AnimateCamera(update);
+        else
+            _androidGoogleMap.MoveCamera(update);
     }
 
     private void UpdateAndroidMapPadding()
@@ -2110,6 +2274,7 @@ public partial class PoiMapPage : ContentPage
 
         var location = new Location(poi.Latitude, poi.Longitude);
         _map.MoveToRegion(MapSpan.FromCenterAndRadius(location, Distance.FromMeters(250)));
+        RestoreMapModeAfterRegionMove();
 
         _titleLabel.Text = poi.Title;
         _subtitleLabel.Text = poi.Subtitle;

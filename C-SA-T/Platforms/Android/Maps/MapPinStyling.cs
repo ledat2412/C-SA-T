@@ -103,11 +103,8 @@ internal static class MapPinStyling
 
         handler.PlatformView.GetMapAsync(new MapReadyCallback(googleMap =>
         {
-            var applied = googleMap.SetMapStyle(new MapStyleOptions(CustomMapStyle));
-            googleMap.BuildingsEnabled = false;
-            googleMap.UiSettings.TiltGesturesEnabled = false;
-            googleMap.UiSettings.RotateGesturesEnabled = false;
-            System.Diagnostics.Debug.WriteLine($"Map theme applied: {applied}");
+            googleMap.MapType = GoogleMap.MapTypeNormal;
+            System.Diagnostics.Debug.WriteLine($"Map default style applied. Custom style disabled ({CustomMapStyle.Length} chars).");
         }));
     }
 
