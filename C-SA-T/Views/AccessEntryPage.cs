@@ -219,18 +219,18 @@ public class AccessEntryPage : ContentPage
             _ => key switch
             {
                 "badge" => "Access Flow",
-                "opening_title" => "Du khach mo app",
-                "opening_desc" => "Dang kiem tra access token local truoc khi vao he thong.",
-                "valid_title" => "Token hop le",
-                "valid_desc" => "Token hop le, dang vao chuc nang chinh.",
-                "valid_desc_with_expiry" => "Token con han den {0}.",
-                "choose_title" => "Chon cach truy cap",
-                "choose_desc" => "Ban co the quet QR hoac dang ky goi dich vu de vao app.",
-                "choose_desc_with_reason" => "{0} Ban co the quet QR hoac dang ky goi dich vu de vao app.",
-                "qr_title" => "Quet QR",
-                "qr_desc" => "Quet ma QR tren thiet bi de nhan access token va mo khoa noi dung.",
-                "package_title" => "Dang ky goi",
-                "package_desc" => "Chon goi dich vu, mo trang thanh toan QR va dung bypass de nhan QR token dang nhap qua email.",
+                "opening_title" => "Du khách mở app",
+                "opening_desc" => "Đang kiểm tra access token local trước khi vào hệ thống.",
+                "valid_title" => "Token hợp lệ",
+                "valid_desc" => "Token hợp lệ, đang vào chức năng chính.",
+                "valid_desc_with_expiry" => "Token còn hạn đến {0}.",
+                "choose_title" => "Chọn cách truy cập",
+                "choose_desc" => "Bạn có thể quét QR hoặc đăng ký gói dịch vụ để vào app.",
+                "choose_desc_with_reason" => "{0} Bạn có thể quét QR hoặc đăng ký gói dịch vụ để vào app.",
+                "qr_title" => "Quét QR",
+                "qr_desc" => "Quét mã QR trên thiết bị để nhận access token và mở khoá nội dung.",
+                "package_title" => "Đăng ký gói",
+                "package_desc" => "Chọn gói dịch vụ, mở trang thanh toán QR và dùng bypass để nhận QR token đăng nhập qua email.",
                 _ => key
             }
         };

@@ -14,15 +14,16 @@ public class PackageQrPaymentPage : ContentPage
     private readonly LocalizationService _loc;
     private readonly IImageGallerySaver? _gallerySaver;
     private readonly PackagePlanOption _plan;
-    private readonly string _email;
+    private readonly Entry _emailEntry;
     private readonly CheckBox _bypassCheckBox;
     private readonly Button _bypassEmailButton;
     private readonly Button _bypassDownloadButton;
-    private readonly HorizontalStackLayout _bypassChoiceLayout;
+    private readonly VerticalStackLayout _bypassChoiceLayout;
     private readonly Label _statusLabel;
     private readonly Label _helperLabel;
     private readonly VerticalStackLayout _successLayout;
     private bool _isSubmitting;
+    private bool _hasActivated;
 
     public PackageQrPaymentPage(AccessFlowService accessFlowService, LocalizationService localizationService, PackagePlanOption plan, string email, IImageGallerySaver? gallerySaver = null)
     {
@@ -30,7 +31,6 @@ public class PackageQrPaymentPage : ContentPage
         _loc = localizationService;
         _gallerySaver = gallerySaver;
         _plan = plan;
-        _email = email;
 
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = MauiColor.FromArgb("#FFF7F1");
@@ -52,6 +52,17 @@ public class PackageQrPaymentPage : ContentPage
             LineBreakMode = LineBreakMode.WordWrap
         };
 
+        _emailEntry = new Entry
+        {
+            Placeholder = GetText("email_placeholder"),
+            Keyboard = Keyboard.Email,
+            Text = email ?? string.Empty,
+            BackgroundColor = Colors.White,
+            TextColor = MauiColor.FromArgb("#111111"),
+            PlaceholderColor = MauiColor.FromArgb("#94A3B8")
+        };
+        _emailEntry.TextChanged += (_, __) => RefreshBypassButtons();
+
         _bypassEmailButton = new Button
         {
             Text = GetText("bypass_email"),
@@ -59,7 +70,8 @@ public class PackageQrPaymentPage : ContentPage
             TextColor = Colors.White,
             CornerRadius = 16,
             Padding = new Thickness(14, 12),
-            HorizontalOptions = LayoutOptions.FillAndExpand
+            HorizontalOptions = LayoutOptions.FillAndExpand,
+            IsEnabled = IsValidEmail(_emailEntry.Text)
         };
         _bypassEmailButton.Clicked += async (_, __) => await ConfirmBypassAsync(sendEmail: true);
 
@@ -74,11 +86,30 @@ public class PackageQrPaymentPage : ContentPage
         };
         _bypassDownloadButton.Clicked += async (_, __) => await ConfirmBypassAsync(sendEmail: false);
 
-        _bypassChoiceLayout = new HorizontalStackLayout
+        _bypassChoiceLayout = new VerticalStackLayout
         {
             Spacing = 10,
             IsVisible = false,
-            Children = { _bypassEmailButton, _bypassDownloadButton }
+            Children =
+            {
+                new Label
+                {
+                    Text = GetText("email_section"),
+                    FontSize = 13,
+                    FontAttributes = FontAttributes.Bold,
+                    TextColor = MauiColor.FromArgb("#111111")
+                },
+                _emailEntry,
+                new Label
+                {
+                    Text = GetText("choice_hint"),
+                    FontSize = 12,
+                    TextColor = MauiColor.FromArgb("#6B7280"),
+                    LineBreakMode = LineBreakMode.WordWrap
+                },
+                _bypassEmailButton,
+                _bypassDownloadButton
+            }
         };
 
         _bypassCheckBox = new CheckBox
@@ -87,7 +118,7 @@ public class PackageQrPaymentPage : ContentPage
         };
         _bypassCheckBox.CheckedChanged += (_, args) =>
         {
-            _bypassChoiceLayout.IsVisible = args.Value;
+            _bypassChoiceLayout.IsVisible = args.Value && !_hasActivated;
         };
 
         _successLayout = new VerticalStackLayout
@@ -114,7 +145,7 @@ public class PackageQrPaymentPage : ContentPage
         tap.Tapped += async (_, __) => await Navigation.PopAsync();
         backButton.GestureRecognizers.Add(tap);
 
-        var paymentPayload = $"PAYQR|goi={_plan.BackendPackageId}|email={_email}|gia={_plan.Price:0}";
+        var paymentPayload = $"PAYQR|goi={_plan.BackendPackageId}|gia={_plan.Price:0}";
 
         Content = new ScrollView
         {
@@ -144,12 +175,6 @@ public class PackageQrPaymentPage : ContentPage
                                     FontSize = 18,
                                     FontAttributes = FontAttributes.Bold,
                                     TextColor = MauiColor.FromArgb("#111111")
-                                },
-                                new Label
-                                {
-                                    Text = string.Format(GetText("email_line"), _email),
-                                    FontSize = 13,
-                                    TextColor = MauiColor.FromArgb("#6B7280")
                                 },
                                 new Label
                                 {
@@ -215,21 +240,41 @@ public class PackageQrPaymentPage : ContentPage
         };
     }
 
+    private void RefreshBypassButtons()
+    {
+        _bypassEmailButton.IsEnabled = !_isSubmitting && !_hasActivated && IsValidEmail(_emailEntry.Text);
+    }
+
+    private static bool IsValidEmail(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return false;
+        return email.Contains('@') && email.Contains('.');
+    }
+
     private async Task ConfirmBypassAsync(bool sendEmail)
     {
-        if (_isSubmitting)
+        if (_isSubmitting || _hasActivated)
             return;
+
+        var email = _emailEntry.Text?.Trim() ?? string.Empty;
+        if (sendEmail && !IsValidEmail(email))
+        {
+            await DisplayAlertAsync(GetText("failed_title"), GetText("invalid_email"), _loc.Get("alert_ok"));
+            return;
+        }
 
         _isSubmitting = true;
         _bypassEmailButton.IsEnabled = false;
         _bypassDownloadButton.IsEnabled = false;
 
+        var activated = false;
         try
         {
             _statusLabel.Text = GetText("status_generating");
-            _helperLabel.Text = GetText("helper_generating");
+            _helperLabel.Text = sendEmail ? GetText("helper_generating_email") : GetText("helper_generating_download");
 
-            var result = await _accessFlowService.RegisterPackageAccessBypassAsync(_email, _plan.BackendPackageId, sendEmail);
+            var result = await _accessFlowService.RegisterPackageAccessBypassAsync(email, _plan.BackendPackageId, sendEmail);
             if (!result.Success)
             {
                 _statusLabel.Text = GetText("status_failed");
@@ -238,6 +283,7 @@ public class PackageQrPaymentPage : ContentPage
                 return;
             }
 
+            activated = true;
             _statusLabel.Text = GetText("status_activated");
             _helperLabel.Text = result.EmailSent
                 ? GetText("helper_email_sent")
@@ -245,7 +291,6 @@ public class PackageQrPaymentPage : ContentPage
 
             ShowSuccess(result);
 
-            // Nếu user chọn Download → tự động lưu QR vào gallery ngay sau khi activate thành công
             if (!sendEmail)
             {
                 var payload = result.QrTokenPayload ?? result.AccessToken;
@@ -255,9 +300,17 @@ public class PackageQrPaymentPage : ContentPage
         }
         finally
         {
-            _bypassEmailButton.IsEnabled = true;
-            _bypassDownloadButton.IsEnabled = true;
             _isSubmitting = false;
+            if (activated)
+            {
+                _hasActivated = true;
+                _bypassChoiceLayout.IsVisible = false;
+            }
+            else
+            {
+                _bypassDownloadButton.IsEnabled = true;
+                RefreshBypassButtons();
+            }
         }
     }
 
@@ -265,6 +318,8 @@ public class PackageQrPaymentPage : ContentPage
     {
         _successLayout.Children.Clear();
         _successLayout.IsVisible = true;
+
+        var hasEmail = !string.IsNullOrWhiteSpace(result.Email);
 
         var gmailButton = new Button
         {
@@ -274,7 +329,8 @@ public class PackageQrPaymentPage : ContentPage
             BorderColor = MauiColor.FromArgb("#CCFBF1"),
             BorderWidth = 1,
             CornerRadius = 14,
-            IsEnabled = !result.EmailSent
+            IsEnabled = hasEmail && !result.EmailSent,
+            IsVisible = hasEmail
         };
         gmailButton.Clicked += async (_, __) =>
         {
@@ -321,6 +377,14 @@ public class PackageQrPaymentPage : ContentPage
                 await app.ShowMainPageAsync();
         };
 
+        var infoText = hasEmail
+            ? $"{string.Format(GetText("package_line"), result.PackageName)}\n{string.Format(GetText("email_line"), result.Email)}\n{string.Format(GetText("expires_line"), result.ExpiresAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? string.Empty)}"
+            : $"{string.Format(GetText("package_line"), result.PackageName)}\n{string.Format(GetText("expires_line"), result.ExpiresAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? string.Empty)}";
+
+        var statusHint = hasEmail
+            ? (result.EmailSent ? GetText("email_backend_sent") : (result.EmailStatusMessage ?? GetText("email_manual_hint")))
+            : GetText("download_only_hint");
+
         _successLayout.Children.Add(
             BuildCard(
                 new VerticalStackLayout
@@ -337,7 +401,7 @@ public class PackageQrPaymentPage : ContentPage
                         },
                         new Label
                         {
-                            Text = $"{string.Format(GetText("package_line"), result.PackageName)}\n{string.Format(GetText("email_line"), result.Email)}\n{string.Format(GetText("expires_line"), result.ExpiresAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? string.Empty)}",
+                            Text = infoText,
                             FontSize = 13,
                             TextColor = MauiColor.FromArgb("#6B7280")
                         },
@@ -367,9 +431,7 @@ public class PackageQrPaymentPage : ContentPage
                         },
                         new Label
                         {
-                            Text = result.EmailSent
-                                ? GetText("email_backend_sent")
-                                : (result.EmailStatusMessage ?? GetText("email_manual_hint")),
+                            Text = statusHint,
                             FontSize = 12,
                             TextColor = MauiColor.FromArgb("#9A3412"),
                             LineBreakMode = LineBreakMode.WordWrap
@@ -413,13 +475,11 @@ public class PackageQrPaymentPage : ContentPage
 
             if (_gallerySaver != null)
             {
-                // Lưu thẳng vào Pictures/VinhKhanh trên thiết bị
                 await _gallerySaver.SavePngToGalleryAsync(pngBytes, fileName);
                 await DisplayAlertAsync(GetText("save_qr_title"), GetText("save_qr_success"), _loc.Get("alert_ok"));
             }
             else
             {
-                // Fallback: share sheet nếu platform không hỗ trợ gallery saver
                 var path = System.IO.Path.Combine(FileSystem.CacheDirectory, fileName);
                 await File.WriteAllBytesAsync(path, pngBytes);
                 await Share.RequestAsync(new ShareFileRequest
@@ -455,18 +515,25 @@ public class PackageQrPaymentPage : ContentPage
             "en" => key switch
             {
                 "status_waiting" => "Waiting for payment confirmation",
-                "helper_waiting" => "The QR payment flow is currently simulated. Check bypass to skip the real payment step.",
+                "helper_waiting" => "The QR payment flow is currently simulated. Check bypass to skip the real payment step, then choose to receive the QR by email or download it directly.",
                 "bypass_button" => "Confirm bypass",
                 "back" => "Back",
                 "title" => "QR payment",
+                "email_section" => "Email to receive the login QR token (optional)",
+                "email_placeholder" => "Enter your Gmail address (required only if you choose to receive by email)",
                 "email_line" => "Email: {0}",
                 "price_line" => "Price: {0:N0} VND | {1} days",
                 "payment_qr" => "Payment QR code",
                 "bypass_hint" => "Bypass payment to create the login QR token",
+                "choice_hint" => "Choose: send QR by email (email required) or download QR directly to this device (no email needed).",
+                "bypass_email" => "Send QR by email",
+                "bypass_download" => "Download QR to device",
                 "status_generating" => "Generating token for the selected package...",
-                "helper_generating" => "The system will bypass payment, activate the token on this device, and send the login QR token by email.",
+                "helper_generating_email" => "The system will bypass payment, activate the token on this device, and send the login QR token by email.",
+                "helper_generating_download" => "The system will bypass payment, activate the token on this device, and save the login QR image to your device.",
                 "status_failed" => "Bypass failed",
                 "failed_title" => "Failed",
+                "invalid_email" => "Please enter a valid email address to receive the QR token.",
                 "status_activated" => "Token activated",
                 "helper_email_sent" => "The token has been activated and the login QR token email has been sent.",
                 "helper_qr_ready" => "The token has been activated and the login QR token is ready.",
@@ -481,6 +548,7 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "Package activated successfully",
                 "email_backend_sent" => "The backend sent the QR token email automatically.",
                 "email_manual_hint" => "Automatic email could not be sent. You can use the Gmail button to send it manually.",
+                "download_only_hint" => "You chose to download the QR directly. Keep the image safe — it is required to log in.",
                 "save_qr" => "Save QR to device",
                 "save_qr_title" => "QR saved",
                 "save_qr_success" => "QR code saved to Pictures/VinhKhanh on your device.",
@@ -489,18 +557,25 @@ public class PackageQrPaymentPage : ContentPage
             "ko" => key switch
             {
                 "status_waiting" => "결제 확인 대기 중",
-                "helper_waiting" => "현재 QR 결제 흐름은 시뮬레이션입니다. 실제 결제를 건너뛰려면 bypass를 체크하세요.",
+                "helper_waiting" => "현재 QR 결제 흐름은 시뮬레이션입니다. bypass를 체크해 결제를 건너뛴 뒤 이메일 수신 또는 기기에 직접 다운로드를 선택하세요.",
                 "bypass_button" => "bypass 확인",
                 "back" => "뒤로",
                 "title" => "QR 결제",
+                "email_section" => "로그인 QR 토큰 수신 이메일 (선택)",
+                "email_placeholder" => "이메일 수신을 선택한 경우에만 필요 — Gmail 주소 입력",
                 "email_line" => "이메일: {0}",
                 "price_line" => "가격: {0:N0} VND | {1}일",
                 "payment_qr" => "결제 QR 코드",
                 "bypass_hint" => "로그인 QR 토큰을 만들기 위해 결제를 bypass 합니다",
+                "choice_hint" => "선택: 이메일로 QR 받기(이메일 필요) 또는 이 기기에 QR 직접 내려받기(이메일 불필요).",
+                "bypass_email" => "이메일로 QR 보내기",
+                "bypass_download" => "기기에 QR 내려받기",
                 "status_generating" => "선택한 패키지의 토큰을 생성하는 중...",
-                "helper_generating" => "시스템이 결제를 bypass 하고, 이 기기에서 토큰을 활성화한 뒤 이메일로 로그인 QR 토큰을 보냅니다.",
+                "helper_generating_email" => "시스템이 결제를 bypass 하고, 이 기기에서 토큰을 활성화한 뒤 이메일로 로그인 QR 토큰을 보냅니다.",
+                "helper_generating_download" => "시스템이 결제를 bypass 하고, 이 기기에서 토큰을 활성화한 뒤 로그인 QR 이미지를 기기에 저장합니다.",
                 "status_failed" => "bypass 실패",
                 "failed_title" => "실패",
+                "invalid_email" => "QR 토큰을 받을 유효한 이메일 주소를 입력하세요.",
                 "status_activated" => "토큰 활성화 완료",
                 "helper_email_sent" => "토큰이 활성화되었고 로그인 QR 토큰 이메일이 전송되었습니다.",
                 "helper_qr_ready" => "토큰이 활성화되었고 로그인 QR 토큰이 준비되었습니다.",
@@ -515,6 +590,7 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "패키지 활성화 완료",
                 "email_backend_sent" => "백엔드가 QR 토큰 이메일을 자동으로 보냈습니다.",
                 "email_manual_hint" => "자동 이메일 전송에 실패했습니다. Gmail 버튼으로 수동 발송할 수 있습니다.",
+                "download_only_hint" => "QR을 직접 내려받기로 선택했습니다. 로그인에 필요하므로 이미지를 안전하게 보관하세요.",
                 "save_qr" => "QR을 기기에 저장",
                 "save_qr_title" => "QR 저장됨",
                 "save_qr_success" => "QR 코드가 기기의 Pictures/VinhKhanh에 저장되었습니다.",
@@ -523,18 +599,25 @@ public class PackageQrPaymentPage : ContentPage
             "ja" => key switch
             {
                 "status_waiting" => "支払い確認待ち",
-                "helper_waiting" => "現在のQR決済フローはシミュレーションです。実際の支払いを飛ばすには bypass をチェックしてください。",
+                "helper_waiting" => "現在のQR決済フローはシミュレーションです。bypass をチェックして支払いを飛ばし、その後メール受信または端末に直接ダウンロードを選んでください。",
                 "bypass_button" => "bypass を確認",
                 "back" => "戻る",
                 "title" => "QR決済",
+                "email_section" => "ログイン用QRトークン受信メール (任意)",
+                "email_placeholder" => "メール受信を選ぶ場合のみ必要 — Gmailアドレス",
                 "email_line" => "メール: {0}",
                 "price_line" => "価格: {0:N0} VND | {1}日",
                 "payment_qr" => "決済QRコード",
                 "bypass_hint" => "ログイン用QRトークンを作るために支払いを bypass します",
+                "choice_hint" => "選択: メールでQRを受け取る(メール必須) または この端末にQRを直接ダウンロード(メール不要)。",
+                "bypass_email" => "メールでQRを送る",
+                "bypass_download" => "端末にQRをダウンロード",
                 "status_generating" => "選択したプランのトークンを生成中...",
-                "helper_generating" => "システムは支払いを bypass し、この端末でトークンを有効化してからログイン用QRトークンをメール送信します。",
+                "helper_generating_email" => "システムは支払いを bypass し、この端末でトークンを有効化してからログイン用QRトークンをメール送信します。",
+                "helper_generating_download" => "システムは支払いを bypass し、この端末でトークンを有効化してからログイン用QR画像を端末に保存します。",
                 "status_failed" => "bypass 失敗",
                 "failed_title" => "失敗",
+                "invalid_email" => "QRトークンを受け取る有効なメールアドレスを入力してください。",
                 "status_activated" => "トークン有効化完了",
                 "helper_email_sent" => "トークンを有効化し、ログイン用QRトークンのメールを送信しました。",
                 "helper_qr_ready" => "トークンを有効化し、ログイン用QRトークンを生成しました。",
@@ -549,6 +632,7 @@ public class PackageQrPaymentPage : ContentPage
                 "success_title" => "プランの有効化に成功しました",
                 "email_backend_sent" => "バックエンドがQRトークンメールを自動送信しました。",
                 "email_manual_hint" => "自動メール送信に失敗しました。Gmail ボタンから手動送信できます。",
+                "download_only_hint" => "QRを直接ダウンロードを選択しました。ログインに必要なので画像を安全に保管してください。",
                 "save_qr" => "QRをデバイスに保存",
                 "save_qr_title" => "QR保存完了",
                 "save_qr_success" => "QRコードが端末のPictures/VinhKhanh に保存されました。",
@@ -556,36 +640,44 @@ public class PackageQrPaymentPage : ContentPage
             },
             _ => key switch
             {
-                "status_waiting" => "Cho xac nhan thanh toan",
-                "helper_waiting" => "Luong QR thanh toan hien dang mo phong. Hay tick bypass de bo qua buoc thanh toan that.",
-                "bypass_button" => "Xac thuc bypass",
-                "back" => "Quay lai",
-                "title" => "Thanh toan QR",
+                "status_waiting" => "Chờ xác nhận thanh toán",
+                "helper_waiting" => "Luồng QR thanh toán hiện đang mô phỏng. Tick bypass để bỏ qua thanh toán thật, sau đó chọn nhận QR qua email hoặc tải trực tiếp về máy.",
+                "bypass_button" => "Xác thực bypass",
+                "back" => "Quay lại",
+                "title" => "Thanh toán QR",
+                "email_section" => "Email nhận QR token đăng nhập (tuỳ chọn)",
+                "email_placeholder" => "Nhập gmail (chỉ cần khi bạn chọn nhận qua email)",
                 "email_line" => "Email: {0}",
-                "price_line" => "Gia: {0:N0} VND | {1} ngay",
-                "payment_qr" => "Ma QR thanh toan",
-                "bypass_hint" => "Bypass thanh toan de tao QR token dang nhap",
-                "status_generating" => "Dang sinh token theo goi dich vu...",
-                "helper_generating" => "He thong se bypass thanh toan, kich hoat token tren may nay va gui QR token den email.",
-                "status_failed" => "Bypass that bai",
-                "failed_title" => "That bai",
-                "status_activated" => "Da kich hoat token",
-                "helper_email_sent" => "Da kich hoat token va gui email QR token dang nhap.",
-                "helper_qr_ready" => "Da kich hoat token va sinh QR token dang nhap.",
-                "gmail_sent" => "Email da gui",
-                "gmail_open" => "Mo Gmail de gui QR token",
-                "gmail_subject" => "QR token dang nhap Vinh Khanh Smart Tourism",
-                "package_line" => "Goi: {0}",
+                "price_line" => "Giá: {0:N0} VND | {1} ngày",
+                "payment_qr" => "Mã QR thanh toán",
+                "bypass_hint" => "Bypass thanh toán để tạo QR token đăng nhập",
+                "choice_hint" => "Chọn: gửi QR qua email (cần email) hoặc tải QR trực tiếp về máy (không cần email).",
+                "bypass_email" => "Gửi QR qua email",
+                "bypass_download" => "Tải QR về máy",
+                "status_generating" => "Đang sinh token theo gói dịch vụ...",
+                "helper_generating_email" => "Hệ thống sẽ bypass thanh toán, kích hoạt token trên máy này và gửi QR token đến email.",
+                "helper_generating_download" => "Hệ thống sẽ bypass thanh toán, kích hoạt token trên máy này và lưu ảnh QR về máy của bạn.",
+                "status_failed" => "Bypass thất bại",
+                "failed_title" => "Thất bại",
+                "invalid_email" => "Vui lòng nhập gmail hợp lệ để nhận QR token.",
+                "status_activated" => "Đã kích hoạt token",
+                "helper_email_sent" => "Đã kích hoạt token và gửi email QR token đăng nhập.",
+                "helper_qr_ready" => "Đã kích hoạt token và sinh QR token đăng nhập.",
+                "gmail_sent" => "Email đã gửi",
+                "gmail_open" => "Mở Gmail để gửi QR token",
+                "gmail_subject" => "QR token đăng nhập Vinh Khanh Smart Tourism",
+                "package_line" => "Gói: {0}",
                 "token_line" => "Token: {0}",
                 "payload_line" => "QR payload: {0}",
-                "expires_line" => "Het han: {0}",
-                "enter_app" => "Vao app",
-                "success_title" => "Da kich hoat goi thanh cong",
-                "email_backend_sent" => "Backend da gui email QR token tu dong.",
-                "email_manual_hint" => "Chua gui duoc email tu dong, ban co the dung nut Gmail de gui thu cong.",
-                "save_qr" => "Tai QR ve may",
-                "save_qr_title" => "Da luu QR",
-                "save_qr_success" => "Da luu ma QR vao Pictures/VinhKhanh tren may ban.",
+                "expires_line" => "Hết hạn: {0}",
+                "enter_app" => "Vào app",
+                "success_title" => "Đã kích hoạt gói thành công",
+                "email_backend_sent" => "Backend đã gửi email QR token tự động.",
+                "email_manual_hint" => "Chưa gửi được email tự động, bạn có thể dùng nút Gmail để gửi thủ công.",
+                "download_only_hint" => "Bạn đã chọn tải QR trực tiếp về máy. Vui lòng giữ kỹ ảnh QR — cần thiết để đăng nhập.",
+                "save_qr" => "Tải QR về máy",
+                "save_qr_title" => "Đã lưu QR",
+                "save_qr_success" => "Đã lưu mã QR vào Pictures/VinhKhanh trên máy bạn.",
                 _ => key
             }
         };

@@ -68,6 +68,14 @@ public class SettingsPage : ContentPage
 
         RenderLanguageChips();
 
+        var languageChipsScroll = new ScrollView
+        {
+            Orientation = ScrollOrientation.Horizontal,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Never,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Never,
+            Content = _chipGrid
+        };
+
         var languageCard = new Border
         {
             StrokeShape = new RoundRectangle { CornerRadius = 16 },
@@ -77,7 +85,7 @@ public class SettingsPage : ContentPage
             Content = new VerticalStackLayout
             {
                 Spacing = 10,
-                Children = { _langSectionLabel, _chipGrid }
+                Children = { _langSectionLabel, languageChipsScroll }
             }
         };
 
@@ -521,7 +529,7 @@ public class SettingsPage : ContentPage
             "en" => "Use this when Android cannot reach localhost. Emulator usually uses https://10.0.2.2:7123/, while a real device should use your PC LAN IP.",
             "ko" => "Android가 localhost에 접근하지 못할 때 사용합니다. 에뮬레이터는 보통 https://10.0.2.2:7123/ 를, 실제 기기는 PC의 LAN IP를 사용해야 합니다.",
             "ja" => "Android が localhost に接続できない場合に使います。エミュレーターは通常 https://10.0.2.2:7123/、実機は PC の LAN IP を使ってください。",
-            _ => "Dung khi Android khong truy cap duoc localhost. Emulator thuong dung https://10.0.2.2:7123/, con may that can dung IP LAN cua may tinh."
+            _ => "Dùng khi Android không truy cập được localhost. Emulator thường dùng https://10.0.2.2:7123/, còn máy thật cần dùng IP LAN của máy tính."
         };
     }
 
@@ -541,7 +549,7 @@ public class SettingsPage : ContentPage
             "en" => "Save backend URL",
             "ko" => "백엔드 URL 저장",
             "ja" => "バックエンドURLを保存",
-            _ => "Luu URL backend"
+            _ => "Lưu URL backend"
         };
     }
 
@@ -552,7 +560,7 @@ public class SettingsPage : ContentPage
             "en" => "Leave blank to use the default URL for the current platform.",
             "ko" => "비워 두면 현재 플랫폼의 기본 URL을 사용합니다.",
             "ja" => "空欄のままなら現在のプラットフォーム既定URLを使います。",
-            _ => "De trong de dung URL mac dinh theo tung nen tang."
+            _ => "Để trống để dùng URL mặc định theo từng nền tảng."
         };
     }
 
@@ -563,7 +571,7 @@ public class SettingsPage : ContentPage
             "en" => "Saved backend URL: {0}",
             "ko" => "백엔드 URL 저장됨: {0}",
             "ja" => "バックエンドURLを保存しました: {0}",
-            _ => "Da luu URL backend: {0}"
+            _ => "Đã lưu URL backend: {0}"
         };
     }
 
@@ -574,7 +582,7 @@ public class SettingsPage : ContentPage
             "en" => "Removed custom backend URL. The app will use the platform default.",
             "ko" => "사용자 지정 백엔드 URL을 제거했습니다. 앱은 플랫폼 기본값을 사용합니다.",
             "ja" => "カスタムのバックエンドURLを削除しました。アプリは既定値を使います。",
-            _ => "Da xoa URL backend tuy chinh. App se quay ve URL mac dinh."
+            _ => "Đã xoá URL backend tuỳ chỉnh. App sẽ quay về URL mặc định."
         };
     }
 
@@ -585,7 +593,7 @@ public class SettingsPage : ContentPage
             "en" => "Invalid URL. Use a full http:// or https:// address.",
             "ko" => "잘못된 URL입니다. http:// 또는 https:// 전체 주소를 입력하세요.",
             "ja" => "無効なURLです。http:// または https:// から始まる完全なURLを入力してください。",
-            _ => "URL khong hop le. Hay nhap day du dia chi http:// hoac https://."
+            _ => "URL không hợp lệ. Hãy nhập đầy đủ địa chỉ http:// hoặc https://."
         };
     }
 
@@ -596,7 +604,7 @@ public class SettingsPage : ContentPage
             "en" => "Scan QR",
             "ko" => "QR 스캔",
             "ja" => "QRをスキャン",
-            _ => "Quet QR"
+            _ => "Quét QR"
         };
     }
 
@@ -607,7 +615,7 @@ public class SettingsPage : ContentPage
             "en" => "Open the QR scanner to activate access from a login token.",
             "ko" => "로그인 QR 토큰으로 접근 권한을 활성화하려면 스캐너를 엽니다.",
             "ja" => "ログイン用QRトークンからアクセスを有効化するにはスキャナーを開きます。",
-            _ => "Mo man hinh quet QR de truy cap bang QR token dang nhap."
+            _ => "Mở màn hình quét QR để truy cập bằng QR token đăng nhập."
         };
     }
 
@@ -618,7 +626,7 @@ public class SettingsPage : ContentPage
             "en" => "Reset access",
             "ko" => "접근 초기화",
             "ja" => "アクセスをリセット",
-            _ => "Reset truy cap"
+            _ => "Reset truy cập"
         };
     }
 
@@ -629,7 +637,7 @@ public class SettingsPage : ContentPage
             "en" => "Clear the local token so you can test package purchase and QR token login again.",
             "ko" => "로컬 토큰을 지워 패키지 구매와 QR 로그인 흐름을 다시 테스트할 수 있습니다.",
             "ja" => "ローカルトークンを削除して、パッケージ購入とQRログインの流れを再テストできます。",
-            _ => "Xoa token local de ban test lai luong chon goi, thanh toan va QR token dang nhap."
+            _ => "Xoá token local để bạn test lại luồng chọn gói, thanh toán và QR token đăng nhập."
         };
     }
 
@@ -640,7 +648,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete token on device",
             "ko" => "기기 토큰 삭제",
             "ja" => "端末のトークンを削除",
-            _ => "Xoa token tren may"
+            _ => "Xoá token trên máy"
         };
     }
 
@@ -651,7 +659,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete only the local token on this device without changing server data.",
             "ko" => "서버 데이터는 건드리지 않고 이 기기의 로컬 토큰만 삭제합니다.",
             "ja" => "サーバーデータは変更せず、この端末のローカルトークンだけ削除します。",
-            _ => "Chi xoa token local tren may nay, khong dong vao du lieu token o backend."
+            _ => "Chỉ xoá token local trên máy này, không động vào dữ liệu token ở backend."
         };
     }
 
@@ -662,7 +670,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete",
             "ko" => "삭제",
             "ja" => "削除",
-            _ => "Xoa"
+            _ => "Xoá"
         };
     }
 
@@ -673,7 +681,7 @@ public class SettingsPage : ContentPage
             "en" => "Reset access",
             "ko" => "접근 초기화",
             "ja" => "アクセスをリセット",
-            _ => "Reset truy cap"
+            _ => "Reset truy cập"
         };
     }
 
@@ -684,7 +692,7 @@ public class SettingsPage : ContentPage
             "en" => "Remove the current access token and return to the screen for choosing a package or scanning a QR code?",
             "ko" => "현재 접근 토큰을 지우고 패키지 선택 또는 QR 스캔 화면으로 돌아가시겠습니까?",
             "ja" => "現在のアクセストークンを削除して、パッケージ選択またはQRスキャン画面に戻りますか？",
-            _ => "Xoa token truy cap hien tai de quay lai man hinh chon goi va quet QR?"
+            _ => "Xoá token truy cập hiện tại để quay lại màn hình chọn gói và quét QR?"
         };
     }
 
@@ -695,7 +703,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete token on device",
             "ko" => "기기 토큰 삭제",
             "ja" => "端末のトークンを削除",
-            _ => "Xoa token tren may"
+            _ => "Xoá token trên máy"
         };
     }
 
@@ -706,7 +714,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete only the local access token on this device so you can test activation again?",
             "ko" => "이 기기의 로컬 접근 토큰만 삭제해서 활성화 흐름을 다시 테스트하시겠습니까?",
             "ja" => "この端末のローカルアクセストークンだけ削除して、再度アクティベーションを試しますか？",
-            _ => "Chi xoa access token local tren thiet bi nay de ban test lai luong kich hoat?"
+            _ => "Chỉ xoá access token local trên thiết bị này để bạn test lại luồng kích hoạt?"
         };
     }
 
@@ -717,7 +725,7 @@ public class SettingsPage : ContentPage
             "en" => "Delete token",
             "ko" => "토큰 삭제",
             "ja" => "トークンを削除",
-            _ => "Xoa token"
+            _ => "Xoá token"
         };
     }
 
@@ -728,7 +736,7 @@ public class SettingsPage : ContentPage
             "en" => "Cancel",
             "ko" => "취소",
             "ja" => "キャンセル",
-            _ => "Huy"
+            _ => "Huỷ"
         };
     }
 
@@ -739,7 +747,7 @@ public class SettingsPage : ContentPage
             "en" => "Done",
             "ko" => "완료",
             "ja" => "完了",
-            _ => "Hoan tat"
+            _ => "Hoàn tất"
         };
     }
 
@@ -750,7 +758,7 @@ public class SettingsPage : ContentPage
             "en" => "The token on this device has been removed.",
             "ko" => "이 기기의 토큰을 삭제했습니다.",
             "ja" => "この端末のトークンを削除しました。",
-            _ => "Da xoa token tren may nay."
+            _ => "Đã xoá token trên máy này."
         };
     }
 }

@@ -9,7 +9,7 @@ public class PackageRegistrationPage : ContentPage
 {
     private readonly AccessFlowService _accessFlowService;
     private readonly LocalizationService _loc;
-    private readonly Entry _emailEntry;
+    private readonly IImageGallerySaver? _gallerySaver;
     private readonly VerticalStackLayout _packageList;
     private readonly Button _paymentButton;
     private readonly Label _selectedPlanLabel;
@@ -17,25 +17,16 @@ public class PackageRegistrationPage : ContentPage
     private PackagePlanOption? _selectedPlan;
     private readonly List<PackagePlanOption> _plans;
 
-    public PackageRegistrationPage(AccessFlowService accessFlowService, LocalizationService localizationService)
+    public PackageRegistrationPage(AccessFlowService accessFlowService, LocalizationService localizationService, IImageGallerySaver? gallerySaver = null)
     {
         _accessFlowService = accessFlowService;
         _loc = localizationService;
+        _gallerySaver = gallerySaver;
         _plans = BuildPlans();
 
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = MauiColor.FromArgb("#FFF7F1");
         Title = string.Empty;
-
-        _emailEntry = new Entry
-        {
-            Placeholder = GetText("email_placeholder"),
-            Keyboard = Keyboard.Email,
-            BackgroundColor = Colors.White,
-            TextColor = MauiColor.FromArgb("#111111"),
-            PlaceholderColor = MauiColor.FromArgb("#94A3B8")
-        };
-        _emailEntry.TextChanged += (_, __) => RefreshPaymentButton();
 
         _selectedPlanLabel = new Label
         {
@@ -107,22 +98,6 @@ public class PackageRegistrationPage : ContentPage
                         TextColor = MauiColor.FromArgb("#6B7280"),
                         LineBreakMode = LineBreakMode.WordWrap
                     },
-                    BuildCard(
-                        new VerticalStackLayout
-                        {
-                            Spacing = 10,
-                            Children =
-                            {
-                                new Label
-                                {
-                                    Text = GetText("email_section"),
-                                    FontSize = 15,
-                                    FontAttributes = FontAttributes.Bold,
-                                    TextColor = MauiColor.FromArgb("#111111")
-                                },
-                                _emailEntry
-                            }
-                        }),
                     BuildCard(
                         new VerticalStackLayout
                         {
@@ -235,7 +210,7 @@ public class PackageRegistrationPage : ContentPage
 
     private void RefreshPaymentButton()
     {
-        _paymentButton.IsVisible = _selectedPlan is not null && IsValidEmail(_emailEntry.Text);
+        _paymentButton.IsVisible = _selectedPlan is not null;
     }
 
     private async Task GoToPaymentAsync()
@@ -243,14 +218,7 @@ public class PackageRegistrationPage : ContentPage
         if (_selectedPlan is null)
             return;
 
-        var email = _emailEntry.Text?.Trim() ?? string.Empty;
-        if (!IsValidEmail(email))
-        {
-            await DisplayAlertAsync(GetText("notice"), GetText("invalid_email"), _loc.Get("alert_ok"));
-            return;
-        }
-
-        await Navigation.PushAsync(new PackageQrPaymentPage(_accessFlowService, _loc, _selectedPlan, email));
+        await Navigation.PushAsync(new PackageQrPaymentPage(_accessFlowService, _loc, _selectedPlan, string.Empty, _gallerySaver));
     }
 
     private static View BuildCard(View content)
@@ -264,14 +232,6 @@ public class PackageRegistrationPage : ContentPage
             Padding = new Thickness(16, 14),
             Content = content
         };
-    }
-
-    private static bool IsValidEmail(string? email)
-    {
-        if (string.IsNullOrWhiteSpace(email))
-            return false;
-
-        return email.Contains('@') && email.Contains('.');
     }
 
     private List<PackagePlanOption> BuildPlans()
@@ -298,9 +258,9 @@ public class PackageRegistrationPage : ContentPage
             ],
             _ =>
             [
-                new(1, "Goi ngay", "1 ngay truy cap cho du khach.", 1, 15000m, true),
-                new(2, "Goi 7 ngay", "7 ngay truy cap bang QR token dang nhap.", 7, 70000m, true),
-                new(3, "Goi thang", "30 ngay truy cap bang QR token dang nhap.", 30, 500000m, true)
+                new(1, "Gói ngày", "1 ngày truy cập cho du khách.", 1, 15000m, true),
+                new(2, "Gói 7 ngày", "7 ngày truy cập bằng QR token đăng nhập.", 7, 70000m, true),
+                new(3, "Gói tháng", "30 ngày truy cập bằng QR token đăng nhập.", 30, 500000m, true)
             ]
         };
     }
@@ -311,74 +271,58 @@ public class PackageRegistrationPage : ContentPage
         {
             "en" => key switch
             {
-                "email_placeholder" => "Enter the Gmail address for receiving the login QR token",
                 "no_plan" => "No package selected yet.",
-                "helper_default" => "Choose a package, enter a valid email, then tap Pay to open the QR payment page.",
-                "helper_selected" => "Tap Pay to open the QR payment page. On the next screen you can use bypass to generate the login QR token.",
+                "helper_default" => "Choose a package, then tap Pay to open the QR payment page.",
+                "helper_selected" => "Tap Pay to open the QR payment page. On the next screen you can enter an email to receive the QR token, or download the QR directly.",
                 "pay" => "Pay",
                 "back" => "Back",
                 "title" => "Register access package",
-                "subtitle" => "Choose a service package, enter your Gmail address, then tap Pay to open the QR payment page.",
-                "email_section" => "Email for receiving the login QR token",
+                "subtitle" => "Choose a service package, then tap Pay. You can enter your email (to receive the QR token) or download the QR directly on the next screen.",
                 "plan_section" => "Service packages",
                 "plan_meta" => "{0} days | {1:N0} VND",
                 "selected_plan" => "Selected: {0}",
-                "notice" => "Notice",
-                "invalid_email" => "Please enter a valid Gmail address.",
                 _ => key
             },
             "ko" => key switch
             {
-                "email_placeholder" => "로그인 QR 토큰을 받을 Gmail 주소를 입력하세요",
                 "no_plan" => "아직 선택한 패키지가 없습니다.",
-                "helper_default" => "패키지를 선택하고 유효한 이메일을 입력한 뒤 결제를 눌러 QR 결제 화면으로 이동하세요.",
-                "helper_selected" => "결제를 눌러 QR 결제 화면을 여세요. 다음 화면에서 bypass로 로그인 QR 토큰을 생성할 수 있습니다.",
+                "helper_default" => "패키지를 선택한 뒤 결제를 눌러 QR 결제 화면으로 이동하세요.",
+                "helper_selected" => "결제를 누르면 QR 결제 화면이 열립니다. 다음 화면에서 이메일로 QR 토큰을 받거나 QR을 바로 내려받을 수 있습니다.",
                 "pay" => "결제",
                 "back" => "뒤로",
                 "title" => "이용 패키지 등록",
-                "subtitle" => "서비스 패키지를 선택하고 Gmail 주소를 입력한 뒤 결제를 눌러 QR 결제 화면으로 이동하세요.",
-                "email_section" => "로그인 QR 토큰 수신 이메일",
+                "subtitle" => "서비스 패키지를 선택한 뒤 결제를 누르세요. 다음 화면에서 이메일 입력(QR 수신)하거나 QR을 바로 내려받을 수 있습니다.",
                 "plan_section" => "서비스 패키지 목록",
                 "plan_meta" => "{0}일 | {1:N0} VND",
                 "selected_plan" => "선택됨: {0}",
-                "notice" => "알림",
-                "invalid_email" => "유효한 Gmail 주소를 입력해 주세요.",
                 _ => key
             },
             "ja" => key switch
             {
-                "email_placeholder" => "ログイン用QRトークンを受け取るGmailアドレスを入力してください",
                 "no_plan" => "まだプランが選択されていません。",
-                "helper_default" => "プランを選び、有効なメールアドレスを入力してから、支払いを押してQR決済ページへ進みます。",
-                "helper_selected" => "支払いを押すとQR決済ページを開きます。次の画面で bypass を使ってログイン用QRトークンを生成できます。",
+                "helper_default" => "プランを選んでから、支払いを押してQR決済ページへ進みます。",
+                "helper_selected" => "支払いを押すとQR決済ページが開きます。次の画面でメールアドレスを入力してQRを受信するか、QRを直接ダウンロードできます。",
                 "pay" => "支払い",
                 "back" => "戻る",
                 "title" => "アクセスプラン登録",
-                "subtitle" => "サービスプランを選び、Gmailアドレスを入力してから、支払いを押してQR決済ページへ進みます。",
-                "email_section" => "ログイン用QRトークン受信メール",
+                "subtitle" => "サービスプランを選んでから、支払いを押してください。次の画面でメール入力(QR受信)またはQRを直接ダウンロードできます。",
                 "plan_section" => "サービスプラン一覧",
                 "plan_meta" => "{0}日 | {1:N0} VND",
                 "selected_plan" => "選択中: {0}",
-                "notice" => "お知らせ",
-                "invalid_email" => "有効なGmailアドレスを入力してください。",
                 _ => key
             },
             _ => key switch
             {
-                "email_placeholder" => "Nhap gmail de nhan QR token dang nhap",
-                "no_plan" => "Chua chon goi nao.",
-                "helper_default" => "Chon mot goi, nhap email hop le, sau do bam Thanh toan de sang trang QR thanh toan.",
-                "helper_selected" => "Bam Thanh toan de mo trang QR thanh toan. Tai trang tiep theo ban co the tick bypass de tao QR token dang nhap.",
-                "pay" => "Thanh toan",
-                "back" => "Quay lai",
-                "title" => "Dang ky goi truy cap",
-                "subtitle" => "Chon goi dich vu, nhap gmail, sau do bam Thanh toan de den trang thanh toan QR.",
-                "email_section" => "Email nhan QR token dang nhap",
-                "plan_section" => "Danh sach goi dich vu",
-                "plan_meta" => "{0} ngay | {1:N0} VND",
-                "selected_plan" => "Da chon: {0}",
-                "notice" => "Thong bao",
-                "invalid_email" => "Vui long nhap gmail hop le.",
+                "no_plan" => "Chưa chọn gói nào.",
+                "helper_default" => "Chọn một gói, sau đó bấm Thanh toán để sang trang QR thanh toán.",
+                "helper_selected" => "Bấm Thanh toán để mở trang QR thanh toán. Tại trang tiếp theo bạn có thể nhập email để nhận QR token, hoặc tải QR trực tiếp về máy.",
+                "pay" => "Thanh toán",
+                "back" => "Quay lại",
+                "title" => "Đăng ký gói truy cập",
+                "subtitle" => "Chọn gói dịch vụ, sau đó bấm Thanh toán. Tại trang tiếp theo bạn có thể nhập email để nhận QR token, hoặc tải QR trực tiếp về máy.",
+                "plan_section" => "Danh sách gói dịch vụ",
+                "plan_meta" => "{0} ngày | {1:N0} VND",
+                "selected_plan" => "Đã chọn: {0}",
                 _ => key
             }
         };

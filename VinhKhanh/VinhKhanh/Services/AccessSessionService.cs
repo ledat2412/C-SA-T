@@ -263,7 +263,17 @@ namespace VinhKhanh.Services
         public async Task<RegisterPackageAccessResponseDto> RegisterPackageAccessAsync(RegisterPackageAccessRequestDto request)
         {
             var email = request.Email?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || !email.Contains('.'))
+            var hasEmail = !string.IsNullOrWhiteSpace(email);
+            if (request.SendEmail && (!hasEmail || !email.Contains('@') || !email.Contains('.')))
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "Email khong hop le."
+                };
+            }
+
+            if (hasEmail && (!email.Contains('@') || !email.Contains('.')))
             {
                 return new RegisterPackageAccessResponseDto
                 {
@@ -342,7 +352,7 @@ namespace VinhKhanh.Services
             {
                 invoiceCmd.Parameters.AddWithValue("@idPhienVaoApp", sessionId);
                 invoiceCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
-                invoiceCmd.Parameters.AddWithValue("@email", email);
+                invoiceCmd.Parameters.AddWithValue("@email", hasEmail ? (object)email : DBNull.Value);
                 invoiceCmd.Parameters.AddWithValue("@tongTien", package.Price);
                 invoiceCmd.Parameters.AddWithValue("@ghiChu", "Bypass thanh toan QR de test package access.");
                 invoiceId = Convert.ToInt32(await invoiceCmd.ExecuteScalarAsync());
@@ -350,7 +360,7 @@ namespace VinhKhanh.Services
 
             await TouchDeviceAsync(conn, deviceId);
 
-            var emailResult = request.SendEmail
+            var emailResult = request.SendEmail && hasEmail
                 ? await _emailService.TrySendQrTokenEmailAsync(
                     email,
                     package.TenGoi,
