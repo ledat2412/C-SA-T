@@ -20,27 +20,27 @@ internal static class MapPinStyling
     private static Dictionary<string, BitmapDescriptor>? _imageIconCache;
     private static BitmapDescriptor? _userLocationIconCache;
 
-    // Custom theme - Light style với màu sắc tối ưu
+    // Custom theme - sáng, sạch, nhấn màu cam theo giao diện app
     private static readonly string CustomMapStyle = "[" +
-        "{\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#e3e3e3\"}]}" +
+        "{\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#f6f1ea\"}]}" +
         ",{\"elementType\":\"labels.icon\",\"stylers\":[{\"visibility\":\"off\"}]}" +
-        ",{\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#585858\"}]}" +
-        ",{\"elementType\":\"labels.text.stroke\",\"stylers\":[{\"color\":\"#e3e3e3\"}]}" +
-        ",{\"featureType\":\"administrative\",\"elementType\":\"geometry.stroke\",\"stylers\":[{\"color\":\"#b6b6b6\"}]}" +
-        ",{\"featureType\":\"administrative.land_parcel\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#9f9f9f\"}]}" +
-        ",{\"featureType\":\"poi\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#dddddd\"}]}" +
-        ",{\"featureType\":\"poi\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#696969\"}]}" +
-        ",{\"featureType\":\"poi.park\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#d8d8d8\"}]}" +
-        ",{\"featureType\":\"poi.park\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#888888\"}]}" +
-        ",{\"featureType\":\"road\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#ececec\"}]}" +
-        ",{\"featureType\":\"road.arterial\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#676767\"}]}" +
-        ",{\"featureType\":\"road.highway\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#c8c8c8\"}]}" +
-        ",{\"featureType\":\"road.highway\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#585858\"}]}" +
-        ",{\"featureType\":\"road.local\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#8a8a8a\"}]}" +
-        ",{\"featureType\":\"transit.line\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#d9d9d9\"}]}" +
-        ",{\"featureType\":\"transit.station\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#e1e1e1\"}]}" +
-        ",{\"featureType\":\"water\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#b6b6b6\"}]}" +
-        ",{\"featureType\":\"water\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#848484\"}]}" +
+        ",{\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#6b4f3a\"}]}" +
+        ",{\"elementType\":\"labels.text.stroke\",\"stylers\":[{\"color\":\"#fffaf5\"}]}" +
+        ",{\"featureType\":\"administrative\",\"elementType\":\"geometry.stroke\",\"stylers\":[{\"color\":\"#d7c3b2\"}]}" +
+        ",{\"featureType\":\"administrative.land_parcel\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#9d7b61\"}]}" +
+        ",{\"featureType\":\"poi\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#f1e4d8\"}]}" +
+        ",{\"featureType\":\"poi\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#7d5b45\"}]}" +
+        ",{\"featureType\":\"poi.park\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#dce8d6\"}]}" +
+        ",{\"featureType\":\"poi.park\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#5e7a56\"}]}" +
+        ",{\"featureType\":\"road\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#fffaf7\"}]}" +
+        ",{\"featureType\":\"road.arterial\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#8f6a52\"}]}" +
+        ",{\"featureType\":\"road.highway\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#f0d6c1\"}]}" +
+        ",{\"featureType\":\"road.highway\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#7d4e2e\"}]}" +
+        ",{\"featureType\":\"road.local\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#9e846e\"}]}" +
+        ",{\"featureType\":\"transit.line\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#eddccf\"}]}" +
+        ",{\"featureType\":\"transit.station\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#f0e2d7\"}]}" +
+        ",{\"featureType\":\"water\",\"elementType\":\"geometry\",\"stylers\":[{\"color\":\"#c8dff0\"}]}" +
+        ",{\"featureType\":\"water\",\"elementType\":\"labels.text.fill\",\"stylers\":[{\"color\":\"#5b7d9d\"}]}" +
         "]";
 
     public static void Configure()
@@ -104,7 +104,12 @@ internal static class MapPinStyling
         handler.PlatformView.GetMapAsync(new MapReadyCallback(googleMap =>
         {
             googleMap.MapType = GoogleMap.MapTypeNormal;
-            System.Diagnostics.Debug.WriteLine($"Map default style applied. Custom style disabled ({CustomMapStyle.Length} chars).");
+            var style = new MapStyleOptions(CustomMapStyle);
+            var applied = googleMap.SetMapStyle(style);
+            System.Diagnostics.Debug.WriteLine(
+                applied
+                    ? $"Map custom style applied ({CustomMapStyle.Length} chars)."
+                    : "Map custom style reported a parsing issue; Google Maps kept its default render.");
         }));
     }
 

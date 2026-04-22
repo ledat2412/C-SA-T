@@ -102,6 +102,7 @@ public partial class PoiMapPage : ContentPage
     private bool _shouldAutoOpenExplore;
     private bool _isInitialLoadStarted;
     private bool _isInitialLoadCompleted;
+    private bool _hasPrimedExploreInfrastructure;
     private bool _isLoadingPois;
     private DateTime _lastPoiLoadAtUtc;
     private string _activeSearchQuery = string.Empty;
@@ -234,6 +235,12 @@ public partial class PoiMapPage : ContentPage
             UpdateAndroidMapPadding();
 #endif
 
+            if (!_hasPrimedExploreInfrastructure)
+            {
+                _hasPrimedExploreInfrastructure = true;
+                _ = PrimeExploreInfrastructureAsync();
+            }
+
             if (_isInitialLoadStarted)
                 return;
 
@@ -264,11 +271,26 @@ public partial class PoiMapPage : ContentPage
             _poiRefreshView.StartAutoRefresh(Dispatcher, PoiReloadInterval);
 
             await EnsureExploreSheetVisibleAsync();
-            await ShowCurrentLocationMarkerAsync(centerOnUser: false);
-            await InitializeGeofenceAsync();
-            await _geofenceEngine.StartAsync();
         };
         SizeChanged += (_, __) => InitializeSheetPositions();
+    }
+
+    private async Task PrimeExploreInfrastructureAsync()
+    {
+        try
+        {
+            await Task.Yield();
+
+            await InitializeGeofenceAsync();
+            await _geofenceEngine.StartAsync();
+
+            if (!_isInitialLoadCompleted)
+                await ShowCurrentLocationMarkerAsync(centerOnUser: false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PoiMapPage] PrimeExploreInfrastructureAsync error: {ex.Message}");
+        }
     }
 
     private View BuildLayout()
@@ -638,7 +660,6 @@ public partial class PoiMapPage : ContentPage
             await LoadLanguagesAsync();
             await LoadRealPoisAsync();
             _ = DiagnosePoiImagesAsync();
-            await InitializeGeofenceAsync();
             _isInitialLoadCompleted = true;
         }
         catch (Exception ex)
