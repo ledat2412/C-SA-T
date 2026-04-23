@@ -9,7 +9,7 @@ namespace VinhKhanh.Services
         private static readonly HashSet<string> RequestStatuses = new(StringComparer.OrdinalIgnoreCase)
         {
             "cho_duyet",
-            "da_duyet",
+            "cho_thanh_toan",
             "tu_choi"
         };
 
@@ -133,7 +133,7 @@ namespace VinhKhanh.Services
                 throw new InvalidOperationException("Yeu cau nay da duoc xu ly truoc do.");
 
             int? createdStoreId = null;
-            if (string.Equals(requestStatus, "da_duyet", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(requestStatus, "cho_thanh_toan", StringComparison.OrdinalIgnoreCase))
             {
                 createdStoreId = await CreateStoreFromRequestAsync(
                     currentRequest,
@@ -215,8 +215,9 @@ namespace VinhKhanh.Services
                 ORDER BY
                     CASE ycg.trangThai
                         WHEN 'cho_duyet' THEN 0
-                        WHEN 'da_duyet' THEN 1
-                        ELSE 2
+                        WHEN 'cho_thanh_toan' THEN 1
+                        WHEN 'da_duyet' THEN 2
+                        ELSE 3
                     END,
                     ycg.ngayGui DESC,
                     ycg.idYeuCau DESC;";
@@ -345,7 +346,7 @@ namespace VinhKhanh.Services
                     @diaChi,
                     @lat,
                     @lon,
-                    'dang_hoat_dong',
+                    'tam_ngung',
                     @phiHangThang,
                     NOW(),
                     NOW()
@@ -360,7 +361,18 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@lon", lon);
             cmd.Parameters.AddWithValue("@phiHangThang", phiHangThang);
 
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            var storeId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+            const string invoiceSql = @"
+                INSERT INTO hoadongianhang (idGianHang, tongTien, ngayHetHan, trangThai, ghiChu, ngayTao)
+                VALUES (@storeId, @tongTien, DATE_ADD(NOW(), INTERVAL 1 MONTH), 'chua_thanh_toan', 'Phí duy trì tháng đầu tiên', NOW());";
+
+            using var invoiceCmd = new MySqlCommand(invoiceSql, conn, transaction);
+            invoiceCmd.Parameters.AddWithValue("@storeId", storeId);
+            invoiceCmd.Parameters.AddWithValue("@tongTien", phiHangThang);
+            await invoiceCmd.ExecuteNonQueryAsync();
+
+            return storeId;
         }
 
         private static async Task EnsureStoreNameAvailableAsync(MySqlConnection conn, string storeName, MySqlTransaction? transaction = null)
@@ -399,10 +411,10 @@ namespace VinhKhanh.Services
         private static string NormalizeReviewDecision(string? status)
         {
             var normalized = string.IsNullOrWhiteSpace(status)
-                ? "da_duyet"
+                ? "cho_thanh_toan"
                 : status.Trim().ToLowerInvariant();
 
-            if (!string.Equals(normalized, "da_duyet", StringComparison.OrdinalIgnoreCase) &&
+            if (!string.Equals(normalized, "cho_thanh_toan", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(normalized, "tu_choi", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ArgumentException("Chi ho tro duyet hoac tu choi yeu cau.");
@@ -413,7 +425,7 @@ namespace VinhKhanh.Services
 
         private static decimal? NormalizeReviewedFee(decimal? phiHangThang, string requestStatus)
         {
-            if (!string.Equals(requestStatus, "da_duyet", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(requestStatus, "cho_thanh_toan", StringComparison.OrdinalIgnoreCase))
                 return phiHangThang;
 
             if (!phiHangThang.HasValue)
@@ -427,7 +439,7 @@ namespace VinhKhanh.Services
 
         private static ReviewedCoordinates? NormalizeReviewedCoordinates(double? lat, double? lon, string requestStatus)
         {
-            if (!string.Equals(requestStatus, "da_duyet", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(requestStatus, "cho_thanh_toan", StringComparison.OrdinalIgnoreCase))
                 return null;
 
             if (!lat.HasValue || !lon.HasValue)
@@ -449,7 +461,7 @@ namespace VinhKhanh.Services
                     tenDeNghi VARCHAR(150) NOT NULL,
                     diaChiDeNghi VARCHAR(255) DEFAULT NULL,
                     ghiChuGui TEXT DEFAULT NULL,
-                    trangThai ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
+                    trangThai ENUM('cho_duyet','da_duyet','tu_choi','cho_thanh_toan') NOT NULL DEFAULT 'cho_duyet',
                     idGianHang INT DEFAULT NULL,
                     ngayGui DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
                     ngayXuLy DATETIME DEFAULT NULL,

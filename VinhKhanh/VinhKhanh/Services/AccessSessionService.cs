@@ -602,25 +602,46 @@ namespace VinhKhanh.Services
                     continue;
                 }
 
-                var paymentReference = ExtractPaymentReference(transaction.Description);
-                if (string.IsNullOrWhiteSpace(paymentReference))
+                var packagePaymentReference = ExtractPaymentReference(transaction.Description);
+                if (!string.IsNullOrWhiteSpace(packagePaymentReference))
                 {
-                    result.Ignored++;
+                    var activateResult = await ActivatePaidPackageInvoiceAsync(
+                        conn,
+                        packagePaymentReference,
+                        transaction.Amount,
+                        transaction.TransactionId,
+                        transaction.PaidAt,
+                        transaction.Description);
+
+                    if (activateResult.Success && !string.IsNullOrWhiteSpace(activateResult.AccessToken))
+                        result.Activated++;
+                    else
+                        result.Ignored++;
+                        
                     continue;
                 }
 
-                var activateResult = await ActivatePaidPackageInvoiceAsync(
-                    conn,
-                    paymentReference,
-                    transaction.Amount,
-                    transaction.TransactionId,
-                    transaction.PaidAt,
-                    transaction.Description);
+                var storeInvoiceReference = ExtractStoreInvoiceReference(transaction.Description);
+                if (!string.IsNullOrWhiteSpace(storeInvoiceReference))
+                {
+                    var invoiceIdStr = storeInvoiceReference.Substring(4); // Remove HDGH
+                    if (int.TryParse(invoiceIdStr, out var invoiceId))
+                    {
+                        var activateStoreResult = await ActivateStoreInvoiceAsync(
+                            conn,
+                            invoiceId,
+                            transaction.Amount);
+                            
+                        if (activateStoreResult)
+                            result.Activated++;
+                        else
+                            result.Ignored++;
+                            
+                        continue;
+                    }
+                }
 
-                if (activateResult.Success && !string.IsNullOrWhiteSpace(activateResult.AccessToken))
-                    result.Activated++;
-                else
-                    result.Ignored++;
+                result.Ignored++;
             }
 
             return result;
@@ -1154,6 +1175,51 @@ namespace VinhKhanh.Services
         {
             var match = Regex.Match(description ?? string.Empty, @"CSAT\d+", RegexOptions.IgnoreCase);
             return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
+        private static string? ExtractStoreInvoiceReference(string description)
+        {
+            var match = Regex.Match(description ?? string.Empty, @"HDGH\d+", RegexOptions.IgnoreCase);
+            return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
+        private static async Task<bool> ActivateStoreInvoiceAsync(MySqlConnection conn, int invoiceId, decimal amount)
+        {
+            const string sql = @"
+                UPDATE hoadongianhang 
+                SET trangThai = 'da_thanh_toan' 
+                WHERE idHoaDonGianHang = @invoiceId 
+                  AND tongTien <= @amount 
+                  AND trangThai = 'chua_thanh_toan';";
+                  
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@invoiceId", invoiceId);
+            cmd.Parameters.AddWithValue("@amount", amount);
+            
+            var affected = await cmd.ExecuteNonQueryAsync();
+            if (affected > 0)
+            {
+                const string updateReqSql = @"
+                    UPDATE yeucaugianhang 
+                    SET trangThai = 'da_duyet' 
+                    WHERE idGianHang = (SELECT idGianHang FROM hoadongianhang WHERE idHoaDonGianHang = @invoiceId) 
+                      AND trangThai = 'cho_thanh_toan';";
+                using var reqCmd = new MySqlCommand(updateReqSql, conn);
+                reqCmd.Parameters.AddWithValue("@invoiceId", invoiceId);
+                await reqCmd.ExecuteNonQueryAsync();
+
+                const string updateStoreSql = @"
+                    UPDATE gianhang 
+                    SET tinhTrang = 'dang_hoat_dong' 
+                    WHERE idGianHang = (SELECT idGianHang FROM hoadongianhang WHERE idHoaDonGianHang = @invoiceId);";
+                using var storeCmd = new MySqlCommand(updateStoreSql, conn);
+                storeCmd.Parameters.AddWithValue("@invoiceId", invoiceId);
+                await storeCmd.ExecuteNonQueryAsync();
+                
+                return true;
+            }
+            
+            return false;
         }
 
         private static async Task EnsurePaymentColumnsAsync(MySqlConnection conn)

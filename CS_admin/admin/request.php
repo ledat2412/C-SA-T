@@ -8,7 +8,7 @@ $flashMessage = isset($_GET['message']) ? (string) $_GET['message'] : '';
 $flashError = isset($_GET['error']) ? (string) $_GET['error'] : '';
 $flashNotice = isset($_GET['notice']) ? (string) $_GET['notice'] : '';
 
-if (!in_array($statusFilter, array('all', 'cho_duyet', 'da_duyet', 'tu_choi'), true)) {
+if (!in_array($statusFilter, array('all', 'cho_duyet', 'cho_thanh_toan', 'da_duyet', 'tu_choi'), true)) {
     $statusFilter = 'all';
 }
 
@@ -153,8 +153,10 @@ function request_status_meta($status)
     $status = strtolower(trim((string) $status));
 
     switch ($status) {
+        case 'cho_thanh_toan':
+            return array('label' => 'CHỜ THANH TOÁN', 'class' => 'blue');
         case 'da_duyet':
-            return array('label' => 'Đã duyệt', 'class' => 'approved');
+            return array('label' => 'ĐÃ DUYỆT', 'class' => 'green');
         case 'tu_choi':
             return array('label' => 'Từ chối', 'class' => 'rejected');
         default:
@@ -235,8 +237,9 @@ function request_fetch_from_database($idTaiKhoan, $isOwnerRequestViewer, &$error
         ORDER BY
             CASE ycg.trangThai
                 WHEN 'cho_duyet' THEN 0
-                WHEN 'da_duyet' THEN 1
-                ELSE 2
+                WHEN 'cho_thanh_toan' THEN 1
+                WHEN 'da_duyet' THEN 2
+                ELSE 3
             END,
             ycg.ngayGui DESC,
             ycg.idYeuCau DESC
@@ -275,13 +278,16 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     }
 
     $decision = strtolower(trim((string) $decision));
-    if (!in_array($decision, array('da_duyet', 'tu_choi'), true)) {
+    if (!in_array($decision, array('cho_thanh_toan', 'tu_choi'), true)) {
         $error = 'Trạng thái xử lý không hợp lệ.';
         $conn->close();
         return null;
     }
 
-    if ($decision === 'da_duyet') {
+    $statusToUpdate = $decision === 'cho_thanh_toan' ? 'cho_thanh_toan' : 'tu_choi';
+    $phiHangThangToSave = $decision === 'cho_thanh_toan' ? (float) $phiHangThang : null;
+
+    if ($decision === 'cho_thanh_toan') {
         if ($phiHangThang === null || (float) $phiHangThang < 0) {
             $error = 'Admin phải nhập phí hàng tháng hợp lệ trước khi phê duyệt.';
             $conn->close();
@@ -334,7 +340,7 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     }
 
     $createdStoreId = null;
-    if ($decision === 'da_duyet') {
+    if ($decision === 'cho_thanh_toan') {
         $insertStoreStmt = $conn->prepare("
             INSERT INTO gianhang
             (
@@ -349,7 +355,7 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
                 thoiGianCapNhat
             )
             VALUES
-            (?, ?, NULLIF(?, ''), ?, ?, 'dang_hoat_dong', ?, NOW(), NOW())
+            (?, ?, NULLIF(?, ''), ?, ?, 'tam_ngung', ?, NOW(), NOW())
         ");
         if (!$insertStoreStmt) {
             $conn->rollback();
@@ -361,7 +367,6 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
         $ownerId = (int) $row['idChuQuanLy'];
         $tenGianHang = (string) $row['tenDeNghi'];
         $diaChi = isset($row['diaChiDeNghi']) && $row['diaChiDeNghi'] !== null ? (string) $row['diaChiDeNghi'] : '';
-        $phiHangThangToSave = (float) $phiHangThang;
         $duplicateError = '';
 
         if (request_store_name_exists($conn, $tenGianHang, $duplicateError)) {
@@ -392,6 +397,23 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
 
         $createdStoreId = (int) $conn->insert_id;
         $insertStoreStmt->close();
+
+        $insertInvoiceStmt = $conn->prepare("
+            INSERT INTO hoadongianhang (idGianHang, tongTien, ngayHetHan, trangThai, ghiChu, ngayTao)
+            VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 MONTH), 'chua_thanh_toan', 'Phí duy trì tháng đầu tiên', NOW())
+        ");
+        if ($insertInvoiceStmt) {
+            $insertInvoiceStmt->bind_param('id', $createdStoreId, $phiHangThangToSave);
+            $insertInvoiceStmt->execute();
+            if ($insertInvoiceStmt->errno !== 0) {
+                $error = 'Không thể tạo hóa đơn cho gian hàng mới.';
+                $insertInvoiceStmt->close();
+                $conn->rollback();
+                $conn->close();
+                return null;
+            }
+            $insertInvoiceStmt->close();
+        }
     }
 
     if ($createdStoreId !== null) {
@@ -418,9 +440,9 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
     }
 
     if ($createdStoreId !== null) {
-        $updateStmt->bind_param('sii', $decision, $createdStoreId, $idYeuCau);
+        $updateStmt->bind_param('sii', $statusToUpdate, $createdStoreId, $idYeuCau);
     } else {
-        $updateStmt->bind_param('si', $decision, $idYeuCau);
+        $updateStmt->bind_param('si', $statusToUpdate, $idYeuCau);
     }
     $updateStmt->execute();
     if ($updateStmt->errno !== 0) {
@@ -450,7 +472,7 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
         exit;
     }
 
-    if (!in_array($decision, array('da_duyet', 'tu_choi'), true)) {
+    if (!in_array($decision, array('cho_thanh_toan', 'tu_choi'), true)) {
         header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', 'Trạng thái xử lý không hợp lệ.', $flashNotice));
         exit;
     }
@@ -476,8 +498,8 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
         $fallbackError = '';
         $fallbackResult = request_db_review($targetRequestId, $idTaiKhoan, $decision, $phiHangThang, $lat, $lon, $fallbackError);
         if ($fallbackResult !== null) {
-            $successMessage = $decision === 'da_duyet'
-                ? 'Đã phê duyệt yêu cầu và tạo gian hàng mới.'
+            $successMessage = $decision === 'cho_thanh_toan'
+                ? 'Đã duyệt yêu cầu và tạo gian hàng mới.'
                 : 'Đã từ chối yêu cầu.';
             header('Location: ' . request_page_url($statusFilter, $targetRequestId, $successMessage, '', 'Đang dùng DB fallback vì backend live chưa có endpoint mới.'));
             exit;
@@ -529,6 +551,7 @@ if ($idTaiKhoan <= 0 || (count($allRequests) === 0 && ($requestHttpCode >= 400 |
 $counts = array(
     'all' => count($allRequests),
     'cho_duyet' => 0,
+    'cho_thanh_toan' => 0,
     'da_duyet' => 0,
     'tu_choi' => 0,
 );
@@ -587,6 +610,7 @@ if ($selectedRequest === null && count($filteredRequests) > 0) {
         <div class="request-tabs">
           <a class="request-tab<?php echo $statusFilter === 'all' ? ' active' : ''; ?>" href="<?php echo htmlspecialchars(request_page_url('all', $selectedRequestId), ENT_QUOTES, 'UTF-8'); ?>">Tất cả (<?php echo (int) $counts['all']; ?>)</a>
           <a class="request-tab<?php echo $statusFilter === 'cho_duyet' ? ' active' : ''; ?>" href="<?php echo htmlspecialchars(request_page_url('cho_duyet', $selectedRequestId), ENT_QUOTES, 'UTF-8'); ?>">Chờ duyệt (<?php echo (int) $counts['cho_duyet']; ?>)</a>
+          <a class="request-tab<?php echo $statusFilter === 'cho_thanh_toan' ? ' active' : ''; ?>" href="<?php echo htmlspecialchars(request_page_url('cho_thanh_toan', $selectedRequestId), ENT_QUOTES, 'UTF-8'); ?>">Chờ TT (<?php echo (int) $counts['cho_thanh_toan']; ?>)</a>
           <a class="request-tab<?php echo $statusFilter === 'da_duyet' ? ' active' : ''; ?>" href="<?php echo htmlspecialchars(request_page_url('da_duyet', $selectedRequestId), ENT_QUOTES, 'UTF-8'); ?>">Đã duyệt (<?php echo (int) $counts['da_duyet']; ?>)</a>
           <a class="request-tab<?php echo $statusFilter === 'tu_choi' ? ' active' : ''; ?>" href="<?php echo htmlspecialchars(request_page_url('tu_choi', $selectedRequestId), ENT_QUOTES, 'UTF-8'); ?>">Từ chối (<?php echo (int) $counts['tu_choi']; ?>)</a>
         </div>
@@ -615,7 +639,7 @@ if ($selectedRequest === null && count($filteredRequests) > 0) {
                 $statusMeta = request_status_meta($requestItem['trangThaiYeuCau'] ?? 'cho_duyet');
                 $ownerName = request_display_text($requestItem['hoTenChuQuanLy'] ?? ($requestItem['usernameChuQuanLy'] ?? ''), 'Chủ quản lý');
                 $resultText = 'Đang chờ admin xử lý';
-                if (($requestItem['trangThaiYeuCau'] ?? '') === 'da_duyet') {
+                if (($requestItem['trangThaiYeuCau'] ?? '') === 'da_duyet' || ($requestItem['trangThaiYeuCau'] ?? '') === 'cho_thanh_toan') {
                     $resultText = !empty($requestItem['idGianHang']) ? 'Đã tạo gian hàng #' . (int) $requestItem['idGianHang'] : 'Đã duyệt';
                 } elseif (($requestItem['trangThaiYeuCau'] ?? '') === 'tu_choi') {
                     $resultText = 'Không tạo gian hàng';
@@ -737,7 +761,7 @@ if ($selectedRequest === null && count($filteredRequests) > 0) {
                 </div>
 
                 <div class="request-action-row">
-                  <button class="primary-btn approve" type="submit" name="decision" value="da_duyet">Phê duyệt yêu cầu</button>
+                  <button class="primary-btn approve" type="submit" name="decision" value="cho_thanh_toan">Phê duyệt yêu cầu</button>
                   <button class="secondary-btn reject" type="submit" name="decision" value="tu_choi">Từ chối</button>
                 </div>
               </form>
@@ -750,8 +774,8 @@ if ($selectedRequest === null && count($filteredRequests) > 0) {
               <div class="request-resolution">
                 <span>Kết quả xử lý</span>
                 <p>
-                  <?php if (($selectedRequest['trangThaiYeuCau'] ?? '') === 'da_duyet') { ?>
-                    Yêu cầu đã được phê duyệt.
+                  <?php if (($selectedRequest['trangThaiYeuCau'] ?? '') === 'da_duyet' || ($selectedRequest['trangThaiYeuCau'] ?? '') === 'cho_thanh_toan') { ?>
+                    Yêu cầu đã được phê duyệt và tạo gian hàng.
                   <?php } else { ?>
                     Yêu cầu đã bị từ chối.
                   <?php } ?>
@@ -775,6 +799,13 @@ if ($selectedRequest === null && count($filteredRequests) > 0) {
 
                 <?php if (!empty($selectedRequest['idGianHang'])) { ?>
                   <a class="inline-link" href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . (int) $selectedRequest['idGianHang']), ENT_QUOTES, 'UTF-8'); ?>">Xem gian hàng đã tạo #<?php echo (int) $selectedRequest['idGianHang']; ?></a>
+                  <?php if ($isOwnerRequestViewer && ($selectedRequest['trangThaiYeuCau'] ?? '') === 'cho_thanh_toan') { ?>
+                    <div style="margin-top: 16px;">
+                      <a class="primary-btn approve" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;" href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=invoice&status=chua_thanh_toan'), ENT_QUOTES, 'UTF-8'); ?>">
+                        <i class="fa-solid fa-file-invoice-dollar"></i> Thanh toán hoá đơn ngay
+                      </a>
+                    </div>
+                  <?php } ?>
                 <?php } ?>
               </div>
             <?php } ?>

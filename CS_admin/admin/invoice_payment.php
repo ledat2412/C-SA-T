@@ -228,3 +228,17 @@ if ($canPayInvoice && $settings['bankBin'] !== '' && $settings['bankAccountNo'] 
     </div>
   </section>
 </main>
+<?php if ($invoice && ($invoice['trangThai'] ?? '') === 'chua_thanh_toan') { ?>
+<script>
+  setInterval(() => {
+    fetch('admin/check_invoice_status.php?id=<?php echo (int)$invoice['idHoaDonGianHang']; ?>')
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'da_thanh_toan') {
+          window.location.reload();
+        }
+      })
+      .catch(err => console.error(err));
+  }, 3000);
+</script>
+<?php } ?>
