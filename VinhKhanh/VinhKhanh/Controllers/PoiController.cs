@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using VinhKhanh.Services;
 
 namespace VinhKhanh.Controllers
@@ -31,6 +31,18 @@ namespace VinhKhanh.Controllers
                 .ToList();
 
             return Ok(pois);
+        }
+
+        [HttpPost("{id}/visit")]
+        public async Task<IActionResult> RecordVisit(int id)
+        {
+            var success = await _gianHangService.IncrementVisitCountAsync(id);
+            if (!success)
+            {
+                return NotFound(new { success = false, message = "Khong tim thay gian hang." });
+            }
+
+            return Ok(new { success = true, message = "Da ghi nhan luot truy cap POI." });
         }
     }
 }

@@ -38,12 +38,14 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     public AudioPlaybackStateSnapshot PlaybackState => _playbackState;
 
     private readonly LocalizationService _loc;
+    private readonly ApiService _apiService;
 
-    public GeofenceEngineService(IAudioManager audioManager, AudioCacheService audioCacheService, LocalizationService localizationService)
+    public GeofenceEngineService(IAudioManager audioManager, AudioCacheService audioCacheService, LocalizationService localizationService, ApiService apiService)
     {
         _audioManager = audioManager;
         _audioCacheService = audioCacheService;
         _loc = localizationService;
+        _apiService = apiService;
     }
 
     public async Task UpdateTargetsAsync(IEnumerable<GianHang> gianHangs, double? radiusMeters = null)
@@ -471,9 +473,27 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 _currentPlayer.Duration > 0 &&
                 _currentPlayer.CurrentPosition >= _currentPlayer.Duration)
             {
+                var storeIdToRecord = _currentStoreId;
+                
                 StopCurrentAudioInternal();
                 ResetCurrentTrackInternal();
                 PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+                
+                if (storeIdToRecord.HasValue)
+                {
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _apiService.RecordPoiVisitAsync(storeIdToRecord.Value);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Record POI visit error: {ex.Message}");
+                        }
+                    });
+                }
+                
                 return;
             }
 

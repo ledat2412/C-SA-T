@@ -118,6 +118,7 @@ if (!function_exists('poi_map_fetch_pois')) {
                 gh.lat,
                 gh.lon,
                 gh.vongBo,
+                gh.luotTruyCap,
                 gh.tinhTrang,
                 gh.phiHangThang,
                 cql.hoTen AS tenChuQuanLy,
@@ -192,6 +193,7 @@ if (!function_exists('poi_map_fetch_pois')) {
                 'lat' => (float) $row['lat'],
                 'lng' => (float) $row['lon'],
                 'radiusMeters' => $radius,
+                'views' => isset($row['luotTruyCap']) ? (int) $row['luotTruyCap'] : 0,
                 'status' => isset($row['tinhTrang']) ? (string) $row['tinhTrang'] : '',
                 'statusLabel' => $statusMeta['label'],
                 'statusClass' => $statusMeta['class'],
@@ -342,6 +344,9 @@ $mapConfig = json_encode(array(
           <button type="button" id="poiFitBounds" title="Căn vừa tất cả POI" aria-label="Căn vừa tất cả POI">
             <i class="fa-solid fa-compress"></i>
           </button>
+          <button type="button" id="poiToggleHeatmap" title="Bật/tắt Heatmap" aria-label="Bật/tắt Heatmap">
+            <i class="fa-solid fa-fire"></i>
+          </button>
           <button type="button" id="poiToggleTilt" title="Bật/tắt nghiêng 3D" aria-label="Bật/tắt nghiêng 3D">
             <i class="fa-solid fa-cube"></i>
           </button>
@@ -381,7 +386,7 @@ window.POI_ADMIN_MAP_CONFIG = <?php echo $mapConfig ?: '{}'; ?>;
 </script>
 <script src="<?php echo htmlspecialchars(admin_url('asset/admin/js/poi-map.js'), ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo filemtime(__DIR__ . '/../asset/admin/js/poi-map.js'); ?>"></script>
 <?php if ($googleMapsApiKey !== '') { ?>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=<?php echo rawurlencode($googleMapsApiKey); ?>&v=weekly&libraries=marker&callback=initPoiAdminMap&loading=async"></script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=<?php echo rawurlencode($googleMapsApiKey); ?>&v=weekly&libraries=marker,visualization&callback=initPoiAdminMap&loading=async"></script>
 <?php } else { ?>
 <script>
 if (window.initPoiAdminMap) {

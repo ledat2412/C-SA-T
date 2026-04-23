@@ -382,6 +382,22 @@ namespace MauiApp1.Services
             }
         }
 
+        public async Task<bool> RecordPoiVisitAsync(int idGianHang)
+        {
+            try
+            {
+                MarkRequestSent();
+                var url = BuildApiUrl($"api/poi/{idGianHang}/visit");
+                var response = await _httpClient.PostAsync(url, null);
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error recording POI visit: {ex}");
+                return false;
+            }
+        }
+
         public async Task<ActivateTokenResult> ActivateTokenAsync(string accessToken, string? qrRaw = null)
         {
             if (string.IsNullOrWhiteSpace(accessToken))

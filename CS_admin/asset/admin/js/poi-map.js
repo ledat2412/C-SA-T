@@ -18,6 +18,7 @@
   var localCameraSyncPending = false;
   var googleCameraFrame = 0;
   var pendingGoogleCamera = null;
+  var heatmap = null;
 
   function byId(id) {
     return document.getElementById(id);
@@ -914,6 +915,17 @@
     if (fitButton) {
       fitButton.addEventListener('click', fitVisiblePois);
     }
+    
+    var toggleHeatmapBtn = byId('poiToggleHeatmap');
+    if (toggleHeatmapBtn) {
+      toggleHeatmapBtn.addEventListener('click', function () {
+        if (heatmap && map) {
+          var isEnabled = heatmap.getMap() != null;
+          heatmap.setMap(isEnabled ? null : map);
+          toggleHeatmapBtn.classList.toggle('active', !isEnabled);
+        }
+      });
+    }
 
     var tiltSlider = byId('poiTiltSlider');
     if (tiltSlider) {
@@ -1060,6 +1072,24 @@
         map.addListener('tilt_changed', syncCameraControls);
         map.addListener('heading_changed', syncCameraControls);
         map.addListener('renderingtype_changed', syncCameraControls);
+      }
+
+      if (window.google && google.maps && google.maps.visualization && google.maps.visualization.HeatmapLayer) {
+        var heatData = [];
+        pois.forEach(function(poi) {
+          if (poi.views > 0 && isFinite(poi._lat) && isFinite(poi._lng)) {
+            heatData.push({
+              location: new google.maps.LatLng(poi._lat, poi._lng),
+              weight: poi.views
+            });
+          }
+        });
+        heatmap = new google.maps.visualization.HeatmapLayer({
+          data: heatData,
+          map: null,
+          radius: 35,
+          opacity: 0.75
+        });
       }
 
       createMarkers();

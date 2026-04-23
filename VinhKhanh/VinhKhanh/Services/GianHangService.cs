@@ -1,4 +1,4 @@
-﻿using MySqlConnector;
+using MySqlConnector;
 using VinhKhanh.Data;
 using VinhKhanh.Dtos;
 
@@ -374,6 +374,31 @@ namespace VinhKhanh.Services
             return string.IsNullOrWhiteSpace(languageCode)
                 ? "vi"
                 : languageCode.Trim().ToLowerInvariant();
+        }
+
+        public async Task<bool> IncrementVisitCountAsync(int idGianHang)
+        {
+            try
+            {
+                using var conn = _db.GetConnection();
+                await conn.OpenAsync();
+                
+                const string sql = @"
+                    UPDATE gianhang 
+                    SET luotTruyCap = luotTruyCap + 1 
+                    WHERE idGianHang = @idGianHang";
+                    
+                using var cmd = new MySqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+                
+                var affected = await cmd.ExecuteNonQueryAsync();
+                return affected > 0;
+            }
+            catch (Exception)
+            {
+                // To safely handle cases if the luotTruyCap column was not added
+                return false;
+            }
         }
     }
 }
