@@ -41,6 +41,76 @@ sequenceDiagram
     end
 ```
 
+## 17. Sequence thanh toán online và giá trị trả về
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Người dùng
+    participant App as MAUI App
+    participant API as Backend Access
+    participant Pay as Cổng thanh toán
+    participant Mail as Email Service
+
+    User->>App: Chọn gói và xác nhận thanh toán
+
+    alt Thiết bị không có Internet
+        App-->>User: FAILED\ncode: NO_NETWORK\nmessage: Cần kết nối mạng
+    else Thiết bị có Internet
+        App->>API: Gửi request đăng ký gói\npackageId, clientDeviceId, email?
+
+        alt Không tạo được payment request
+            API-->>App: PAYMENT_INIT_FAILED\nerrorCode, message
+            App-->>User: Hiển thị lỗi khởi tạo thanh toán
+        else Tạo payment request thành công
+            API-->>App: PENDING\npaymentRequestId, invoiceId,\npaymentUrl/qrPayload, amount, expiresAt
+            App-->>User: Hiển thị QR / paymentUrl để thanh toán
+            User->>Pay: Thực hiện thanh toán
+
+            opt Người dùng kiểm tra lại khi chưa có kết quả cuối
+                App->>API: Kiểm tra trạng thái giao dịch
+                API-->>App: PENDING hoặc VERIFYING\npaymentRequestId, invoiceId, reason
+                App-->>User: Đang chờ xác nhận thanh toán
+            end
+
+            Pay-->>API: Gửi webhook / callback giao dịch
+
+            alt Callback không hợp lệ hoặc sai chữ ký
+                API->>API: Ghi log và đưa vào kiểm tra thủ công
+                API-->>App: VERIFYING\npaymentRequestId, invoiceId, reason
+                App-->>User: Thông báo giao dịch đang được xác minh
+
+            else Callback hợp lệ nhưng giao dịch thất bại hoặc bị hủy
+                API->>API: Cập nhật hóa đơn FAILED / CANCELLED
+                API-->>App: FAILED hoặc CANCELLED\npaymentRequestId, invoiceId, reason
+                App-->>User: Thông báo thanh toán thất bại / đã hủy
+
+            else Callback hợp lệ và giao dịch thành công
+                API->>API: Đối soát amount, orderId,\ntransactionId, signature
+
+                alt Dữ liệu đối soát chưa khớp
+                    API->>API: Đánh dấu VERIFYING để đối soát lại
+                    API-->>App: VERIFYING\npaymentRequestId, invoiceId, reason
+                    App-->>User: Thông báo đang chờ đối soát
+
+                else Dữ liệu đối soát khớp
+                    API->>API: Tạo quyền truy cập và khóa vào thiết bị hiện tại
+                    API->>API: Tạo QR token đăng nhập và payload trả về
+
+                    opt Người dùng có chọn nhận qua email
+                        API->>Mail: Gửi QR token / thông tin truy cập
+                        Mail-->>API: emailStatus
+                    end
+
+                    API-->>App: SUCCESS\ninvoiceId, packageId,\naccessToken, accessExpiresAt,\nqrPayload, emailStatus?
+                    App->>App: Lưu quyền truy cập trên thiết bị
+                    App-->>User: Mở nội dung chính
+                end
+            end
+        end
+    end
+```
+
 ## 2. Tai AppData va cache offline
 
 ```mermaid
@@ -433,40 +503,40 @@ sequenceDiagram
     end
 ```
 
-## 13. Cap nhat mo ta va tao lai audio
+## 13. Cập nhật mô tả và tạo lại audio
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Staff as Owner hoac Admin
+    actor Staff as Owner hoặc Admin
     participant UI as Dashboard
     participant GianHangCtl as GianHangController
     participant GianHangSvc as GianHangService
     participant DB as MySQL
     participant TTS as GoogleTtsService
 
-    Staff->>UI: Sua mo ta theo ngon ngu
+    Staff->>UI: Sửa mô tả theo ngôn ngữ
     UI->>GianHangCtl: PUT /api/gianhang/{id}/update-mo-ta
     GianHangCtl->>GianHangSvc: UpdateMoTaAndGenerateAudioAsync(id, languageCode, moTa)
     GianHangSvc->>DB: Update moTa, set audioURL = NULL
-    DB-->>GianHangSvc: So dong bi anh huong
+    DB-->>GianHangSvc: Số dòng bị ảnh hưởng
 
-    alt Cap nhat thanh cong
-        GianHangSvc->>GianHangSvc: Goi lai GenerateAudioFromMoTaAsync()
-        GianHangSvc->>DB: Doc moTa vua cap nhat
-        DB-->>GianHangSvc: moTa moi
-        GianHangSvc->>TTS: GenerateSpeechAsync(moTa moi)
+    alt Cập nhật thành công
+        GianHangSvc->>GianHangSvc: Gọi lại GenerateAudioFromMoTaAsync()
+        GianHangSvc->>DB: Đọc mô tả vừa cập nhật
+        DB-->>GianHangSvc: mô tả mới
+        GianHangSvc->>TTS: GenerateSpeechAsync(mô tả mới)
         TTS-->>GianHangSvc: generatedUrl
-        GianHangSvc->>DB: Luu audioURL moi
-        GianHangSvc-->>GianHangCtl: Object ket qua
+        GianHangSvc->>DB: Lưu audioURL mới
+        GianHangSvc-->>GianHangCtl: Object kết quả
         GianHangCtl-->>UI: 200 OK
-    else Khong tim thay gian hang/ngon ngu
+    else Không tìm thấy gian hàng/ngôn ngữ
         GianHangSvc-->>GianHangCtl: null
         GianHangCtl-->>UI: 404 Not Found
     end
 ```
 
-## 14. Admin xem tong quan he thong
+## 14. Admin xem tổng quan hệ thống
 
 ```mermaid
 sequenceDiagram
@@ -478,29 +548,29 @@ sequenceDiagram
     participant AdminSvc as AdminService
     participant DB as MySQL
 
-    Admin->>Dashboard: Mo dashboard tong quan
+    Admin->>Dashboard: Mở dashboard tổng quan
     Dashboard->>AdminCtl: GET /api/admin/summary?idTaiKhoan=...
     AdminCtl->>AccessSvc: IsAdminAsync(idTaiKhoan)
     AccessSvc->>DB: Query role admin
-    DB-->>AccessSvc: Hop le / khong hop le
+    DB-->>AccessSvc: Hợp lệ / không hợp lệ
 
-    alt Co quyen admin
+    alt Có quyền admin
         AdminCtl->>AdminSvc: GetSummaryAsync()
         AdminSvc->>DB: COUNT gianhang
         AdminSvc->>DB: COUNT chu_quan_ly
         AdminSvc->>DB: COUNT thietbi
         AdminSvc->>DB: COUNT thietbi dang hoat dong
-        DB-->>AdminSvc: Cac chi so tong hop
+        DB-->>AdminSvc: Các chỉ số tổng hợp
         AdminSvc-->>AdminCtl: AdminSummaryDto
         AdminCtl-->>Dashboard: 200 OK
-        Dashboard-->>Admin: Hien thi KPI
-    else Khong co quyen
+        Dashboard-->>Admin: Hiển thị KPI
+    else Không có quyền
         AdminCtl-->>Dashboard: 403 Forbidden
-        Dashboard-->>Admin: Bao loi truy cap
+        Dashboard-->>Admin: Báo lỗi truy cập
     end
 ```
 
-## 15. Admin xem danh sach va cap nhat gian hang
+## 15. Admin xem danh sách và cập nhật gian hàng
 
 ```mermaid
 sequenceDiagram
@@ -513,25 +583,75 @@ sequenceDiagram
     participant StoreSvc as StoreManagementService
     participant DB as MySQL
 
-    Admin->>Dashboard: Xem hoac cap nhat gian hang
-    Dashboard->>AdminCtl: GET /api/admin/stores hoac PUT/PATCH /api/admin/stores/{id}
+    Admin->>Dashboard: Xem hoặc cập nhật gian hàng
+    Dashboard->>AdminCtl: GET /api/admin/stores hoặc PUT/PATCH /api/admin/stores/{id}
     AdminCtl->>AccessSvc: IsAdminAsync(idTaiKhoan)
     AccessSvc->>DB: Query role admin
-    DB-->>AccessSvc: Hop le / khong hop le
+    DB-->>AccessSvc: Hợp lệ / không hợp lệ
 
-    alt Xem danh sach
+    alt Xem danh sách
         AdminCtl->>AdminSvc: GetStoresAsync()
         AdminSvc->>DB: Join gianhang + chu_quan_ly + taikhoan
-        DB-->>AdminSvc: Danh sach gian hang toan he thong
+        DB-->>AdminSvc: Danh sách gian hàng toàn hệ thống
         AdminSvc-->>AdminCtl: List<AdminStoreDto>
         AdminCtl-->>Dashboard: 200 OK
-    else Cap nhat thong tin/trang thai
+    else Cập nhật thông tin/trạng thái
         AdminCtl->>StoreSvc: UpdateStoreAsync() / UpdateStoreStatusAsync()
         StoreSvc->>DB: Update gianhang
-        DB-->>StoreSvc: So dong bi anh huong
-        StoreSvc-->>AdminCtl: Ket qua
+        DB-->>StoreSvc: Số dòng bị ảnh hưởng
+        StoreSvc-->>AdminCtl: Kết quả
         AdminCtl-->>Dashboard: 200 OK / 404
-    else Khong co quyen
+    else Không có quyền
         AdminCtl-->>Dashboard: 403 Forbidden
     end
+```
+
+## 16. Activity thanh toán online và giá trị trả về
+
+```mermaid
+flowchart TD
+    Start((Bắt đầu)) --> SelectPackage["Người dùng chọn gói và xác nhận thanh toán"]
+    SelectPackage --> CheckNetwork{"Thiết bị có Internet?"}
+
+    CheckNetwork -- Không --> NoNetwork["Trả FAILED\ncode: NO_NETWORK\nmessage: Cần kết nối mạng"]
+    NoNetwork --> EndNoNetwork((Kết thúc))
+
+    CheckNetwork -- Có --> SendRequest["App gửi request đăng ký gói\npackageId, clientDeviceId, email?"]
+    SendRequest --> CreatePending["Backend tạo paymentRequest\nvà hóa đơn PENDING"]
+    CreatePending --> InitOk{"Tạo paymentUrl / qrPayload thành công?"}
+
+    InitOk -- Không --> InitFailed["Trả PAYMENT_INIT_FAILED\nerrorCode, message"]
+    InitFailed --> EndInitFail((Kết thúc))
+
+    InitOk -- Có --> ReturnPending["Trả PENDING\npaymentRequestId, invoiceId,\npaymentUrl/qrPayload, amount, expiresAt"]
+    ReturnPending --> ShowPayment["App hiện QR / paymentUrl\nvà chờ người dùng thanh toán"]
+    ShowPayment --> ReceiveStatus{"Nhận webhook / callback\nhoặc người dùng kiểm tra lại?"}
+
+    ReceiveStatus -- Chưa --> StillPending["Trả PENDING hoặc VERIFYING\npaymentRequestId, invoiceId, reason"]
+    StillPending --> EndPending((Kết thúc))
+
+    ReceiveStatus -- Rồi --> CallbackValid{"Callback hợp lệ\nvà có chữ ký đúng?"}
+
+    CallbackValid -- Không --> ManualReview["Ghi log và đưa vào\nkiểm tra thủ công"]
+    ManualReview --> ReturnManual["Trả VERIFYING\npaymentRequestId, invoiceId, reason"]
+    ReturnManual --> EndManual((Kết thúc))
+
+    CallbackValid -- Có --> PaymentSuccess{"Thanh toán thành công?"}
+
+    PaymentSuccess -- Không --> UpdateFailed["Cập nhật hóa đơn\nFAILED hoặc CANCELLED"]
+    UpdateFailed --> ReturnFailed["Trả FAILED hoặc CANCELLED\npaymentRequestId, invoiceId, reason"]
+    ReturnFailed --> EndFailed((Kết thúc))
+
+    PaymentSuccess -- Có --> Reconcile["Đối soát amount, orderId,\ntransactionId, signature"]
+    Reconcile --> Match{"Dữ liệu đối soát khớp?"}
+
+    Match -- Không --> NeedVerify["Đánh dấu VERIFYING\nchờ đối soát lại"]
+    NeedVerify --> ReturnVerify["Trả VERIFYING\npaymentRequestId, invoiceId, reason"]
+    ReturnVerify --> EndVerify((Kết thúc))
+
+    Match -- Có --> CreateAccess["Tạo quyền truy cập,\nkhóa vào thiết bị hiện tại"]
+    CreateAccess --> CreateQr["Tạo QR token đăng nhập\nvà chuẩn bị payload trả về"]
+    CreateQr --> Success["Trả SUCCESS\ninvoiceId, packageId,\naccessToken, accessExpiresAt,\nqrPayload, emailStatus?"]
+    Success --> SaveAccess["App lưu quyền truy cập\nvà mở nội dung chính"]
+    SaveAccess --> EndSuccess((Kết thúc))
 ```
