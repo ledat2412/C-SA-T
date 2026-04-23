@@ -121,6 +121,21 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $diaChi = isset($payload['diaChi']) && $payload['diaChi'] !== null ? trim((string) $payload['diaChi']) : '';
     $moTa = isset($payload['moTa']) && $payload['moTa'] !== null ? trim((string) $payload['moTa']) : '';
 
+    $duplicateError = '';
+    if (store_form_store_name_exists($conn, $ten, 0, $duplicateError)) {
+        $error = 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.';
+        $stmt->close();
+        $conn->close();
+        return 0;
+    }
+
+    if ($duplicateError !== '') {
+        $error = $duplicateError;
+        $stmt->close();
+        $conn->close();
+        return 0;
+    }
+
     $stmt->bind_param('isss', $ownerId, $ten, $diaChi, $moTa);
 
     $stmt->execute();
@@ -132,6 +147,63 @@ function store_form_request_db_create($idTaiKhoan, $payload, &$error)
     $stmt->close();
     $conn->close();
     return $newId;
+}
+
+function store_form_store_name_exists($conn, $name, $excludeId, &$error)
+{
+    $error = '';
+    if (!$conn instanceof mysqli) {
+        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
+        return false;
+    }
+
+    $normalizedName = trim((string) $name);
+    if ($normalizedName === '') {
+        return false;
+    }
+
+    $excludeId = (int) $excludeId;
+    $stmt = $conn->prepare("
+        SELECT COUNT(*)
+        FROM gianhang
+        WHERE LOWER(TRIM(ten)) = LOWER(TRIM(?))
+          AND (? <= 0 OR idGianHang <> ?)
+    ");
+
+    if (!$stmt) {
+        $error = 'Không thể kiểm tra tên gian hàng: ' . $conn->error;
+        return false;
+    }
+
+    $stmt->bind_param('sii', $normalizedName, $excludeId, $excludeId);
+    if (!$stmt->execute()) {
+        $error = 'Không thể kiểm tra tên gian hàng: ' . $stmt->error;
+        $stmt->close();
+        return false;
+    }
+
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_row() : null;
+    if ($result) {
+        $result->free();
+    }
+    $stmt->close();
+
+    return $row && isset($row[0]) && (int) $row[0] > 0;
+}
+
+function store_form_name_exists_in_database($name, $excludeId, &$error)
+{
+    $error = '';
+    $conn = admin_db_connection();
+    if (!$conn instanceof mysqli) {
+        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
+        return false;
+    }
+
+    $exists = store_form_store_name_exists($conn, $name, $excludeId, $error);
+    $conn->close();
+    return $exists;
 }
 
 function store_form_can_access_store($role, $idTaiKhoan, $idGianHang, &$error)
@@ -543,9 +615,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
     $vongBoError = $canEditVongBo ? store_form_positive_number_error($formData['vongBo'], 'Vòng bò', true) : '';
     $storeAccessError = '';
     $hasStoreAccess = $isCreateMode || store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $storeAccessError);
+    $duplicateStoreNameError = '';
+    $hasDuplicateStoreName = $formData['ten'] !== ''
+        ? store_form_name_exists_in_database($formData['ten'], $isCreateMode ? 0 : $idGianHang, $duplicateStoreNameError)
+        : false;
 
     if ($formData['ten'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng không được để trống.');
+    } elseif ($duplicateStoreNameError !== '') {
+        $pageMessage = array('type' => 'error', 'text' => $duplicateStoreNameError);
+    } elseif ($hasDuplicateStoreName) {
+        $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.');
     } elseif ($idTaiKhoan <= 0) {
         $pageMessage = array('type' => 'error', 'text' => 'Phiên đăng nhập không hợp lệ, không thể lưu dữ liệu.');
     } elseif (!$hasStoreAccess) {

@@ -35,6 +35,7 @@ namespace VinhKhanh.Services
 
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
+            await EnsureStoreNameAvailableAsync(conn, request.Ten);
 
             const string sql = @"
                 INSERT INTO gianhang (idChuQuanLy, ten, diaChi, lat, lon, vongBo, tinhTrang, phiHangThang, ngayDangKy, thoiGianCapNhat)
@@ -61,6 +62,7 @@ namespace VinhKhanh.Services
 
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
+            await EnsureStoreNameAvailableAsync(conn, request.Ten, idGianHang);
 
             const string sql = @"
                 UPDATE gianhang
@@ -99,6 +101,7 @@ namespace VinhKhanh.Services
 
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
+            await EnsureStoreNameAvailableAsync(conn, request.Ten, idGianHang);
 
             const string sql = @"
                 UPDATE gianhang gh
@@ -648,6 +651,23 @@ namespace VinhKhanh.Services
                 throw new ArgumentException("Vong bo phai lon hon 0.");
             var status = NormalizeStoreStatus(request.TinhTrang);
             ValidateStoreCoordinates(request, requireCoordinates: status == "dang_hoat_dong");
+        }
+
+        private static async Task EnsureStoreNameAvailableAsync(MySqlConnection conn, string storeName, int? excludeStoreId = null, MySqlTransaction? transaction = null)
+        {
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM gianhang
+                WHERE LOWER(TRIM(ten)) = LOWER(TRIM(@ten))
+                  AND (@excludeStoreId IS NULL OR idGianHang <> @excludeStoreId);";
+
+            using var cmd = new MySqlCommand(sql, conn, transaction);
+            cmd.Parameters.AddWithValue("@ten", storeName.Trim());
+            cmd.Parameters.AddWithValue("@excludeStoreId", excludeStoreId.HasValue ? excludeStoreId.Value : DBNull.Value);
+
+            var duplicateCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (duplicateCount > 0)
+                throw new ArgumentException("Ten gian hang da ton tai. Vui long chon ten khac.");
         }
 
         private static void ValidateStoreRequestForOwner(UpsertStoreRequestDto request)

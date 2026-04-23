@@ -9,6 +9,7 @@ function dashboard_range_options()
         '7' => '7 ngày gần nhất',
         '30' => '30 ngày gần nhất',
         'month' => 'Tháng này',
+        'custom' => 'Tùy chọn',
     );
 }
 
@@ -45,6 +46,24 @@ function dashboard_days_for_range($range)
     }
 
     return 7;
+}
+
+function dashboard_normalize_date($value)
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    $date = DateTime::createFromFormat('Y-m-d', $value);
+    return $date instanceof DateTime && $date->format('Y-m-d') === $value ? $value : '';
+}
+
+function dashboard_days_between($startDate, $endDate)
+{
+    $start = new DateTime($startDate);
+    $end = new DateTime($endDate);
+    return max(1, (int) $start->diff($end)->days + 1);
 }
 
 function dashboard_query_value($conn, $sql, $types = '', $params = array(), $fallback = 0)
@@ -232,13 +251,38 @@ function dashboard_percent($part, $total)
 }
 
 $range = dashboard_selected_range();
-$rangeDays = dashboard_days_for_range($range);
 $rangeOptions = dashboard_range_options();
 $storeMonthOptions = dashboard_store_month_options();
 $storeMonthRange = dashboard_selected_store_months();
-$periodStart = $range === 'month'
-    ? date('Y-m-01 00:00:00')
-    : date('Y-m-d 00:00:00', strtotime('-' . ($rangeDays - 1) . ' days'));
+$customStartDate = dashboard_normalize_date($_GET['start_date'] ?? '');
+$customEndDate = dashboard_normalize_date($_GET['end_date'] ?? '');
+
+if ($range === 'custom' && ($customStartDate === '' || $customEndDate === '')) {
+    $range = '7';
+}
+
+if ($range === 'custom' && strtotime($customStartDate) > strtotime($customEndDate)) {
+    $swapDate = $customStartDate;
+    $customStartDate = $customEndDate;
+    $customEndDate = $swapDate;
+}
+
+if ($range === 'custom') {
+    $periodStartDate = $customStartDate;
+    $periodEndDate = $customEndDate;
+    $rangeDays = dashboard_days_between($periodStartDate, $periodEndDate);
+    $periodLabel = date('d/m/Y', strtotime($periodStartDate)) . ' - ' . date('d/m/Y', strtotime($periodEndDate));
+} else {
+    $rangeDays = dashboard_days_for_range($range);
+    $periodStartDate = $range === 'month'
+        ? date('Y-m-01')
+        : date('Y-m-d', strtotime('-' . ($rangeDays - 1) . ' days'));
+    $periodEndDate = date('Y-m-d');
+    $periodLabel = $rangeOptions[$range];
+}
+
+$periodStart = $periodStartDate . ' 00:00:00';
+$periodEnd = $periodEndDate . ' 23:59:59';
 
 $summary = array(
     'stores' => 0,
@@ -277,7 +321,8 @@ if (!$conn instanceof mysqli) {
         FROM hoadon
         WHERE tinhTrang = 'da_thanh_toan'
           AND thoiGianTao >= ?
-    ", 's', array($periodStart));
+          AND thoiGianTao <= ?
+    ", 'ss', array($periodStart, $periodEnd));
     $summary['pendingRequests'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM yeucaugianhang WHERE trangThai = 'cho_duyet'");
     $summary['activeDevices'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong'");
 
@@ -286,16 +331,23 @@ if (!$conn instanceof mysqli) {
         FROM hoadon
         WHERE tinhTrang = 'da_thanh_toan'
           AND thoiGianTao >= ?
-    ", 's', array($periodStart));
-    $storeInvoiceRevenue = (float) dashboard_query_value($conn, "
-        SELECT COALESCE(SUM(tongTien), 0)
-        FROM hoadongianhang
-        WHERE trangThai = 'da_thanh_toan'
-          AND ngayTao >= ?
-    ", 's', array($periodStart));
+          AND thoiGianTao <= ?
+    ", 'ss', array($periodStart, $periodEnd));
+    $storeFeeRows = dashboard_query_rows($conn, "
+        SELECT
+            idGianHang,
+            COALESCE(phiHangThang, 0) AS phiHangThang,
+            ngayDangKy
+        FROM gianhang
+    ");
+    $storeMonthlyFeeTotal = 0;
+    foreach ($storeFeeRows as $row) {
+        $storeMonthlyFeeTotal += (float) ($row['phiHangThang'] ?? 0);
+    }
+
     $summary['visitorRevenue'] = $visitorRevenue;
-    $summary['storeRevenue'] = $storeInvoiceRevenue;
-    $summary['revenue'] = $visitorRevenue + $storeInvoiceRevenue;
+    $summary['storeRevenue'] = $storeMonthlyFeeTotal;
+    $summary['revenue'] = $visitorRevenue + $storeMonthlyFeeTotal;
     $summary['averageVisitorOrder'] = $summary['paidOrders'] > 0 ? $visitorRevenue / $summary['paidOrders'] : 0;
 
     $rawChartRows = dashboard_query_rows($conn, "
@@ -303,42 +355,39 @@ if (!$conn instanceof mysqli) {
         FROM hoadon
         WHERE tinhTrang = 'da_thanh_toan'
           AND thoiGianTao >= ?
+          AND thoiGianTao <= ?
         GROUP BY DATE(thoiGianTao)
         ORDER BY ngay
-    ", 's', array($periodStart));
+    ", 'ss', array($periodStart, $periodEnd));
 
     $chartByDay = array();
     foreach ($rawChartRows as $row) {
         $chartByDay[(string) $row['ngay']] = (float) $row['tongTien'];
     }
 
-    for ($i = $rangeDays - 1; $i >= 0; $i--) {
-        $day = date('Y-m-d', strtotime('-' . $i . ' days'));
+    $chartStartDate = new DateTime($periodStartDate);
+    for ($i = 0; $i < $rangeDays; $i++) {
+        $day = $chartStartDate->format('Y-m-d');
         $chartLabels[] = date('d/m', strtotime($day));
         $chartValues[] = isset($chartByDay[$day]) ? $chartByDay[$day] : 0;
-    }
-
-    $storeMonthStart = date('Y-m-01 00:00:00', strtotime('-11 months'));
-    $rawStoreMonthRows = dashboard_query_rows($conn, "
-        SELECT DATE_FORMAT(hd.thoiGianTao, '%Y-%m') AS thang, COALESCE(SUM(ctd.soLuong * ctd.donGia), 0) AS tongTien
-        FROM hoadon hd
-        INNER JOIN chitiethoadon ctd ON ctd.idHoaDon = hd.idHoaDon
-        INNER JOIN monan ma ON ma.idMonAn = ctd.idMonAn
-        WHERE hd.tinhTrang = 'da_thanh_toan'
-          AND hd.thoiGianTao >= ?
-        GROUP BY DATE_FORMAT(hd.thoiGianTao, '%Y-%m')
-        ORDER BY thang
-    ", 's', array($storeMonthStart));
-
-    $storeRevenueByMonth = array();
-    foreach ($rawStoreMonthRows as $row) {
-        $storeRevenueByMonth[(string) $row['thang']] = (float) $row['tongTien'];
+        $chartStartDate->modify('+1 day');
     }
 
     for ($i = 11; $i >= 0; $i--) {
         $monthKey = date('Y-m', strtotime('-' . $i . ' months'));
         $monthLabel = date('m/Y', strtotime($monthKey . '-01'));
-        $monthValue = isset($storeRevenueByMonth[$monthKey]) ? $storeRevenueByMonth[$monthKey] : 0;
+        $monthEndTimestamp = strtotime(date('Y-m-t 23:59:59', strtotime($monthKey . '-01')));
+        $monthValue = 0;
+
+        foreach ($storeFeeRows as $row) {
+            $registeredAt = !empty($row['ngayDangKy']) ? strtotime((string) $row['ngayDangKy']) : false;
+            if ($registeredAt !== false && $registeredAt > $monthEndTimestamp) {
+                continue;
+            }
+
+            $monthValue += (float) ($row['phiHangThang'] ?? 0);
+        }
+
         $storeMonthSeries[] = array(
             'label' => $monthLabel,
             'value' => $monthValue,
@@ -356,16 +405,13 @@ if (!$conn instanceof mysqli) {
             gh.idGianHang,
             gh.ten,
             gh.phiHangThang,
-            COUNT(DISTINCT ma.idMonAn) AS soMon,
-            COALESCE(SUM(CASE WHEN hd.tinhTrang = 'da_thanh_toan' AND hd.thoiGianTao >= ? THEN ctd.soLuong * ctd.donGia ELSE 0 END), 0) AS doanhThu
+            COUNT(DISTINCT ma.idMonAn) AS soMon
         FROM gianhang gh
         LEFT JOIN monan ma ON ma.idGianHang = gh.idGianHang
-        LEFT JOIN chitiethoadon ctd ON ctd.idMonAn = ma.idMonAn
-        LEFT JOIN hoadon hd ON hd.idHoaDon = ctd.idHoaDon
         GROUP BY gh.idGianHang, gh.ten, gh.phiHangThang
-        ORDER BY doanhThu DESC, gh.phiHangThang DESC, gh.idGianHang ASC
+        ORDER BY gh.phiHangThang DESC, gh.idGianHang ASC
         LIMIT 5
-    ", 's', array($periodStart));
+    ");
 
     $activities = dashboard_query_rows($conn, "
         SELECT *
@@ -463,6 +509,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
         <label for="dashboard-range">Kỳ dữ liệu</label>
         <select id="dashboard-range" name="range" onchange="this.form.submit()">
           <?php foreach ($rangeOptions as $rangeKey => $rangeLabel) { ?>
+          <?php if ($rangeKey === 'custom') { continue; } ?>
           <option value="<?php echo htmlspecialchars($rangeKey, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (string) $range === (string) $rangeKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($rangeLabel, ENT_QUOTES, 'UTF-8'); ?></option>
           <?php } ?>
         </select>
@@ -514,17 +561,31 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
         <div class="panel-header">
           <div>
             <h3>Doanh thu du khách</h3>
-            <p>Hóa đơn gói tham quan - <?php echo htmlspecialchars($rangeOptions[$range], ENT_QUOTES, 'UTF-8'); ?></p>
+            <p>Hóa đơn gói tham quan - <?php echo htmlspecialchars($periodLabel, ENT_QUOTES, 'UTF-8'); ?></p>
           </div>
 
-          <form method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
+          <form class="visitor-filter-form" method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="usecase" value="dashboard" />
             <input type="hidden" name="store_months" value="<?php echo (int) $storeMonthRange; ?>" />
-            <select class="select-btn" name="range" onchange="this.form.submit()">
+            <input type="hidden" name="range" value="<?php echo htmlspecialchars($range, ENT_QUOTES, 'UTF-8'); ?>" />
+            <select class="select-btn" onchange="this.form.elements.range.value=this.value; this.form.submit()">
               <?php foreach ($rangeOptions as $rangeKey => $rangeLabel) { ?>
+              <?php if ($rangeKey === 'custom') { continue; } ?>
               <option value="<?php echo htmlspecialchars($rangeKey, ENT_QUOTES, 'UTF-8'); ?>" <?php echo (string) $range === (string) $rangeKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($rangeLabel, ENT_QUOTES, 'UTF-8'); ?></option>
               <?php } ?>
             </select>
+            <label>
+              <span>Từ</span>
+              <input type="date" name="start_date" value="<?php echo htmlspecialchars($periodStartDate, ENT_QUOTES, 'UTF-8'); ?>" />
+            </label>
+            <label>
+              <span>Đến</span>
+              <input type="date" name="end_date" value="<?php echo htmlspecialchars($periodEndDate, ENT_QUOTES, 'UTF-8'); ?>" />
+            </label>
+            <button type="submit" onclick="this.form.elements.range.value='custom'">
+              <i class="fa-solid fa-filter"></i>
+              <span>Lọc</span>
+            </button>
           </form>
         </div>
 
@@ -585,7 +646,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
         <div class="panel-header simple">
           <div>
             <h3>Cơ cấu doanh thu</h3>
-            <p><?php echo htmlspecialchars($rangeOptions[$range], ENT_QUOTES, 'UTF-8'); ?></p>
+            <p><?php echo htmlspecialchars($periodLabel, ENT_QUOTES, 'UTF-8'); ?></p>
           </div>
         </div>
 
@@ -644,14 +705,13 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
           <p class="empty-note">Chưa có dữ liệu gian hàng.</p>
           <?php } ?>
           <?php foreach ($topStores as $index => $store) { ?>
-          <?php $revenue = (float) ($store['doanhThu'] ?? 0); ?>
           <div class="rank-item">
             <div class="rank-badge"><?php echo $index + 1; ?></div>
             <div class="rank-info">
               <h4><?php echo htmlspecialchars((string) ($store['ten'] ?? 'Gian hàng'), ENT_QUOTES, 'UTF-8'); ?></h4>
               <p><?php echo htmlspecialchars(dashboard_number($store['soMon'] ?? 0), ENT_QUOTES, 'UTF-8'); ?> món - phí tháng <?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
-            <strong><?php echo htmlspecialchars(dashboard_money($revenue > 0 ? $revenue : ($store['phiHangThang'] ?? 0)), ENT_QUOTES, 'UTF-8'); ?></strong>
+            <strong><?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></strong>
           </div>
           <?php } ?>
         </div>
@@ -662,8 +722,8 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
       <div class="panel store-month-panel" data-store-month-chart>
         <div class="panel-header">
           <div>
-            <h3>Doanh thu tất cả gian hàng theo tháng</h3>
-            <p>Tổng tiền món ăn đã thanh toán theo kỳ đang chọn.</p>
+            <h3>Phí hàng tháng tất cả gian hàng</h3>
+            <p>Tổng phí hàng tháng của các gian hàng theo kỳ đang chọn.</p>
           </div>
           <div class="store-month-form">
             <label for="store-months">Kỳ tháng</label>

@@ -53,6 +53,47 @@ function request_page_url($statusFilter, $selectedRequestId = 0, $message = '', 
     return admin_url('index1st.php?' . http_build_query($params));
 }
 
+function request_store_name_exists($conn, $name, &$error)
+{
+    $error = '';
+    if (!$conn instanceof mysqli) {
+        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
+        return false;
+    }
+
+    $normalizedName = trim((string) $name);
+    if ($normalizedName === '') {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*)
+        FROM gianhang
+        WHERE LOWER(TRIM(ten)) = LOWER(TRIM(?))
+    ");
+
+    if (!$stmt) {
+        $error = 'Không thể kiểm tra tên gian hàng: ' . $conn->error;
+        return false;
+    }
+
+    $stmt->bind_param('s', $normalizedName);
+    if (!$stmt->execute()) {
+        $error = 'Không thể kiểm tra tên gian hàng: ' . $stmt->error;
+        $stmt->close();
+        return false;
+    }
+
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_row() : null;
+    if ($result) {
+        $result->free();
+    }
+    $stmt->close();
+
+    return $row && isset($row[0]) && (int) $row[0] > 0;
+}
+
 function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 {
     $error = '';
@@ -321,6 +362,23 @@ function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangTha
         $tenGianHang = (string) $row['tenDeNghi'];
         $diaChi = isset($row['diaChiDeNghi']) && $row['diaChiDeNghi'] !== null ? (string) $row['diaChiDeNghi'] : '';
         $phiHangThangToSave = (float) $phiHangThang;
+        $duplicateError = '';
+
+        if (request_store_name_exists($conn, $tenGianHang, $duplicateError)) {
+            $insertStoreStmt->close();
+            $conn->rollback();
+            $conn->close();
+            $error = 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.';
+            return null;
+        }
+
+        if ($duplicateError !== '') {
+            $insertStoreStmt->close();
+            $conn->rollback();
+            $conn->close();
+            $error = $duplicateError;
+            return null;
+        }
 
         $insertStoreStmt->bind_param('issddd', $ownerId, $tenGianHang, $diaChi, $lat, $lon, $phiHangThangToSave);
         $insertStoreStmt->execute();

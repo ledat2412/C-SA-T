@@ -16,11 +16,11 @@
 
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
-		<ApplicationTitle>MauiApp1</ApplicationTitle>
-		<ApplicationId>com.companyname.mauiapp1</ApplicationId>
+		<ApplicationTitle>C-SA-T</ApplicationTitle>
+		<ApplicationId>com.csat.mobile</ApplicationId>
 
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
-		<ApplicationVersion>1</ApplicationVersion>
+		<ApplicationDisplayVersion>1.0.2</ApplicationDisplayVersion>
+		<ApplicationVersion>3</ApplicationVersion>
 
 		<WindowsPackageType>None</WindowsPackageType>
 

@@ -230,8 +230,15 @@ namespace VinhKhanh.Controllers
             if (!ownerId.HasValue)
                 return BadRequest(new OperationResultDto { Success = false, Message = "Admin phai chi dinh chu quan ly hop le." });
 
-            request.IdChuQuanLy = ownerId.Value;
-            return Ok(await storeManagementService.CreateStoreAsync(request, ownerId.Value));
+            try
+            {
+                request.IdChuQuanLy = ownerId.Value;
+                return Ok(await storeManagementService.CreateStoreAsync(request, ownerId.Value));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
         }
 
         [HttpPut("stores/{idGianHang}")]
@@ -244,9 +251,17 @@ namespace VinhKhanh.Controllers
             if (ownerId.HasValue)
                 request.IdChuQuanLy = ownerId.Value;
 
-            var result = await storeManagementService.UpdateStoreAsync(idGianHang, request);
-            if (result == null)
-                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+            OwnerStoreDto? result;
+            try
+            {
+                result = await storeManagementService.UpdateStoreAsync(idGianHang, request);
+                if (result == null)
+                    return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
 
             return Ok(result);
         }

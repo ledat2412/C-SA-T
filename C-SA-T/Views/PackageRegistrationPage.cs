@@ -8,6 +8,7 @@ namespace MauiApp1.Views;
 public class PackageRegistrationPage : ContentPage
 {
     private readonly AccessFlowService _accessFlowService;
+    private readonly ApiService _apiService;
     private readonly LocalizationService _loc;
     private readonly IImageGallerySaver? _gallerySaver;
     private readonly VerticalStackLayout _packageList;
@@ -16,13 +17,16 @@ public class PackageRegistrationPage : ContentPage
     private readonly Label _helperLabel;
     private PackagePlanOption? _selectedPlan;
     private readonly List<PackagePlanOption> _plans;
+    private bool _isLoadingPlans;
 
-    public PackageRegistrationPage(AccessFlowService accessFlowService, LocalizationService localizationService, IImageGallerySaver? gallerySaver = null)
+    public PackageRegistrationPage(AccessFlowService accessFlowService, ApiService apiService, LocalizationService localizationService, IImageGallerySaver? gallerySaver = null)
     {
         _accessFlowService = accessFlowService;
+        _apiService = apiService;
         _loc = localizationService;
         _gallerySaver = gallerySaver;
-        _plans = BuildPlans();
+        _plans = new List<PackagePlanOption>();
+        _isLoadingPlans = true;
 
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = MauiColor.FromArgb("#FFF7F1");
@@ -45,6 +49,7 @@ public class PackageRegistrationPage : ContentPage
 
         _packageList = new VerticalStackLayout { Spacing = 12 };
         RenderPackages();
+        _ = LoadPackagesAsync();
 
         _paymentButton = new Button
         {
@@ -150,6 +155,29 @@ public class PackageRegistrationPage : ContentPage
     {
         _packageList.Children.Clear();
 
+        if (_isLoadingPlans)
+        {
+            _packageList.Children.Add(new Label
+            {
+                Text = GetText("loading_packages"),
+                FontSize = 13,
+                TextColor = MauiColor.FromArgb("#6B7280")
+            });
+            return;
+        }
+
+        if (_plans.Count == 0)
+        {
+            _packageList.Children.Add(new Label
+            {
+                Text = GetText("no_packages"),
+                FontSize = 13,
+                TextColor = MauiColor.FromArgb("#9A3412"),
+                LineBreakMode = LineBreakMode.WordWrap
+            });
+            return;
+        }
+
         foreach (var plan in _plans)
         {
             var isSelected = _selectedPlan?.BackendPackageId == plan.BackendPackageId;
@@ -205,6 +233,54 @@ public class PackageRegistrationPage : ContentPage
             card.GestureRecognizers.Add(gesture);
 
             _packageList.Children.Add(card);
+        }
+    }
+
+    private async Task LoadPackagesAsync()
+    {
+        try
+        {
+            var packages = await _apiService.GetServicePackagesAsync();
+            var plans = packages
+                .Where(package => package.IdGoi > 0)
+                .Select(package => new PackagePlanOption(
+                    package.IdGoi,
+                    package.Ten,
+                    string.IsNullOrWhiteSpace(package.MoTa) ? GetText("package_no_description") : package.MoTa.Trim(),
+                    Math.Max(1, package.ThoiHanNgay),
+                    package.Gia,
+                    true))
+                .ToList();
+
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _plans.Clear();
+                _plans.AddRange(plans);
+                _isLoadingPlans = false;
+
+                if (_selectedPlan is not null && _plans.All(plan => plan.BackendPackageId != _selectedPlan.BackendPackageId))
+                {
+                    _selectedPlan = null;
+                    _selectedPlanLabel.Text = GetText("no_plan");
+                    _helperLabel.Text = GetText("helper_default");
+                    RefreshPaymentButton();
+                }
+
+                RenderPackages();
+            });
+        }
+        catch
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _plans.Clear();
+                _isLoadingPlans = false;
+                _selectedPlan = null;
+                _selectedPlanLabel.Text = GetText("no_plan");
+                _helperLabel.Text = GetText("load_failed");
+                RefreshPaymentButton();
+                RenderPackages();
+            });
         }
     }
 
@@ -267,6 +343,18 @@ public class PackageRegistrationPage : ContentPage
 
     private string GetText(string key)
     {
+        switch (key)
+        {
+            case "loading_packages":
+                return "Dang tai danh sach goi dich vu...";
+            case "no_packages":
+                return "Chua co goi dich vu dang hoat dong.";
+            case "load_failed":
+                return "Khong tai duoc danh sach goi. Vui long kiem tra backend va thu lai.";
+            case "package_no_description":
+                return "Goi dich vu";
+        }
+
         return _loc.CurrentLanguage switch
         {
             "en" => key switch
@@ -274,6 +362,10 @@ public class PackageRegistrationPage : ContentPage
                 "no_plan" => "No package selected yet.",
                 "helper_default" => "Choose a package, then tap Pay to open the QR payment page.",
                 "helper_selected" => "Tap Pay to open the QR payment page. On the next screen you can enter an email to receive the QR token, or download the QR directly.",
+                "loading_packages" => "Loading service packages...",
+                "no_packages" => "No active service packages are available.",
+                "load_failed" => "Could not load service packages. Please check the backend and try again.",
+                "package_no_description" => "Service package",
                 "pay" => "Pay",
                 "back" => "Back",
                 "title" => "Register access package",

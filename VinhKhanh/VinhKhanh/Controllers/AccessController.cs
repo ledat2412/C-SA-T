@@ -45,6 +45,12 @@ namespace VinhKhanh.Controllers
             return Ok(result);
         }
 
+        [HttpGet("packages")]
+        public async Task<IActionResult> GetPackages()
+        {
+            return Ok(await _accessSessionService.GetActiveServicePackagesAsync());
+        }
+
         [HttpPost("package/register")]
         public async Task<IActionResult> RegisterPackage([FromBody] RegisterPackageAccessRequestDto request)
         {

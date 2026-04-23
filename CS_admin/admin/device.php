@@ -297,7 +297,7 @@ if ($selectedDevice === null && $filteredCount > 0) {
           <div class="device-live-badge" id="liveBadge">
             <span class="live-dot"></span>
             <span class="live-label">Đang cập nhật</span>
-            <span class="live-timer" id="liveTimer">15s</span>
+            <span class="live-timer" id="liveTimer">3s</span>
           </div>
           <div class="page-tabs">
             <?php
@@ -580,7 +580,7 @@ if ($selectedDevice === null && $filteredCount > 0) {
 </main>
 <script>
 (function () {
-  var REFRESH_SEC = 15;
+  var REFRESH_SEC = 3;
   var ONLINE_SEC  = 45; // 45s — heartbeat 15s, cho miss 2 lần + latency
 
   var timer = REFRESH_SEC;
@@ -660,7 +660,7 @@ if ($selectedDevice === null && $filteredCount > 0) {
   }, 1000);
 
   // Cập nhật relative time mỗi 5 giây
-  setInterval(tickRelativeTimes, 5000);
+  setInterval(tickRelativeTimes, 3000);
 
   // Chạy ngay lần đầu
   tickRelativeTimes();

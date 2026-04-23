@@ -54,8 +54,15 @@ namespace VinhKhanh.Controllers
             if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
                 return ForbiddenResult();
 
-            var result = await _ownerService.CreateStoreAsync(idTaiKhoan, request, storeManagementService);
-            return Ok(result);
+            try
+            {
+                var result = await _ownerService.CreateStoreAsync(idTaiKhoan, request, storeManagementService);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
         }
 
         [HttpGet("store-requests")]
@@ -93,9 +100,17 @@ namespace VinhKhanh.Controllers
             if (!await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang))
                 return ForbiddenResult();
 
-            var result = await storeManagementService.UpdateStoreByOwnerAsync(idGianHang, idTaiKhoan, request);
-            if (result == null)
-                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+            OwnerStoreDto? result;
+            try
+            {
+                result = await storeManagementService.UpdateStoreByOwnerAsync(idGianHang, idTaiKhoan, request);
+                if (result == null)
+                    return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay gian hang." });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = ex.Message });
+            }
 
             return Ok(result);
         }

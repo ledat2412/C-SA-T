@@ -32,6 +32,36 @@ namespace VinhKhanh.Services
             _vietQrPayloadBuilder = vietQrPayloadBuilder;
         }
 
+        public async Task<List<PublicServicePackageDto>> GetActiveServicePackagesAsync()
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+                SELECT idGoi, ten, moTa, gia, thoiHanNgay
+                FROM goidichvu
+                WHERE trangThai = 'hoat_dong'
+                ORDER BY idGoi;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            var packages = new List<PublicServicePackageDto>();
+            while (await reader.ReadAsync())
+            {
+                packages.Add(new PublicServicePackageDto
+                {
+                    IdGoi = reader.GetInt32("idGoi"),
+                    Ten = reader["ten"]?.ToString() ?? string.Empty,
+                    MoTa = reader["moTa"] == DBNull.Value ? null : reader["moTa"]?.ToString(),
+                    Gia = reader["gia"] == DBNull.Value ? 0 : Convert.ToDecimal(reader["gia"]),
+                    ThoiHanNgay = reader["thoiHanNgay"] == DBNull.Value ? 0 : Convert.ToInt32(reader["thoiHanNgay"])
+                });
+            }
+
+            return packages;
+        }
+
         public async Task<AccessSessionResponseDto> CreateFromQrAsync(ScanQrRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.MaThietBi))

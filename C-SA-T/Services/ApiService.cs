@@ -69,6 +69,21 @@ namespace MauiApp1.Services
             return data.GianHangs;
         }
 
+        public async Task<List<ServicePackageOption>> GetServicePackagesAsync()
+        {
+            try
+            {
+                MarkRequestSent();
+                var result = await _httpClient.GetFromJsonAsync<List<ServicePackageOption>>(BuildApiUrl("api/access/packages"));
+                return result ?? new List<ServicePackageOption>();
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Khong tai duoc danh sach goi dich vu: {BuildNetworkErrorMessage(ex)}");
+                return new List<ServicePackageOption>();
+            }
+        }
+
         public async Task<GianHang?> GetGianHangDetailAsync(int idGianHang, string lang = "vi")
         {
             var data = await GetAppDataAsync(lang);

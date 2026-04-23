@@ -71,6 +71,7 @@ namespace VinhKhanh.Services
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
             await EnsureStoreRequestTableAsync(conn);
+            await EnsureStoreNameAvailableAsync(conn, request.Ten);
 
             var ownerId = await ResolveOwnerIdAsync(conn, idTaiKhoan);
             if (ownerId <= 0)
@@ -322,6 +323,8 @@ namespace VinhKhanh.Services
             MySqlConnection conn,
             MySqlTransaction transaction)
         {
+            await EnsureStoreNameAvailableAsync(conn, request.TenDeNghi, transaction: transaction);
+
             const string sql = @"
                 INSERT INTO gianhang
                 (
@@ -358,6 +361,21 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@phiHangThang", phiHangThang);
 
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+
+        private static async Task EnsureStoreNameAvailableAsync(MySqlConnection conn, string storeName, MySqlTransaction? transaction = null)
+        {
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM gianhang
+                WHERE LOWER(TRIM(ten)) = LOWER(TRIM(@ten));";
+
+            using var cmd = new MySqlCommand(sql, conn, transaction);
+            cmd.Parameters.AddWithValue("@ten", storeName.Trim());
+
+            var duplicateCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (duplicateCount > 0)
+                throw new ArgumentException("Ten gian hang da ton tai. Vui long chon ten khac.");
         }
 
         private static void ValidateCreateRequest(CreateStoreRequestDto request)

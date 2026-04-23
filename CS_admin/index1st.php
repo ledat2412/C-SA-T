@@ -87,6 +87,12 @@ if (!isset($availableUseCases[$useCase])) {
 $currentPage = $availableUseCases[$useCase];
 $sidebarActive = $currentPage['active'];
 $pageStyles = isset($currentPage['styles']) && is_array($currentPage['styles']) ? $currentPage['styles'] : array();
+
+if ($sidebarActive === 'dashboard' && !headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
