@@ -7,6 +7,9 @@ if (!isset($_SESSION['admin_auth']) || empty($_SESSION['admin_auth']['isLoggedIn
     exit;
 }
 
+$storeInvoiceMaintenanceError = '';
+admin_run_store_invoice_maintenance($storeInvoiceMaintenanceError);
+
 $accountRole = isset($_SESSION['admin_auth']['loaiTaiKhoan']) ? $_SESSION['admin_auth']['loaiTaiKhoan'] : 'admin';
 $useCase = isset($_GET['usecase']) ? $_GET['usecase'] : ($accountRole === 'chu_quan_ly' ? 'store' : 'dashboard');
 
@@ -47,6 +50,18 @@ $availableUseCases = array(
         'view' => __DIR__ . '/admin/request.php',
         'styles' => array('asset/admin/css/request-content.css'),
     ),
+    'invoice' => array(
+        'title' => 'Hóa đơn gian hàng',
+        'active' => 'invoice',
+        'view' => __DIR__ . '/admin/invoice.php',
+        'styles' => array('asset/admin/css/request-content.css'),
+    ),
+    'invoice-payment' => array(
+        'title' => 'Thanh toán hóa đơn gian hàng',
+        'active' => 'invoice',
+        'view' => __DIR__ . '/admin/invoice_payment.php',
+        'styles' => array('asset/admin/css/invoice-payment-content.css'),
+    ),
     'account' => array(
         'title' => 'Quản lý tài khoản',
         'active' => 'account',
@@ -74,7 +89,7 @@ $availableUseCases = array(
 );
 
 if ($accountRole === 'chu_quan_ly') {
-    $allowedUseCases = array('store', 'poi-map', 'branchdetail2', 'request', 'menu');
+    $allowedUseCases = array('store', 'poi-map', 'branchdetail2', 'request', 'invoice', 'invoice-payment', 'menu');
     if (!in_array($useCase, $allowedUseCases, true)) {
         $useCase = 'store';
     }

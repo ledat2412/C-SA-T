@@ -211,3 +211,135 @@ if (!function_exists('admin_ensure_store_request_table')) {
         return $conn->query($sql) === true;
     }
 }
+
+if (!function_exists('admin_run_store_invoice_maintenance')) {
+    function admin_run_store_invoice_maintenance(&$error = '')
+    {
+        static $hasRun = false;
+        $error = '';
+
+        if ($hasRun) {
+            return array(
+                'expiredInvoices' => 0,
+                'pausedStores' => 0,
+                'createdInvoices' => 0,
+            );
+        }
+
+        $hasRun = true;
+        $conn = admin_db_connection();
+        if (!$conn instanceof mysqli) {
+            $error = 'Không thể mở kết nối DB để bảo trì hóa đơn gian hàng.';
+            return false;
+        }
+
+        $stats = array(
+            'expiredInvoices' => 0,
+            'pausedStores' => 0,
+            'createdInvoices' => 0,
+        );
+
+        $conn->begin_transaction();
+
+        try {
+            $expireSql = "
+                UPDATE hoadongianhang
+                SET trangThai = 'qua_han'
+                WHERE trangThai = 'chua_thanh_toan'
+                  AND ngayHetHan IS NOT NULL
+                  AND ngayHetHan < NOW()
+            ";
+
+            if (!$conn->query($expireSql)) {
+                throw new RuntimeException($conn->error);
+            }
+            $stats['expiredInvoices'] = max(0, (int) $conn->affected_rows);
+
+            $pauseSql = "
+                UPDATE gianhang gh
+                SET gh.tinhTrang = 'tam_ngung',
+                    gh.thoiGianCapNhat = NOW()
+                WHERE gh.tinhTrang = 'dang_hoat_dong'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM hoadongianhang hdgh
+                      WHERE hdgh.idGianHang = gh.idGianHang
+                        AND hdgh.trangThai = 'qua_han'
+                        AND hdgh.ngayHetHan IS NOT NULL
+                        AND hdgh.ngayHetHan < NOW()
+                  )
+            ";
+
+            if (!$conn->query($pauseSql)) {
+                throw new RuntimeException($conn->error);
+            }
+            $stats['pausedStores'] = max(0, (int) $conn->affected_rows);
+
+            $createSql = "
+                INSERT INTO hoadongianhang
+                    (idGianHang, tongTien, ngayHetHan, trangThai, ghiChu, ngayTao)
+                SELECT
+                    gh.idGianHang,
+                    CASE
+                        WHEN COALESCE(gh.phiHangThang, 0) > 0 THEN gh.phiHangThang
+                        ELSE COALESCE(latest.tongTien, 0)
+                    END AS tongTien,
+                    DATE_ADD(latest.ngayHetHan, INTERVAL 1 MONTH) AS ngayHetHan,
+                    'chua_thanh_toan' AS trangThai,
+                    CONCAT('Phi duy tri thang ', DATE_FORMAT(DATE_ADD(latest.ngayHetHan, INTERVAL 1 MONTH), '%m/%Y')) AS ghiChu,
+                    NOW() AS ngayTao
+                FROM gianhang gh
+                INNER JOIN (
+                    SELECT hdgh.*
+                    FROM hoadongianhang hdgh
+                    INNER JOIN (
+                        SELECT idGianHang, MAX(idHoaDonGianHang) AS latestId
+                        FROM hoadongianhang
+                        GROUP BY idGianHang
+                    ) last_invoice ON last_invoice.latestId = hdgh.idHoaDonGianHang
+                ) latest ON latest.idGianHang = gh.idGianHang
+                WHERE gh.tinhTrang <> 'dong_cua'
+                  AND latest.ngayHetHan IS NOT NULL
+                  AND latest.ngayHetHan < NOW()
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM hoadongianhang duplicate_invoice
+                      WHERE duplicate_invoice.idGianHang = gh.idGianHang
+                        AND duplicate_invoice.ngayHetHan = DATE_ADD(latest.ngayHetHan, INTERVAL 1 MONTH)
+                  )
+            ";
+
+            for ($i = 0; $i < 12; $i++) {
+                if (!$conn->query($createSql)) {
+                    throw new RuntimeException($conn->error);
+                }
+
+                $createdThisRound = max(0, (int) $conn->affected_rows);
+                $stats['createdInvoices'] += $createdThisRound;
+                if ($createdThisRound === 0) {
+                    break;
+                }
+            }
+
+            if (!$conn->query($expireSql)) {
+                throw new RuntimeException($conn->error);
+            }
+            $stats['expiredInvoices'] += max(0, (int) $conn->affected_rows);
+
+            if (!$conn->query($pauseSql)) {
+                throw new RuntimeException($conn->error);
+            }
+            $stats['pausedStores'] += max(0, (int) $conn->affected_rows);
+
+            $conn->commit();
+        } catch (Throwable $exception) {
+            $conn->rollback();
+            $error = 'Không thể bảo trì hóa đơn gian hàng: ' . $exception->getMessage();
+            $conn->close();
+            return false;
+        }
+
+        $conn->close();
+        return $stats;
+    }
+}

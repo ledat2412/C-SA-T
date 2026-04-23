@@ -49,6 +49,11 @@ if (!function_exists('sidebar_active_class')) {
       <span>Yêu cầu</span>
     </a>
 
+    <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=invoice'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('invoice', $sidebarActive); ?>" data-sidebar-item="invoice">
+      <i class="fa-solid fa-file-invoice-dollar"></i>
+      <span>Hóa đơn</span>
+    </a>
+
     <?php if (!$sidebarIsOwner) { ?>
     <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=account'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('account', $sidebarActive); ?>" data-sidebar-item="account">
       <i class="fa-solid fa-users"></i>

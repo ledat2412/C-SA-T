@@ -308,14 +308,35 @@ $conn = admin_db_connection();
 if (!$conn instanceof mysqli) {
     $dashboardError = 'Không thể kết nối CSDL để tải dashboard.';
 } else {
-    $summary['stores'] = (int) dashboard_query_value($conn, 'SELECT COUNT(*) FROM gianhang');
+    $paidStoreSubquery = "
+        SELECT latest_invoice.idGianHang
+        FROM hoadongianhang latest_invoice
+        INNER JOIN (
+            SELECT idGianHang, MAX(idHoaDonGianHang) AS latestId
+            FROM hoadongianhang
+            GROUP BY idGianHang
+        ) last_invoice ON last_invoice.latestId = latest_invoice.idHoaDonGianHang
+        WHERE latest_invoice.trangThai = 'da_thanh_toan'
+    ";
+
+    $summary['stores'] = (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM gianhang gh
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
+    ");
     $summary['activeOwners'] = (int) dashboard_query_value($conn, "
         SELECT COUNT(DISTINCT cql.idChuQuanLy)
-        FROM chu_quan_ly cql
+        FROM gianhang gh
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
+        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
         INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
         WHERE tk.tinhTrang = 'hoat_dong'
     ");
-    $summary['foods'] = (int) dashboard_query_value($conn, 'SELECT COUNT(*) FROM monan');
+    $summary['foods'] = (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM monan ma
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = ma.idGianHang
+    ");
     $summary['paidOrders'] = (int) dashboard_query_value($conn, "
         SELECT COUNT(*)
         FROM hoadon
@@ -333,17 +354,25 @@ if (!$conn instanceof mysqli) {
           AND thoiGianTao >= ?
           AND thoiGianTao <= ?
     ", 'ss', array($periodStart, $periodEnd));
+    $storeMonthlyFeeTotal = (float) dashboard_query_value($conn, "
+        SELECT COALESCE(SUM(hdgh.tongTien), 0)
+        FROM hoadongianhang hdgh
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = hdgh.idGianHang
+        WHERE hdgh.trangThai = 'da_thanh_toan'
+          AND hdgh.ngayTao >= ?
+          AND hdgh.ngayTao <= ?
+    ", 'ss', array($periodStart, $periodEnd));
+
     $storeFeeRows = dashboard_query_rows($conn, "
         SELECT
-            idGianHang,
-            COALESCE(phiHangThang, 0) AS phiHangThang,
-            ngayDangKy
-        FROM gianhang
+            hdgh.idGianHang,
+            COALESCE(hdgh.tongTien, 0) AS phiHangThang,
+            hdgh.ngayTao AS ngayDangKy
+        FROM hoadongianhang hdgh
+        INNER JOIN gianhang gh ON gh.idGianHang = hdgh.idGianHang
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = hdgh.idGianHang
+        WHERE hdgh.trangThai = 'da_thanh_toan'
     ");
-    $storeMonthlyFeeTotal = 0;
-    foreach ($storeFeeRows as $row) {
-        $storeMonthlyFeeTotal += (float) ($row['phiHangThang'] ?? 0);
-    }
 
     $summary['visitorRevenue'] = $visitorRevenue;
     $summary['storeRevenue'] = $storeMonthlyFeeTotal;
@@ -376,12 +405,13 @@ if (!$conn instanceof mysqli) {
     for ($i = 11; $i >= 0; $i--) {
         $monthKey = date('Y-m', strtotime('-' . $i . ' months'));
         $monthLabel = date('m/Y', strtotime($monthKey . '-01'));
+        $monthStartTimestamp = strtotime($monthKey . '-01 00:00:00');
         $monthEndTimestamp = strtotime(date('Y-m-t 23:59:59', strtotime($monthKey . '-01')));
         $monthValue = 0;
 
         foreach ($storeFeeRows as $row) {
-            $registeredAt = !empty($row['ngayDangKy']) ? strtotime((string) $row['ngayDangKy']) : false;
-            if ($registeredAt !== false && $registeredAt > $monthEndTimestamp) {
+            $paidAt = !empty($row['ngayDangKy']) ? strtotime((string) $row['ngayDangKy']) : false;
+            if ($paidAt === false || $paidAt < $monthStartTimestamp || $paidAt > $monthEndTimestamp) {
                 continue;
             }
 
@@ -404,12 +434,15 @@ if (!$conn instanceof mysqli) {
         SELECT
             gh.idGianHang,
             gh.ten,
-            gh.phiHangThang,
+            COALESCE(SUM(hdgh.tongTien), 0) AS phiHangThang,
             COUNT(DISTINCT ma.idMonAn) AS soMon
-        FROM gianhang gh
+        FROM hoadongianhang hdgh
+        INNER JOIN gianhang gh ON gh.idGianHang = hdgh.idGianHang
+        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
         LEFT JOIN monan ma ON ma.idGianHang = gh.idGianHang
-        GROUP BY gh.idGianHang, gh.ten, gh.phiHangThang
-        ORDER BY gh.phiHangThang DESC, gh.idGianHang ASC
+        WHERE hdgh.trangThai = 'da_thanh_toan'
+        GROUP BY gh.idGianHang, gh.ten
+        ORDER BY phiHangThang DESC, gh.idGianHang ASC
         LIMIT 5
     ");
 
@@ -426,6 +459,7 @@ if (!$conn instanceof mysqli) {
                 gh.tinhTrang AS trangThai,
                 COALESCE(gh.thoiGianCapNhat, gh.ngayDangKy) AS thoiGian
             FROM gianhang gh
+            INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
             LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
             LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
 
@@ -442,6 +476,7 @@ if (!$conn instanceof mysqli) {
                 COALESCE(ma.thoiGianCapNhat, gh.thoiGianCapNhat, gh.ngayDangKy) AS thoiGian
             FROM monan ma
             INNER JOIN gianhang gh ON gh.idGianHang = ma.idGianHang
+            INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
 
             UNION ALL
 
@@ -528,7 +563,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
           </div>
           <span class="stat-growth live">DB</span>
         </div>
-        <p class="stat-label">Tổng gian hàng</p>
+        <p class="stat-label">Gian hàng đã thanh toán</p>
         <h3><?php echo htmlspecialchars(dashboard_number($summary['stores']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
@@ -539,7 +574,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
           </div>
           <span class="stat-growth positive"><?php echo htmlspecialchars(dashboard_number($summary['pendingRequests']), ENT_QUOTES, 'UTF-8'); ?> chờ duyệt</span>
         </div>
-        <p class="stat-label">Chủ quản lý hoạt động</p>
+        <p class="stat-label">Chủ quản lý đã thanh toán</p>
         <h3><?php echo htmlspecialchars(dashboard_number($summary['activeOwners']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
@@ -550,7 +585,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
           </div>
           <span class="stat-growth live"><?php echo htmlspecialchars(dashboard_number($summary['activeDevices']), ENT_QUOTES, 'UTF-8'); ?> thiết bị</span>
         </div>
-        <p class="stat-label">Tổng món ăn</p>
+        <p class="stat-label">Món ăn của gian hàng đã thanh toán</p>
         <h3><?php echo htmlspecialchars(dashboard_number($summary['foods']), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
@@ -696,7 +731,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
       <div class="panel rank-panel">
         <div class="panel-header simple">
           <div>
-            <h3>Phí hàng tháng các gian hàng</h3>
+            <h3>Hóa đơn gian hàng đã thanh toán</h3>
           </div>
         </div>
 
@@ -709,7 +744,7 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
             <div class="rank-badge"><?php echo $index + 1; ?></div>
             <div class="rank-info">
               <h4><?php echo htmlspecialchars((string) ($store['ten'] ?? 'Gian hàng'), ENT_QUOTES, 'UTF-8'); ?></h4>
-              <p><?php echo htmlspecialchars(dashboard_number($store['soMon'] ?? 0), ENT_QUOTES, 'UTF-8'); ?> món - phí tháng <?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></p>
+              <p><?php echo htmlspecialchars(dashboard_number($store['soMon'] ?? 0), ENT_QUOTES, 'UTF-8'); ?> món - đã thanh toán <?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
             <strong><?php echo htmlspecialchars(dashboard_money($store['phiHangThang'] ?? 0), ENT_QUOTES, 'UTF-8'); ?></strong>
           </div>
@@ -722,8 +757,8 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
       <div class="panel store-month-panel" data-store-month-chart>
         <div class="panel-header">
           <div>
-            <h3>Phí hàng tháng tất cả gian hàng</h3>
-            <p>Tổng phí hàng tháng của các gian hàng theo kỳ đang chọn.</p>
+            <h3>Hóa đơn gian hàng đã thanh toán</h3>
+            <p>Tổng hóa đơn gian hàng đã thanh toán theo kỳ đang chọn.</p>
           </div>
           <div class="store-month-form">
             <label for="store-months">Kỳ tháng</label>
