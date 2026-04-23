@@ -214,8 +214,88 @@ if (!function_exists('poi_map_fetch_pois')) {
     }
 }
 
+if (!function_exists('poi_map_attach_daily_visits')) {
+    function poi_map_attach_daily_visits(&$pois)
+    {
+        if (!is_array($pois) || count($pois) === 0) {
+            return;
+        }
+
+        $poiIds = array();
+        $poiIndex = array();
+        foreach ($pois as $index => $poi) {
+            $id = isset($poi['id']) ? (int) $poi['id'] : 0;
+            if ($id <= 0) {
+                continue;
+            }
+
+            $poiIds[] = $id;
+            $poiIndex[$id] = $index;
+            $pois[$index]['dailyVisits'] = array();
+        }
+
+        if (count($poiIds) === 0) {
+            return;
+        }
+
+        $conn = admin_db_connection();
+        if (!$conn instanceof mysqli) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($poiIds), '?'));
+        $sql = "
+            SELECT idGianHang, ngay, soLuot
+            FROM luot_truy_cap_ngay
+            WHERE idGianHang IN ($placeholders)
+              AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+            ORDER BY idGianHang ASC, ngay ASC
+        ";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            $conn->close();
+            return;
+        }
+
+        $types = str_repeat('i', count($poiIds));
+        $bindParams = array($types);
+        foreach ($poiIds as $key => $id) {
+            $bindParams[] = &$poiIds[$key];
+        }
+
+        call_user_func_array(array($stmt, 'bind_param'), $bindParams);
+
+        if ($stmt->execute()) {
+            $result = $stmt->get_result();
+            while ($result && ($row = $result->fetch_assoc())) {
+                $id = isset($row['idGianHang']) ? (int) $row['idGianHang'] : 0;
+                if ($id <= 0 || !isset($poiIndex[$id])) {
+                    continue;
+                }
+
+                $index = $poiIndex[$id];
+                $dateKey = isset($row['ngay']) ? (string) $row['ngay'] : '';
+                if ($dateKey === '') {
+                    continue;
+                }
+
+                $pois[$index]['dailyVisits'][$dateKey] = isset($row['soLuot']) ? (int) $row['soLuot'] : 0;
+            }
+
+            if ($result) {
+                $result->free();
+            }
+        }
+
+        $stmt->close();
+        $conn->close();
+    }
+}
+
 $poiError = '';
 $pois = poi_map_fetch_pois($isOwner, $idTaiKhoan, $poiError);
+poi_map_attach_daily_visits($pois);
 $googleMapsApiKey = poi_map_google_api_key();
 $googleMapsApiKeySource = poi_map_google_api_key_source();
 $googleMapsMapId = poi_map_google_map_id();
@@ -255,6 +335,7 @@ $mapConfig = json_encode(array(
     'hasApiKey' => $googleMapsApiKey !== '',
     'apiKeySource' => $googleMapsApiKeySource,
     'apiKeyPrefix' => $googleMapsApiKey !== '' ? substr($googleMapsApiKey, 0, 10) . '...' : '',
+    'visitsApiUrl' => admin_url('api/poi_visits.php'),
 ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 ?>
 <main class="main-content">
@@ -398,35 +479,154 @@ if (window.initPoiAdminMap) {
 .poi-calendar-heatmap {
   margin-top: 12px;
   overflow-x: auto;
-  padding: 10px;
+  overflow-y: visible;
+  padding: 12px;
   background: #f8fafc;
-  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .poi-calendar-heatmap-title {
   font-size: 13px;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 4px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.poi-calendar-heatmap-shell {
+  position: relative;
+  min-width: max-content;
+}
+.poi-calendar-heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(53, 12px);
+  column-gap: 4px;
+  margin-left: 32px;
+  margin-bottom: 6px;
+  min-height: 14px;
+}
+.poi-calendar-month {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.poi-calendar-heatmap-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.poi-calendar-heatmap-days {
+  width: 24px;
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  row-gap: 4px;
+}
+.poi-calendar-heatmap-days span {
+  font-size: 10px;
+  line-height: 12px;
+  color: #64748b;
+}
+.poi-calendar-heatmap-days span:not(.is-visible) {
+  visibility: hidden;
 }
 .poi-calendar-heatmap-grid {
   display: grid;
-  grid-template-columns: repeat(53, 1fr);
+  grid-template-columns: repeat(53, 12px);
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 1fr);
-  gap: 3px;
+  grid-template-rows: repeat(7, 12px);
+  gap: 4px;
   width: max-content;
 }
 .poi-calendar-day {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
   background-color: #ebedf0;
+  border: 0;
+  padding: 0;
+  appearance: none;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.poi-calendar-day:hover,
+.poi-calendar-day:focus-visible {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  z-index: 2;
+  outline: none;
+}
+.poi-calendar-day.is-empty {
+  background: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+.poi-calendar-day.is-legend {
+  cursor: default;
 }
 .poi-calendar-day[data-level="1"] { background-color: #c6e48b; }
 .poi-calendar-day[data-level="2"] { background-color: #7bc96f; }
 .poi-calendar-day[data-level="3"] { background-color: #239a3b; }
 .poi-calendar-day[data-level="4"] { background-color: #196127; }
+.poi-calendar-heatmap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.poi-calendar-heatmap-summary,
+.poi-calendar-legend-label {
+  font-size: 11px;
+  color: #64748b;
+}
+.poi-calendar-heatmap-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.poi-calendar-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.96);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+.poi-calendar-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  background: rgba(15, 23, 42, 0.96);
+  transform: translateX(-50%) rotate(45deg);
+}
+.poi-calendar-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+@media (max-width: 640px) {
+  .poi-calendar-heatmap-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 </style>

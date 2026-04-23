@@ -19,6 +19,10 @@
   var googleCameraFrame = 0;
   var pendingGoogleCamera = null;
   var heatmap = null;
+  var heatmapDataCache = {};
+  var heatmapHtmlCache = {};
+  var heatmapPromiseCache = {};
+  var poiLookup = {};
 
   function byId(id) {
     return document.getElementById(id);
@@ -75,6 +79,52 @@
     return 'index1st.php?usecase=branchdetail2&idGianHang=' + encodeURIComponent(poi.id);
   }
 
+  function getVisitsApiUrl() {
+    return config.visitsApiUrl || 'api/poi_visits.php';
+  }
+
+  function loadHeatmapData(poiId) {
+    var poi = poiLookup[poiId];
+    if (poi && poi._dailyVisits && Object.keys(poi._dailyVisits).length > 0) {
+      heatmapDataCache[poiId] = poi._dailyVisits;
+      return Promise.resolve(poi._dailyVisits);
+    }
+
+    if (heatmapDataCache[poiId]) {
+      return Promise.resolve(heatmapDataCache[poiId]);
+    }
+
+    if (heatmapPromiseCache[poiId]) {
+      return heatmapPromiseCache[poiId];
+    }
+
+    heatmapPromiseCache[poiId] = fetch(getVisitsApiUrl() + '?id=' + encodeURIComponent(poiId))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && !data.error) {
+          heatmapDataCache[poiId] = data;
+        }
+        delete heatmapPromiseCache[poiId];
+        return data;
+      })
+      .catch(function (error) {
+        delete heatmapPromiseCache[poiId];
+        throw error;
+      });
+
+    return heatmapPromiseCache[poiId];
+  }
+
+  function primeCalendarHeatmap(poiId) {
+    if (heatmapDataCache[poiId] || heatmapPromiseCache[poiId]) {
+      return;
+    }
+
+    loadHeatmapData(poiId).catch(function () {
+      // Keep the UI quiet during background prefetch.
+    });
+  }
+
   function searchableText(poi) {
     return normalize([
       poi.name,
@@ -91,6 +141,8 @@
     poi._radius = Number(poi.radiusMeters || 10);
     poi._monthlyFee = Number(poi.monthlyFee || 0);
     poi._searchText = searchableText(poi);
+    poi._dailyVisits = poi.dailyVisits && typeof poi.dailyVisits === 'object' ? poi.dailyVisits : {};
+    poiLookup[poi.id] = poi;
   });
 
   function invalidateVisibleCache() {
@@ -208,16 +260,25 @@
     refreshMarkerSelection();
     updateActiveListItem();
 
-    infoWindow.setContent(
-      '<div class="poi-info-window">' +
-        poiPopupImage(poi, 'poi-info-media') +
-        '<strong>' + escapeHtml(poi.name) + '</strong>' +
-        '<span>' + escapeHtml(poi.address) + '</span>' +
-        '<span>' + escapeHtml(poi.statusLabel) + ' - Radius ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
-        '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet gian hang</a>' +
-        '<div id="poiCalendarHeatmap-' + poi.id + '" class="poi-calendar-heatmap">Loading heatmap...</div>' +
-      '</div>'
-    );
+    var infoContent = document.createElement('div');
+    infoContent.className = 'poi-info-window';
+    infoContent.innerHTML =
+      poiPopupImage(poi, 'poi-info-media') +
+      '<strong>' + escapeHtml(poi.name) + '</strong>' +
+      '<span>' + escapeHtml(poi.address) + '</span>' +
+      '<span>' + escapeHtml(poi.statusLabel) + ' - Radius ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
+      '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet gian hang</a>';
+
+    var heatmapContainer = document.createElement('div');
+    heatmapContainer.className = 'poi-calendar-heatmap';
+    heatmapContainer.textContent = 'Loading heatmap...';
+    infoContent.appendChild(heatmapContainer);
+
+    if (typeof renderCalendarHeatmap === 'function') {
+      renderCalendarHeatmap(poi.id, heatmapContainer);
+    }
+
+    infoWindow.setContent(infoContent);
 
     if ('position' in marker && !marker.getPosition) {
       infoWindow.open({ map: map, anchor: marker });
@@ -226,13 +287,6 @@
     }
 
     focusPoiCamera(poi);
-
-    // Render heatmap once DOM is ready
-    setTimeout(function() {
-      if (typeof renderCalendarHeatmap === 'function') {
-        renderCalendarHeatmap(poi.id, 'poiCalendarHeatmap-' + poi.id);
-      }
-    }, 200);
   }
 
   function createMarkers() {
@@ -281,6 +335,9 @@
 
       marker.addListener('click', function () {
         openInfo(poi, marker);
+      });
+      marker.addListener('mouseover', function () {
+        primeCalendarHeatmap(poi.id);
       });
 
       markerEntries.push({
@@ -541,7 +598,10 @@
 
     localState.popup.style.left = Math.max(16, Math.min(78, entry.point.x)) + '%';
     localState.popup.style.top = Math.max(14, Math.min(74, entry.point.y)) + '%';
-    localState.popup.classList.add('visible'); setTimeout(function() { if (typeof renderCalendarHeatmap === 'function') { renderCalendarHeatmap(poi.id, 'poiCalendarHeatmap-' + poi.id + '-local'); } }, 50);
+    localState.popup.classList.add('visible');
+    if (typeof renderCalendarHeatmap === 'function') {
+      renderCalendarHeatmap(poi.id, 'poiCalendarHeatmap-' + poi.id + '-local');
+    }
   }
 
   function renderLocalMarkers() {
@@ -852,6 +912,12 @@
           focusPoiCamera(poi);
         }
       });
+      button.addEventListener('mouseenter', function () {
+        primeCalendarHeatmap(poi.id);
+      });
+      button.addEventListener('focus', function () {
+        primeCalendarHeatmap(poi.id);
+      });
 
       fragment.appendChild(button);
     });
@@ -1123,53 +1189,238 @@
       }
     }, 2400);
   });
+
+  window.__poiHeatmapHtmlCache = heatmapHtmlCache;
+  window.__poiLoadHeatmapData = loadHeatmapData;
+  window.__poiEscapeHtml = escapeHtml;
 })();
   function renderCalendarHeatmap(poiId, containerId) {
-    var container = document.getElementById(containerId);
-    if (!container) return;
+    var heatmapHtmlCache = window.__poiHeatmapHtmlCache || {};
+    var loadHeatmapData = window.__poiLoadHeatmapData;
+    var escapeHtml = window.__poiEscapeHtml || function (value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+    var container = typeof containerId === 'string'
+      ? document.getElementById(containerId)
+      : containerId;
+    if (!container) {
+      return;
+    }
 
-    fetch('api/poi_visits.php?id=' + encodeURIComponent(poiId))
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Error loading data.</p>';
-          return;
-        }
+    function toDateKey(date) {
+      return date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0');
+    }
 
-        var html = '<span class="poi-calendar-heatmap-title">Daily Visits (Last 365 days)</span>';
-        html += '<div class="poi-calendar-heatmap-grid">';
-
-        var today = new Date();
-        var startDate = new Date();
-        startDate.setDate(today.getDate() - 364);
-        
-        // Offset to start on Sunday
-        var startDay = startDate.getDay();
-        for (var i = 0; i < startDay; i++) {
-          html += '<div class="poi-calendar-day" style="background: transparent;"></div>';
-        }
-
-        var current = new Date(startDate);
-        for (var i = 0; i < 365; i++) {
-          var dateStr = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0') + '-' + String(current.getDate()).padStart(2, '0');
-          var count = data[dateStr] || 0;
-          
-          var level = 0;
-          if (count > 0 && count <= 5) level = 1;
-          else if (count > 5 && count <= 15) level = 2;
-          else if (count > 15 && count <= 25) level = 3;
-          else if (count > 25) level = 4;
-          
-          var title = dateStr + ': ' + count + ' visits';
-          html += '<div class="poi-calendar-day" data-level="' + level + '" title="' + title + '"></div>';
-          current.setDate(current.getDate() + 1);
-        }
-        
-        html += '</div>';
-        container.innerHTML = html;
-      })
-      .catch(err => {
-        console.error(err);
-        container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Failed to fetch data.</p>';
+    function toDisplayDate(date) {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
       });
+    }
+
+    function monthLabel(date) {
+      return date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+    }
+
+    function clampLevel(value, maxValue) {
+      if (!value || value <= 0 || !maxValue || maxValue <= 0) {
+        return 0;
+      }
+
+      var ratio = value / maxValue;
+      if (ratio <= 0.25) {
+        return 1;
+      }
+      if (ratio <= 0.5) {
+        return 2;
+      }
+      if (ratio <= 0.75) {
+        return 3;
+      }
+      return 4;
+    }
+
+    function attachTooltip(shell) {
+      if (!shell) {
+        return;
+      }
+
+      var tooltip = shell.querySelector('.poi-calendar-tooltip');
+      var cells = shell.querySelectorAll('.poi-calendar-day[data-date]');
+      if (!tooltip || !cells.length) {
+        return;
+      }
+
+      function showTooltip(event) {
+        var target = event.currentTarget;
+        var count = Number(target.getAttribute('data-count') || 0);
+        var date = target.getAttribute('data-date-label') || target.getAttribute('data-date') || '';
+        tooltip.textContent = date + ': ' + count + ' visits';
+        tooltip.classList.add('visible');
+        positionTooltip(target);
+      }
+
+      function positionTooltip(target) {
+        var shellRect = shell.getBoundingClientRect();
+        var targetRect = target.getBoundingClientRect();
+        var left = targetRect.left - shellRect.left + (targetRect.width / 2);
+        var top = targetRect.top - shellRect.top - 10;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+      }
+
+      function hideTooltip() {
+        tooltip.classList.remove('visible');
+      }
+
+      Array.prototype.forEach.call(cells, function (cell) {
+        cell.addEventListener('mouseenter', showTooltip);
+        cell.addEventListener('focus', showTooltip);
+        cell.addEventListener('mousemove', function (event) {
+          positionTooltip(event.currentTarget);
+        });
+        cell.addEventListener('mouseleave', hideTooltip);
+        cell.addEventListener('blur', hideTooltip);
+      });
+    }
+
+    try {
+      if (typeof loadHeatmapData !== 'function') {
+        container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Heatmap loader unavailable.</p>';
+        return;
+      }
+
+      if (heatmapHtmlCache[poiId]) {
+        container.innerHTML = heatmapHtmlCache[poiId];
+        attachTooltip(container.querySelector('.poi-calendar-heatmap-shell'));
+        return;
+      }
+
+      loadHeatmapData(poiId)
+        .then(function (data) {
+          if (data.error) {
+            container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Error loading data.</p>';
+            return;
+          }
+
+          var today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          var startDate = new Date(today);
+          startDate.setDate(today.getDate() - 364);
+          startDate.setHours(0, 0, 0, 0);
+
+          var gridStart = new Date(startDate);
+          gridStart.setDate(startDate.getDate() - startDate.getDay());
+
+          var gridEnd = new Date(today);
+          gridEnd.setDate(today.getDate() + (6 - today.getDay()));
+
+          var totalDays = Math.round((gridEnd - gridStart) / 86400000) + 1;
+          var totalWeeks = Math.ceil(totalDays / 7);
+          var totals = {
+            visitCount: 0,
+            activeDays: 0,
+            maxCount: 0
+          };
+          var monthMarkers = [];
+          var seenMonthKeys = {};
+          var html = '<span class="poi-calendar-heatmap-title">Daily Visits (Last 365 days)</span>';
+          html += '<div class="poi-calendar-heatmap-shell">';
+          html += '<div class="poi-calendar-heatmap-months">';
+
+          for (var visibleIndex = 0; visibleIndex < 365; visibleIndex++) {
+            var visibleDate = new Date(startDate);
+            visibleDate.setDate(startDate.getDate() + visibleIndex);
+            var weekIndex = Math.floor((visibleDate - gridStart) / 86400000 / 7);
+            var weekKey = visibleDate.getFullYear() + '-' + visibleDate.getMonth();
+            var shouldShowMonth = visibleIndex === 0 || visibleDate.getDate() === 1;
+            if (shouldShowMonth && !seenMonthKeys[weekKey]) {
+              seenMonthKeys[weekKey] = true;
+              monthMarkers.push(
+                '<span class="poi-calendar-month" style="grid-column:' + (weekIndex + 1) + '">' +
+                monthLabel(visibleDate) +
+                '</span>'
+              );
+            }
+          }
+
+          html += monthMarkers.join('');
+          html += '</div>';
+          html += '<div class="poi-calendar-heatmap-body">';
+          html += '<div class="poi-calendar-heatmap-days">';
+          html += '<span></span><span class="is-visible">Mon</span><span></span><span class="is-visible">Wed</span><span></span><span class="is-visible">Fri</span><span></span>';
+          html += '</div>';
+          html += '<div class="poi-calendar-heatmap-grid">';
+
+          for (var dayIndex = 0; dayIndex < totalDays; dayIndex++) {
+            var current = new Date(gridStart);
+            current.setDate(gridStart.getDate() + dayIndex);
+            current.setHours(0, 0, 0, 0);
+
+            var isInsideRange = current >= startDate && current <= today;
+            if (!isInsideRange) {
+              html += '<span class="poi-calendar-day is-empty" aria-hidden="true"></span>';
+              continue;
+            }
+
+            var dateStr = toDateKey(current);
+            var count = Number(data[dateStr] || 0);
+            totals.visitCount += count;
+            if (count > 0) {
+              totals.activeDays += 1;
+            }
+            if (count > totals.maxCount) {
+              totals.maxCount = count;
+            }
+
+            html += '%%CELL%%' + escapeHtml(dateStr) + '|' + count + '|' + escapeHtml(toDisplayDate(current)) + '%%';
+          }
+
+          html += '</div>';
+          html += '</div>';
+          html += '<div class="poi-calendar-heatmap-footer">';
+          html += '<span class="poi-calendar-heatmap-summary">' +
+            totals.visitCount + ' visits / ' + totals.activeDays + ' days with data' +
+            '</span>';
+          html += '<div class="poi-calendar-heatmap-legend">';
+          html += '<span class="poi-calendar-legend-label">Less</span>';
+          html += '<span class="poi-calendar-day is-legend" data-level="0"></span>';
+          html += '<span class="poi-calendar-day is-legend" data-level="1"></span>';
+          html += '<span class="poi-calendar-day is-legend" data-level="2"></span>';
+          html += '<span class="poi-calendar-day is-legend" data-level="3"></span>';
+          html += '<span class="poi-calendar-day is-legend" data-level="4"></span>';
+          html += '<span class="poi-calendar-legend-label">More</span>';
+          html += '</div>';
+          html += '</div>';
+          html += '<div class="poi-calendar-tooltip" aria-hidden="true"></div>';
+          html += '</div>';
+
+          html = html.replace(/%%CELL%%([^|]+)\|([^|]+)\|([^%]+)%%/g, function (_, dateStr, countStr, displayDate) {
+            var count = Number(countStr || 0);
+            var level = clampLevel(count, totals.maxCount);
+            var title = displayDate + ': ' + count + ' visits';
+            return '<button type="button" class="poi-calendar-day" data-level="' + level + '" data-count="' + count + '" data-date="' + dateStr + '" data-date-label="' + displayDate + '" title="' + title + '" aria-label="' + title + '"></button>';
+          });
+
+          heatmapHtmlCache[poiId] = html;
+          container.innerHTML = html;
+          attachTooltip(container.querySelector('.poi-calendar-heatmap-shell'));
+        })
+        .catch(function (err) {
+          console.error(err);
+          container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Failed to fetch data.</p>';
+        });
+    } catch (error) {
+      console.error(error);
+      container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Render error.</p>';
+    }
   }

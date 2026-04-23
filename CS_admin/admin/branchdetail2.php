@@ -256,6 +256,158 @@ function store_form_can_access_store($role, $idTaiKhoan, $idGianHang, &$error)
     return true;
 }
 
+function store_form_fetch_daily_visits($idGianHang)
+{
+    $idGianHang = (int) $idGianHang;
+    if ($idGianHang <= 0) {
+        return array();
+    }
+
+    $conn = admin_db_connection();
+    if (!$conn instanceof mysqli) {
+        return array();
+    }
+
+    $stmt = $conn->prepare("
+        SELECT ngay, soLuot
+        FROM luot_truy_cap_ngay
+        WHERE idGianHang = ?
+          AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        ORDER BY ngay ASC
+    ");
+
+    if (!$stmt) {
+        $conn->close();
+        return array();
+    }
+
+    $stmt->bind_param('i', $idGianHang);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    $dailyVisits = array();
+    while ($result && ($row = $result->fetch_assoc())) {
+        $dateKey = isset($row['ngay']) ? (string) $row['ngay'] : '';
+        if ($dateKey === '') {
+            continue;
+        }
+
+        $dailyVisits[$dateKey] = isset($row['soLuot']) ? (int) $row['soLuot'] : 0;
+    }
+
+    if ($result) {
+        $result->free();
+    }
+
+    $stmt->close();
+    $conn->close();
+
+    return $dailyVisits;
+}
+
+function store_form_heatmap_level($count, $maxCount)
+{
+    $count = (int) $count;
+    $maxCount = (int) $maxCount;
+    if ($count <= 0 || $maxCount <= 0) {
+        return 0;
+    }
+
+    $ratio = $count / $maxCount;
+    if ($ratio <= 0.25) {
+        return 1;
+    }
+    if ($ratio <= 0.5) {
+        return 2;
+    }
+    if ($ratio <= 0.75) {
+        return 3;
+    }
+
+    return 4;
+}
+
+function store_form_render_heatmap($dailyVisits)
+{
+    $dailyVisits = is_array($dailyVisits) ? $dailyVisits : array();
+
+    $today = new DateTimeImmutable('today');
+    $startDate = $today->sub(new DateInterval('P364D'));
+    $gridStart = $startDate->sub(new DateInterval('P' . (int) $startDate->format('w') . 'D'));
+    $gridEnd = $today->add(new DateInterval('P' . (6 - (int) $today->format('w')) . 'D'));
+    $totalDays = (int) $gridStart->diff($gridEnd)->days + 1;
+    $totalWeeks = (int) ceil($totalDays / 7);
+    $visitCount = 0;
+    $activeDays = 0;
+    $maxCount = 0;
+
+    foreach ($dailyVisits as $count) {
+        $count = (int) $count;
+        $visitCount += $count;
+        if ($count > 0) {
+            $activeDays++;
+        }
+        if ($count > $maxCount) {
+            $maxCount = $count;
+        }
+    }
+
+    $monthMarkers = array();
+    $seenMonths = array();
+    for ($visibleIndex = 0; $visibleIndex < 365; $visibleIndex++) {
+        $visibleDate = $startDate->add(new DateInterval('P' . $visibleIndex . 'D'));
+        $weekIndex = (int) floor($gridStart->diff($visibleDate)->days / 7);
+        $monthKey = $visibleDate->format('Y-m');
+        $showMonth = $visibleIndex === 0 || $visibleDate->format('d') === '01';
+        if ($showMonth && !isset($seenMonths[$monthKey])) {
+            $seenMonths[$monthKey] = true;
+            $monthMarkers[] = '<span class="store-heatmap-month" style="grid-column:' . ($weekIndex + 1) . '">' . strtoupper($visibleDate->format('M')) . '</span>';
+        }
+    }
+
+    $html = '';
+    $html .= '<div class="store-heatmap">';
+    $html .= '<div class="store-heatmap-header">';
+    $html .= '<strong>Daily Visits (Last 365 days)</strong>';
+    $html .= '<span>' . number_format($visitCount) . ' visits / ' . number_format($activeDays) . ' active days</span>';
+    $html .= '</div>';
+    $html .= '<div class="store-heatmap-shell">';
+    $html .= '<div class="store-heatmap-months">' . implode('', $monthMarkers) . '</div>';
+    $html .= '<div class="store-heatmap-body">';
+    $html .= '<div class="store-heatmap-days"><span></span><span class="is-visible">Mon</span><span></span><span class="is-visible">Wed</span><span></span><span class="is-visible">Fri</span><span></span></div>';
+    $html .= '<div class="store-heatmap-grid">';
+
+    for ($dayIndex = 0; $dayIndex < $totalDays; $dayIndex++) {
+        $current = $gridStart->add(new DateInterval('P' . $dayIndex . 'D'));
+        if ($current < $startDate || $current > $today) {
+            $html .= '<span class="store-heatmap-day is-empty" aria-hidden="true"></span>';
+            continue;
+        }
+
+        $dateKey = $current->format('Y-m-d');
+        $count = isset($dailyVisits[$dateKey]) ? (int) $dailyVisits[$dateKey] : 0;
+        $level = store_form_heatmap_level($count, $maxCount);
+        $title = htmlspecialchars($current->format('d/m/Y') . ': ' . $count . ' visits', ENT_QUOTES, 'UTF-8');
+        $html .= '<button type="button" class="store-heatmap-day" data-level="' . $level . '" title="' . $title . '" aria-label="' . $title . '"></button>';
+    }
+
+    $html .= '</div>';
+    $html .= '</div>';
+    $html .= '<div class="store-heatmap-legend">';
+    $html .= '<span>Less</span>';
+    $html .= '<span class="store-heatmap-day is-legend" data-level="0"></span>';
+    $html .= '<span class="store-heatmap-day is-legend" data-level="1"></span>';
+    $html .= '<span class="store-heatmap-day is-legend" data-level="2"></span>';
+    $html .= '<span class="store-heatmap-day is-legend" data-level="3"></span>';
+    $html .= '<span class="store-heatmap-day is-legend" data-level="4"></span>';
+    $html .= '<span>More</span>';
+    $html .= '</div>';
+    $html .= '</div>';
+    $html .= '</div>';
+
+    return $html;
+}
+
 function store_form_call_json($method, $url, $payload, &$error, &$httpCode = 0)
 {
     $error = '';
@@ -820,6 +972,7 @@ $formAction = $isCreateMode
 $displayStoreName = $store !== null && !empty($store['tenHienThi'])
     ? (string) $store['tenHienThi']
     : $formData['ten'];
+$storeDailyVisits = !$isCreateMode ? store_form_fetch_daily_visits($idGianHang) : array();
 ?>
 <main class="main-content">
   <section class="branch-page">
@@ -1057,6 +1210,16 @@ $displayStoreName = $store !== null && !empty($store['tenHienThi'])
           ); ?></p>
         </div>
       </div>
+
+      <?php if (!$isCreateMode) { ?>
+      <div class="panel store-heatmap-panel">
+        <div class="card-head">
+          <h3><i class="fa-solid fa-chart-simple"></i> Daily Visits</h3>
+          <span class="store-heatmap-note">Admin va chu gian hang deu xem duoc</span>
+        </div>
+        <?php echo store_form_render_heatmap($storeDailyVisits); ?>
+      </div>
+      <?php } ?>
     </form>
     <?php } ?>
   </section>

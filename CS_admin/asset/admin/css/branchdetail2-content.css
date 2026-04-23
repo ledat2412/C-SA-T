@@ -265,6 +265,156 @@ tbody td{
   .table-footer{ flex-direction:column; align-items:flex-start; }
 }
 
+.store-heatmap-panel{
+  margin-top:28px;
+  padding:22px;
+}
+
+.store-heatmap-note{
+  color:#7d8ea5;
+  font-size:13px;
+  font-weight:700;
+}
+
+.store-heatmap{
+  margin-top:8px;
+  overflow-x:auto;
+  overflow-y:visible;
+  padding:14px;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:16px;
+}
+
+.store-heatmap-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+
+.store-heatmap-header strong{
+  color:#1e293b;
+  font-size:14px;
+  font-weight:800;
+}
+
+.store-heatmap-header span,
+.store-heatmap-legend span{
+  color:#64748b;
+  font-size:11px;
+}
+
+.store-heatmap-shell{
+  min-width:max-content;
+}
+
+.store-heatmap-months{
+  display:grid;
+  grid-template-columns:repeat(53, 12px);
+  column-gap:4px;
+  margin-left:32px;
+  margin-bottom:6px;
+  min-height:14px;
+}
+
+.store-heatmap-month{
+  font-size:10px;
+  line-height:1;
+  font-weight:700;
+  color:#475569;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+
+.store-heatmap-body{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+}
+
+.store-heatmap-days{
+  width:24px;
+  display:grid;
+  grid-template-rows:repeat(7, 12px);
+  row-gap:4px;
+}
+
+.store-heatmap-days span{
+  font-size:10px;
+  line-height:12px;
+  color:#64748b;
+}
+
+.store-heatmap-days span:not(.is-visible){
+  visibility:hidden;
+}
+
+.store-heatmap-grid{
+  display:grid;
+  grid-template-columns:repeat(53, 12px);
+  grid-auto-flow:column;
+  grid-template-rows:repeat(7, 12px);
+  gap:4px;
+  width:max-content;
+}
+
+.store-heatmap-day{
+  width:12px;
+  height:12px;
+  border-radius:3px;
+  background-color:#ebedf0;
+  border:0;
+  padding:0;
+  appearance:none;
+  cursor:pointer;
+  transition:transform .12s ease, box-shadow .12s ease;
+}
+
+.store-heatmap-day:hover,
+.store-heatmap-day:focus-visible{
+  transform:scale(1.18);
+  box-shadow:0 0 0 1px rgba(15,23,42,.12);
+  outline:none;
+}
+
+.store-heatmap-day.is-empty{
+  background:transparent;
+  cursor:default;
+  pointer-events:none;
+}
+
+.store-heatmap-day.is-legend{
+  cursor:default;
+}
+
+.store-heatmap-day[data-level="1"]{ background-color:#c6e48b; }
+.store-heatmap-day[data-level="2"]{ background-color:#7bc96f; }
+.store-heatmap-day[data-level="3"]{ background-color:#239a3b; }
+.store-heatmap-day[data-level="4"]{ background-color:#196127; }
+
+.store-heatmap-legend{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:4px;
+  margin-top:12px;
+  white-space:nowrap;
+}
+
+@media (max-width: 720px){
+  .store-heatmap-header{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .store-heatmap-legend{
+    justify-content:flex-start;
+  }
+}
+
 .page-head-actions{
   display:flex;
   align-items:center;
