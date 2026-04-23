@@ -34,6 +34,7 @@ public partial class PoiMapPage : ContentPage
     private readonly View _footer;
     private readonly Grid _topBar;
     private readonly MapActionButton _currentLocationButton;
+    private readonly MapActionButton _refreshButton;
     private readonly MapActionButton _mapModeButton;
     private readonly Label _mapModeLabel;
 
@@ -189,6 +190,7 @@ public partial class PoiMapPage : ContentPage
         _bottomSheet = CreateBottomSheet();
         _detailSheet = CreateDetailSheet();
         _currentLocationButton = CreateCurrentLocationButton();
+        _refreshButton = CreateRefreshButton();
         _mapModeLabel = CreateMapModeLabel();
         _mapModeButton = CreateMapModeButton();
         _footer = new AppBottomBar(
@@ -299,6 +301,7 @@ public partial class PoiMapPage : ContentPage
 
         root.Children.Add(_map);
         root.Children.Add(_topBar);
+        root.Children.Add(_refreshButton);
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_footer);
@@ -317,6 +320,22 @@ public partial class PoiMapPage : ContentPage
         };
 
         button.Clicked += async (_, __) => await CenterOnCurrentLocationAsync();
+
+        return button;
+    }
+
+    private MapActionButton CreateRefreshButton()
+    {
+        var button = new MapActionButton(BuildRefreshIcon())
+        {
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            Margin = new Thickness(0, 72, 16, 0),
+            ZIndex = 21
+        };
+
+        SemanticProperties.SetDescription(button, _loc.Get("map_refresh"));
+        button.Clicked += async (_, __) => await RefreshMapAsync();
 
         return button;
     }
@@ -360,6 +379,20 @@ public partial class PoiMapPage : ContentPage
         finally
         {
             _currentLocationButton.SetBusy(false);
+        }
+    }
+
+    private async Task RefreshMapAsync()
+    {
+        _refreshButton.SetBusy(true);
+
+        try
+        {
+            await LoadRealPoisAsync(forceRefresh: true);
+        }
+        finally
+        {
+            _refreshButton.SetBusy(false);
         }
     }
 
@@ -1440,6 +1473,49 @@ public partial class PoiMapPage : ContentPage
                     Y1 = 12,
                     X2 = 24,
                     Y2 = 12,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                }
+            }
+        };
+    }
+
+    private View BuildRefreshIcon()
+    {
+        var stroke = new SolidColorBrush(Color.FromArgb("#DC2626"));
+
+        return new Grid
+        {
+            WidthRequest = 24,
+            HeightRequest = 24,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Ellipse
+                {
+                    WidthRequest = 16,
+                    HeightRequest = 16,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8,
+                    HorizontalOptions = LayoutOptions.Center,
+                    VerticalOptions = LayoutOptions.Center
+                },
+                new Line
+                {
+                    X1 = 17,
+                    Y1 = 4,
+                    X2 = 21,
+                    Y2 = 4,
+                    Stroke = stroke,
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 21,
+                    Y1 = 4,
+                    X2 = 21,
+                    Y2 = 8,
                     Stroke = stroke,
                     StrokeThickness = 1.8
                 }

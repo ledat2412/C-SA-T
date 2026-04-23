@@ -3,6 +3,7 @@ $auth = isset($_SESSION['admin_auth']) && is_array($_SESSION['admin_auth']) ? $_
 $idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
 $loaiTaiKhoan = isset($auth['loaiTaiKhoan']) ? (string) $auth['loaiTaiKhoan'] : 'admin';
 $flash = isset($_GET['flash']) ? (string) $_GET['flash'] : '';
+$searchTerm = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 $storePageAlert = null;
 
 if ($flash === 'request_sent') {
@@ -214,8 +215,42 @@ function fetch_real_stores($role, $idTaiKhoan, $auth, &$error)
     return $cards;
 }
 
+function store_search_normalize($value)
+{
+    $text = trim((string) $value);
+    if (function_exists('mb_strtolower')) {
+        $text = mb_strtolower($text, 'UTF-8');
+    } else {
+        $text = strtolower($text);
+    }
+
+    $ascii = function_exists('iconv') ? @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text) : false;
+    if ($ascii !== false && $ascii !== '') {
+        $text = strtolower($ascii);
+    }
+
+    return $text;
+}
+
+function store_filter_cards_by_name($cards, $query)
+{
+    $query = trim((string) $query);
+    if ($query === '') {
+        return $cards;
+    }
+
+    $normalizedQuery = store_search_normalize($query);
+
+    return array_values(array_filter($cards, function ($card) use ($normalizedQuery) {
+        $name = isset($card['ten']) ? (string) $card['ten'] : '';
+        return strpos(store_search_normalize($name), $normalizedQuery) !== false;
+    }));
+}
+
 $storeError = '';
-$cards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
+$allCards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
+$cards = store_filter_cards_by_name($allCards, $searchTerm);
+$totalCards = count($allCards);
 ?>
 <main class="main-content">
   <section class="booth-page">
@@ -234,33 +269,17 @@ $cards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
     <div class="toolbar-panel">
       <div class="toolbar-top">
         <div class="toolbar-search">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <input type="text" placeholder="Tìm kiếm theo tên gian hàng hoặc chủ sở hữu..." />
+          <form class="store-search-inline" method="get" action="<?php echo htmlspecialchars(admin_url('index1st.php'), ENT_QUOTES, 'UTF-8'); ?>">
+            <input type="hidden" name="usecase" value="store" />
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="search" name="q" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Tìm kiếm theo tên gian hàng..." />
+            <button type="submit" aria-label="Tim kiem"><i class="fa-solid fa-arrow-right"></i></button>
+            <?php if ($searchTerm !== '') { ?>
+            <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=store'), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Xoa tim kiem"><i class="fa-solid fa-xmark"></i></a>
+            <?php } ?>
+          </form>
         </div>
 
-        <button class="tool-btn">
-          <i class="fa-solid fa-filter"></i>
-          <span>Bộ lọc</span>
-        </button>
-
-        <button class="tool-btn select-like">
-          <span>Danh mục: Tất cả</span>
-          <i class="fa-solid fa-chevron-down"></i>
-        </button>
-
-        <button class="tool-btn">
-          <span>Sắp xếp</span>
-          <i class="fa-solid fa-arrow-down-wide-short"></i>
-        </button>
-      </div>
-
-      <div class="chip-row">
-        <button class="chip active">Tất cả</button>
-        <button class="chip">Ẩm thực</button>
-        <button class="chip">Thời trang</button>
-        <button class="chip">Điện tử</button>
-        <button class="chip">Gia dụng</button>
-        <button class="chip">Làm đẹp</button>
       </div>
     </div>
 
@@ -334,7 +353,13 @@ $cards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
       </div>
       <?php } ?>
 
-      <?php if (count($cards) === 0 && $storeError === '') { ?>
+      <?php if (count($cards) === 0 && $storeError === '' && $searchTerm !== '') { ?>
+      <div class="add-card search-empty-card">
+        <div class="add-circle"><i class="fa-solid fa-magnifying-glass"></i></div>
+        <h3>Không tìm thấy gian hàng</h3>
+        <p>Không có gian hàng nào khớp với "<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>".</p>
+      </div>
+      <?php } elseif (count($cards) === 0 && $storeError === '') { ?>
       <div class="add-card" onclick="window.location.href='<?php echo htmlspecialchars(admin_url('index1st.php?usecase=branchdetail2&mode=create'), ENT_QUOTES, 'UTF-8'); ?>'">
         <div class="add-circle"><i class="fa-solid fa-plus"></i></div>
         <h3>Chưa có gian hàng</h3>
@@ -344,7 +369,7 @@ $cards = fetch_real_stores($loaiTaiKhoan, $idTaiKhoan, $auth, $storeError);
     </div>
 
     <div class="bottom-row">
-      <p>Hiển thị <?php echo count($cards); ?> trên tổng số <?php echo count($cards); ?> gian hàng</p>
+      <p class="store-count-summary">Hiển thị <?php echo count($cards); ?> trên tổng số <?php echo $totalCards; ?> gian hàng</p>
       <div class="pagination">
         <button><i class="fa-solid fa-chevron-left"></i></button>
         <button class="active">1</button>

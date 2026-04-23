@@ -120,6 +120,59 @@
   color:var(--primary-dark);
 }
 
+.toolbar-top{
+  grid-template-columns:minmax(0, 1fr);
+  margin-bottom:0;
+}
+
+.toolbar-top > .tool-btn,
+.chip-row,
+.toolbar-search > i,
+.toolbar-search > input[type="text"]{
+  display:none;
+}
+
+.store-search-inline{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+}
+
+.store-search-inline i{
+  color:#92a3b6;
+}
+
+.store-search-inline input[type="search"]{
+  border:none;
+  outline:none;
+  width:100%;
+  background:transparent;
+  color:#1e293b;
+  font:inherit;
+}
+
+.store-search-inline button,
+.store-search-inline a{
+  width:32px;
+  height:32px;
+  border:none;
+  border-radius:9px;
+  background:#e9fbfb;
+  color:#13b8b8;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  cursor:pointer;
+  flex-shrink:0;
+}
+
+.store-search-inline a{
+  background:#f3f6f8;
+  color:#64748b;
+}
+
 .booth-grid{
   display:grid;
   grid-template-columns:repeat(3, minmax(0, 1fr));
@@ -319,6 +372,14 @@
 
 .bottom-row p{ color:#7b8a9e; font-size:15px; }
 
+.bottom-row > p:not(.store-count-summary){
+  display:none;
+}
+
+.search-empty-card{
+  cursor:default;
+}
+
 .pagination{
   display:flex;
   align-items:center;
@@ -389,3 +450,6 @@
   color:#12754a;
 }
 
+.toolbar-top{
+  grid-template-columns:minmax(0, 1fr);
+}
