@@ -383,20 +383,31 @@ namespace VinhKhanh.Services
                 using var conn = _db.GetConnection();
                 await conn.OpenAsync();
                 
-                const string sql = @"
+                const string sql1 = @"
                     UPDATE gianhang 
                     SET luotTruyCap = luotTruyCap + 1 
                     WHERE idGianHang = @idGianHang";
                     
-                using var cmd = new MySqlCommand(sql, conn);
-                cmd.Parameters.AddWithValue("@idGianHang", idGianHang);
-                
-                var affected = await cmd.ExecuteNonQueryAsync();
+                using var cmd1 = new MySqlCommand(sql1, conn);
+                cmd1.Parameters.AddWithValue("@idGianHang", idGianHang);
+                var affected = await cmd1.ExecuteNonQueryAsync();
+
+                if (affected > 0)
+                {
+                    const string sql2 = @"
+                        INSERT INTO luot_truy_cap_ngay (idGianHang, ngay, soLuot) 
+                        VALUES (@idGianHang, CURDATE(), 1) 
+                        ON DUPLICATE KEY UPDATE soLuot = soLuot + 1";
+                    using var cmd2 = new MySqlCommand(sql2, conn);
+                    cmd2.Parameters.AddWithValue("@idGianHang", idGianHang);
+                    await cmd2.ExecuteNonQueryAsync();
+                }
+
                 return affected > 0;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // To safely handle cases if the luotTruyCap column was not added
+                Console.WriteLine(ex);
                 return false;
             }
         }

@@ -215,6 +215,7 @@
         '<span>' + escapeHtml(poi.address) + '</span>' +
         '<span>' + escapeHtml(poi.statusLabel) + ' - Radius ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
         '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet gian hang</a>' +
+        '<div id="poiCalendarHeatmap-' + poi.id + '" class="poi-calendar-heatmap">Loading heatmap...</div>' +
       '</div>'
     );
 
@@ -225,6 +226,13 @@
     }
 
     focusPoiCamera(poi);
+
+    // Render heatmap once DOM is ready
+    setTimeout(function() {
+      if (typeof renderCalendarHeatmap === 'function') {
+        renderCalendarHeatmap(poi.id, 'poiCalendarHeatmap-' + poi.id);
+      }
+    }, 200);
   }
 
   function createMarkers() {
@@ -529,11 +537,11 @@
       '<strong>' + escapeHtml(poi.name) + '</strong>' +
       '<span>' + escapeHtml(poi.address) + '</span>' +
       '<span>' + escapeHtml(poi.statusLabel) + ' - ' + escapeHtml(poi.radiusMeters) + 'm - ' + escapeHtml(poi.monthlyFeeLabel) + '</span>' +
-      '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet</a>';
+      '<a href="' + escapeHtml(detailUrl(poi)) + '">Mo chi tiet</a>' + '<div id="poiCalendarHeatmap-' + poi.id + '-local" class="poi-calendar-heatmap">Loading heatmap...</div>';
 
     localState.popup.style.left = Math.max(16, Math.min(78, entry.point.x)) + '%';
     localState.popup.style.top = Math.max(14, Math.min(74, entry.point.y)) + '%';
-    localState.popup.classList.add('visible');
+    localState.popup.classList.add('visible'); setTimeout(function() { if (typeof renderCalendarHeatmap === 'function') { renderCalendarHeatmap(poi.id, 'poiCalendarHeatmap-' + poi.id + '-local'); } }, 50);
   }
 
   function renderLocalMarkers() {
@@ -1116,3 +1124,52 @@
     }, 2400);
   });
 })();
+  function renderCalendarHeatmap(poiId, containerId) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+
+    fetch('api/poi_visits.php?id=' + encodeURIComponent(poiId))
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Error loading data.</p>';
+          return;
+        }
+
+        var html = '<span class="poi-calendar-heatmap-title">Daily Visits (Last 365 days)</span>';
+        html += '<div class="poi-calendar-heatmap-grid">';
+
+        var today = new Date();
+        var startDate = new Date();
+        startDate.setDate(today.getDate() - 364);
+        
+        // Offset to start on Sunday
+        var startDay = startDate.getDay();
+        for (var i = 0; i < startDay; i++) {
+          html += '<div class="poi-calendar-day" style="background: transparent;"></div>';
+        }
+
+        var current = new Date(startDate);
+        for (var i = 0; i < 365; i++) {
+          var dateStr = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0') + '-' + String(current.getDate()).padStart(2, '0');
+          var count = data[dateStr] || 0;
+          
+          var level = 0;
+          if (count > 0 && count <= 5) level = 1;
+          else if (count > 5 && count <= 15) level = 2;
+          else if (count > 15 && count <= 25) level = 3;
+          else if (count > 25) level = 4;
+          
+          var title = dateStr + ': ' + count + ' visits';
+          html += '<div class="poi-calendar-day" data-level="' + level + '" title="' + title + '"></div>';
+          current.setDate(current.getDate() + 1);
+        }
+        
+        html += '</div>';
+        container.innerHTML = html;
+      })
+      .catch(err => {
+        console.error(err);
+        container.innerHTML = '<span class="poi-calendar-heatmap-title">Daily Visits</span><p style="color:red">Failed to fetch data.</p>';
+      });
+  }

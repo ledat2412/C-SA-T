@@ -394,3 +394,39 @@ if (window.initPoiAdminMap) {
 }
 </script>
 <?php } ?>
+<style>
+.poi-calendar-heatmap {
+  margin-top: 12px;
+  overflow-x: auto;
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.poi-calendar-heatmap-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+.poi-calendar-heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(53, 1fr);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  gap: 3px;
+  width: max-content;
+}
+.poi-calendar-day {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background-color: #ebedf0;
+}
+.poi-calendar-day[data-level="1"] { background-color: #c6e48b; }
+.poi-calendar-day[data-level="2"] { background-color: #7bc96f; }
+.poi-calendar-day[data-level="3"] { background-color: #239a3b; }
+.poi-calendar-day[data-level="4"] { background-color: #196127; }
+</style>
