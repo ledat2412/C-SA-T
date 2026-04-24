@@ -179,6 +179,15 @@ function dashboard_initials($name)
 function dashboard_status_meta($status)
 {
     $status = strtolower(trim((string) $status));
+    if ($status === 'hieu_luc') {
+        return array('label' => 'Hiệu lực', 'class' => 'success');
+    }
+    if ($status === 'sap_het_han') {
+        return array('label' => 'Sắp hết hạn', 'class' => 'warning');
+    }
+    if (in_array($status, array('het_han', 'huy', 'da_huy'), true)) {
+        return array('label' => 'Không hiệu lực', 'class' => 'danger');
+    }
     if (in_array($status, array('dang_hoat_dong', 'hoat_dong', 'da_thanh_toan', 'da_duyet', 'con_ban'), true)) {
         return array('label' => 'Hoạt động', 'class' => 'success');
     }
@@ -203,6 +212,55 @@ function dashboard_activity_time($value)
     }
 
     return date('d/m/Y H:i', $timestamp);
+}
+
+function dashboard_device_type_label($type)
+{
+    $type = strtolower(trim((string) $type));
+    if ($type === 'app_client') {
+        return 'App mobile';
+    }
+    if ($type === 'portal_web') {
+        return 'Portal web';
+    }
+    if ($type === 'hardware') {
+        return 'Thiết bị cứng';
+    }
+
+    return $type !== '' ? $type : '—';
+}
+
+function dashboard_token_preview($token)
+{
+    $token = trim((string) $token);
+    if ($token === '') {
+        return '—';
+    }
+
+    if (strlen($token) <= 16) {
+        return $token;
+    }
+
+    return substr($token, 0, 8) . '...' . substr($token, -4);
+}
+
+function dashboard_token_status_value($status, $expiresAt)
+{
+    $status = strtolower(trim((string) $status));
+    if ($status !== 'hieu_luc') {
+        return $status !== '' ? $status : 'het_han';
+    }
+
+    $timestamp = strtotime((string) $expiresAt);
+    if ($timestamp === false || $timestamp < time()) {
+        return 'het_han';
+    }
+
+    if (($timestamp - time()) <= 86400) {
+        return 'sap_het_han';
+    }
+
+    return 'hieu_luc';
 }
 
 function dashboard_chart_path($values, $width = 760, $height = 240)
@@ -303,6 +361,8 @@ $storeMonthValues = array();
 $storeMonthSeries = array();
 $topStores = array();
 $activities = array();
+$activeTokenDevices = array();
+$activeTokenDeviceCount = 0;
 
 $conn = admin_db_connection();
 if (!$conn instanceof mysqli) {
@@ -512,6 +572,49 @@ if (!$conn instanceof mysqli) {
         LIMIT 8
     ");
 
+    $activeTokenDevices = dashboard_query_rows($conn, "
+        SELECT
+            tb.idThietBi,
+            tb.maThietBi,
+            tb.trangThai AS trangThaiThietBi,
+            tb.loaiThietBi,
+            tb.platform,
+            tb.model,
+            pva.accessToken,
+            pva.batDauLuc,
+            pva.hetHanLuc,
+            pva.trangThai AS trangThaiToken,
+            gdv.ten AS tenGoi,
+            COALESCE(ad.hoTen, cql.hoTen, tk.username, tk.email, 'Chưa liên kết') AS tenChuSoHuu
+        FROM phien_vao_app pva
+        INNER JOIN (
+            SELECT maThietBi, MAX(id) AS latestId
+            FROM phien_vao_app
+            GROUP BY maThietBi
+        ) latest ON latest.latestId = pva.id
+        LEFT JOIN thietbi tb ON tb.maThietBi = pva.maThietBi
+        LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
+        LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
+        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
+        LEFT JOIN goidichvu gdv ON gdv.idGoi = pva.idGoi
+        WHERE pva.trangThai = 'hieu_luc'
+          AND pva.hetHanLuc >= NOW()
+        ORDER BY pva.hetHanLuc ASC, tb.idThietBi DESC
+        LIMIT 8
+    ");
+
+    $activeTokenDeviceCount = (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM phien_vao_app pva
+        INNER JOIN (
+            SELECT maThietBi, MAX(id) AS latestId
+            FROM phien_vao_app
+            GROUP BY maThietBi
+        ) latest ON latest.latestId = pva.id
+        WHERE pva.trangThai = 'hieu_luc'
+          AND pva.hetHanLuc >= NOW()
+    ");
+
     $conn->close();
 }
 
@@ -581,14 +684,80 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon">
-            <i class="fa-solid fa-bowl-food"></i>
+            <i class="fa-solid fa-mobile-screen-button"></i>
           </div>
-          <span class="stat-growth live"><?php echo htmlspecialchars(dashboard_number($summary['activeDevices']), ENT_QUOTES, 'UTF-8'); ?> thiết bị</span>
+          <span class="stat-growth live">Token</span>
         </div>
-        <p class="stat-label">Món ăn của gian hàng đã thanh toán</p>
-        <h3><?php echo htmlspecialchars(dashboard_number($summary['foods']), ENT_QUOTES, 'UTF-8'); ?></h3>
+        <p class="stat-label">Thiết bị đang hoạt động</p>
+        <h3><?php echo htmlspecialchars(dashboard_number($activeTokenDeviceCount), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
+    </section>
+
+    <section class="panel dashboard-token-panel">
+      <div class="dashboard-token-header">
+        <div>
+          <h3>Thiết bị có token đang hoạt động</h3>
+          <p>Ưu tiên theo phiên token mới nhất còn hiệu lực của từng thiết bị.</p>
+        </div>
+        <span class="stat-growth live"><?php echo htmlspecialchars(dashboard_number($activeTokenDeviceCount), ENT_QUOTES, 'UTF-8'); ?> thiết bị</span>
+      </div>
+      <div class="dashboard-token-body table-wrap">
+        <table class="dashboard-token-table">
+          <thead>
+            <tr>
+              <th>THIẾT BỊ</th>
+              <th>CHỦ SỞ HỮU</th>
+              <th>GÓI</th>
+              <th>TOKEN</th>
+              <th>HẾT HẠN</th>
+              <th>TRẠNG THÁI TOKEN</th>
+              <th>TRẠNG THÁI THIẾT BỊ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (count($activeTokenDevices) === 0) { ?>
+            <tr>
+              <td colspan="7" class="empty-table">Chưa có thiết bị nào có token đang hoạt động.</td>
+            </tr>
+            <?php } ?>
+            <?php foreach ($activeTokenDevices as $deviceToken) { ?>
+            <?php
+              $tokenMeta = dashboard_status_meta(dashboard_token_status_value($deviceToken['trangThaiToken'] ?? '', $deviceToken['hetHanLuc'] ?? ''));
+              $deviceMeta = dashboard_status_meta($deviceToken['trangThaiThietBi'] ?? '');
+              $typeLabel = dashboard_device_type_label($deviceToken['loaiThietBi'] ?? '');
+              $platform = trim((string) ($deviceToken['platform'] ?? ''));
+              $model = trim((string) ($deviceToken['model'] ?? ''));
+              $deviceMetaLine = $typeLabel
+                . ($platform !== '' ? ' • ' . $platform : '')
+                . ($model !== '' ? ' • ' . $model : '');
+            ?>
+            <tr>
+              <td>
+                <div class="token-device-cell">
+                  <span class="device-code"><?php echo htmlspecialchars((string) ($deviceToken['maThietBi'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></span>
+                  <small><?php echo htmlspecialchars($deviceMetaLine, ENT_QUOTES, 'UTF-8'); ?></small>
+                </div>
+              </td>
+              <td><?php echo htmlspecialchars((string) ($deviceToken['tenChuSoHuu'] ?? 'Chưa liên kết'), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td><?php echo htmlspecialchars((string) ($deviceToken['tenGoi'] ?? 'Gói truy cập'), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td><span class="token-preview"><?php echo htmlspecialchars(dashboard_token_preview($deviceToken['accessToken'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></span></td>
+              <td><?php echo htmlspecialchars(dashboard_activity_time($deviceToken['hetHanLuc'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+              <td>
+                <span class="status-badge <?php echo htmlspecialchars($tokenMeta['class'], ENT_QUOTES, 'UTF-8'); ?>">
+                  <?php echo htmlspecialchars($tokenMeta['label'], ENT_QUOTES, 'UTF-8'); ?>
+                </span>
+              </td>
+              <td>
+                <span class="status-badge <?php echo htmlspecialchars($deviceMeta['class'], ENT_QUOTES, 'UTF-8'); ?>">
+                  <?php echo htmlspecialchars($deviceMeta['label'], ENT_QUOTES, 'UTF-8'); ?>
+                </span>
+              </td>
+            </tr>
+            <?php } ?>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="revenue-grid">

@@ -104,15 +104,16 @@
 .stats-grid{
   padding:18px 32px 0;
   display:grid;
-  grid-template-columns:repeat(3, 1fr);
+  grid-template-columns:repeat(3, minmax(0, 1fr));
   gap:20px;
+  align-items:stretch;
 }
 
 .stat-card{
   background:var(--card);
   border:1px solid var(--border);
   border-radius:16px;
-  padding:22px 22px 20px;
+  padding:24px 24px 22px;
   min-height:154px;
   box-shadow:0 1px 0 rgba(15, 23, 42, .01);
 }
@@ -156,7 +157,8 @@
 }
 
 .stat-card h3{
-  font-size:20px;
+  font-size:34px;
+  line-height:1;
   font-weight:800;
 }
 
@@ -629,10 +631,81 @@
   font-weight:800;
 }
 
+.table-header p{
+  margin-top:4px;
+  color:#718096;
+  font-size:14px;
+  font-weight:600;
+}
+
 .table-header a{
   color:var(--primary);
   text-decoration:none;
   font-weight:700;
+}
+
+.dashboard-token-panel{
+  margin:24px 32px 0;
+  overflow:hidden;
+}
+
+.dashboard-token-header{
+  padding:22px 24px 18px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  border-bottom:1px solid var(--border);
+  min-height:96px;
+}
+
+.dashboard-token-header h3{
+  font-size:18px;
+  font-weight:800;
+}
+
+.dashboard-token-header p{
+  margin-top:4px;
+  color:#718096;
+  font-size:14px;
+  font-weight:600;
+}
+
+.dashboard-token-body{
+  padding:0;
+}
+
+.dashboard-token-table{
+  min-width:1120px;
+}
+
+.token-device-cell{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.token-device-cell .device-code{
+  font-weight:800;
+  color:#14213d;
+}
+
+.token-device-cell small{
+  color:#7b8da3;
+  font-size:13px;
+  line-height:1.4;
+}
+
+.token-preview{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  background:#f4f8fb;
+  color:#28435f;
+  font-size:13px;
+  font-weight:800;
+  letter-spacing:.02em;
 }
 
 .table-wrap{
@@ -727,7 +800,7 @@ tbody td{
 
 @media (max-width: 1280px){
   .stats-grid{
-    grid-template-columns:repeat(2, 1fr);
+    grid-template-columns:repeat(2, minmax(0, 1fr));
   }
 
   .revenue-grid,
@@ -755,6 +828,11 @@ tbody td{
   .page-header{
     align-items:flex-start;
     flex-direction:column;
+  }
+
+  .dashboard-token-header{
+    flex-direction:column;
+    align-items:flex-start;
   }
 
   .stats-grid{
