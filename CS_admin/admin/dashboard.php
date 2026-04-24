@@ -117,6 +117,32 @@ function dashboard_count_active_devices($conn)
     ");
 }
 
+function dashboard_count_devices_with_active_token($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM phien_vao_app pva
+        INNER JOIN (
+            SELECT maThietBi, MAX(id) AS latestId
+            FROM phien_vao_app
+            GROUP BY maThietBi
+        ) latest ON latest.latestId = pva.id
+        WHERE pva.trangThai = 'hieu_luc'
+          AND pva.hetHanLuc >= NOW()
+    ");
+}
+
+function dashboard_count_online_devices($conn, $windowSeconds = 60)
+{
+    $windowSeconds = max(5, (int) $windowSeconds);
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM thietbi
+        WHERE lanCuoiHoatDong IS NOT NULL
+          AND lanCuoiHoatDong >= NOW() - INTERVAL $windowSeconds SECOND
+    ");
+}
+
 function dashboard_count_pending_requests($conn)
 {
     return (int) dashboard_query_value($conn, "
@@ -432,6 +458,7 @@ $topStores = array();
 $activities = array();
 $activeTokenDevices = array();
 $activeTokenDeviceCount = 0;
+$onlineDeviceCount = 0;
 
 $conn = admin_db_connection();
 if (!$conn instanceof mysqli) {
@@ -642,20 +669,30 @@ if (!$conn instanceof mysqli) {
         LIMIT 8
     ");
 
-    $activeTokenDeviceCount = (int) dashboard_query_value($conn, "
-        SELECT COUNT(*)
-        FROM phien_vao_app pva
-        INNER JOIN (
-            SELECT maThietBi, MAX(id) AS latestId
-            FROM phien_vao_app
-            GROUP BY maThietBi
-        ) latest ON latest.latestId = pva.id
-        WHERE pva.trangThai = 'hieu_luc'
-          AND pva.hetHanLuc >= NOW()
-    ");
+    $activeTokenDeviceCount = dashboard_count_devices_with_active_token($conn);
+    $onlineDeviceCount = dashboard_count_online_devices($conn, 60);
 
     $conn->close();
 }
+
+// === OVERRIDE THỦ CÔNG ===
+// Muốn sửa con số hiển thị trên card ở dashboard, bỏ dấu // trước dòng tương ứng và set giá trị mong muốn.
+// Giá trị ở đây sẽ ĐÈ lên kết quả lấy từ DB. Muốn quay lại số thật thì comment dòng đó lại.
+$summaryOverrides = array(
+    // 'stores'     => 10,  // Gian hàng đã thanh toán
+    // 'activeOwners'    => 5,   // Chủ quản lý đã thanh toán
+    // 'activeDevices'   => 8,   // Thiết bị đang hoạt động
+    // 'pendingRequests' => 2,   // Badge "chờ duyệt"
+    // 'foods'           => 50,  // Món ăn của gian hàng đã thanh toán
+    // 'paidOrders'      => 20,  // Số đơn đã thanh toán trong kỳ
+    // 'revenue'         => 1500000, // Tổng doanh thu
+    // 'visitorRevenue'  => 500000,
+    // 'storeRevenue'    => 1000000,
+);
+foreach ($summaryOverrides as $overrideKey => $overrideValue) {
+    $summary[$overrideKey] = $overrideValue;
+}
+// === HẾT OVERRIDE ===
 
 $linePath = dashboard_chart_path($chartValues);
 $areaPath = dashboard_chart_area_path($linePath);
@@ -729,6 +766,17 @@ $storeShare = dashboard_percent($summary['storeRevenue'], $summary['revenue']);
         </div>
         <p class="stat-label">Thiết bị đang hoạt động</p>
         <h3><?php echo htmlspecialchars(dashboard_number($activeTokenDeviceCount), ENT_QUOTES, 'UTF-8'); ?></h3>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon">
+            <i class="fa-solid fa-signal"></i>
+          </div>
+          <span class="stat-growth positive">Online</span>
+        </div>
+        <p class="stat-label">Thiết bị đang online (realtime)</p>
+        <h3><?php echo htmlspecialchars(dashboard_number($onlineDeviceCount), ENT_QUOTES, 'UTF-8'); ?></h3>
       </div>
 
     </section>
