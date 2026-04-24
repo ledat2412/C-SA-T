@@ -66,6 +66,75 @@ function dashboard_days_between($startDate, $endDate)
     return max(1, (int) $start->diff($end)->days + 1);
 }
 
+function dashboard_paid_store_subquery()
+{
+    return "
+        SELECT latest_invoice.idGianHang
+        FROM hoadongianhang latest_invoice
+        INNER JOIN (
+            SELECT idGianHang, MAX(idHoaDonGianHang) AS latestId
+            FROM hoadongianhang
+            GROUP BY idGianHang
+        ) last_invoice ON last_invoice.latestId = latest_invoice.idHoaDonGianHang
+        WHERE latest_invoice.trangThai = 'da_thanh_toan'
+    ";
+}
+
+function dashboard_count_paid_stores($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM gianhang gh
+        INNER JOIN (" . dashboard_paid_store_subquery() . ") paid ON paid.idGianHang = gh.idGianHang
+    ");
+}
+
+function dashboard_count_active_owners($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(DISTINCT cql.idChuQuanLy)
+        FROM gianhang gh
+        INNER JOIN (" . dashboard_paid_store_subquery() . ") paid ON paid.idGianHang = gh.idGianHang
+        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
+        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+        WHERE tk.tinhTrang = 'hoat_dong'
+    ");
+}
+
+function dashboard_count_paid_store_foods($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM monan ma
+        INNER JOIN (" . dashboard_paid_store_subquery() . ") paid ON paid.idGianHang = ma.idGianHang
+    ");
+}
+
+function dashboard_count_active_devices($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong'
+    ");
+}
+
+function dashboard_count_pending_requests($conn)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*) FROM yeucaugianhang WHERE trangThai = 'cho_duyet'
+    ");
+}
+
+function dashboard_count_paid_orders_in_period($conn, $periodStart, $periodEnd)
+{
+    return (int) dashboard_query_value($conn, "
+        SELECT COUNT(*)
+        FROM hoadon
+        WHERE tinhTrang = 'da_thanh_toan'
+          AND thoiGianTao >= ?
+          AND thoiGianTao <= ?
+    ", 'ss', array($periodStart, $periodEnd));
+}
+
 function dashboard_query_value($conn, $sql, $types = '', $params = array(), $fallback = 0)
 {
     if (!$conn instanceof mysqli) {
@@ -368,44 +437,14 @@ $conn = admin_db_connection();
 if (!$conn instanceof mysqli) {
     $dashboardError = 'Không thể kết nối CSDL để tải dashboard.';
 } else {
-    $paidStoreSubquery = "
-        SELECT latest_invoice.idGianHang
-        FROM hoadongianhang latest_invoice
-        INNER JOIN (
-            SELECT idGianHang, MAX(idHoaDonGianHang) AS latestId
-            FROM hoadongianhang
-            GROUP BY idGianHang
-        ) last_invoice ON last_invoice.latestId = latest_invoice.idHoaDonGianHang
-        WHERE latest_invoice.trangThai = 'da_thanh_toan'
-    ";
+    $paidStoreSubquery = dashboard_paid_store_subquery();
 
-    $summary['stores'] = (int) dashboard_query_value($conn, "
-        SELECT COUNT(*)
-        FROM gianhang gh
-        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
-    ");
-    $summary['activeOwners'] = (int) dashboard_query_value($conn, "
-        SELECT COUNT(DISTINCT cql.idChuQuanLy)
-        FROM gianhang gh
-        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = gh.idGianHang
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        WHERE tk.tinhTrang = 'hoat_dong'
-    ");
-    $summary['foods'] = (int) dashboard_query_value($conn, "
-        SELECT COUNT(*)
-        FROM monan ma
-        INNER JOIN (" . $paidStoreSubquery . ") paid ON paid.idGianHang = ma.idGianHang
-    ");
-    $summary['paidOrders'] = (int) dashboard_query_value($conn, "
-        SELECT COUNT(*)
-        FROM hoadon
-        WHERE tinhTrang = 'da_thanh_toan'
-          AND thoiGianTao >= ?
-          AND thoiGianTao <= ?
-    ", 'ss', array($periodStart, $periodEnd));
-    $summary['pendingRequests'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM yeucaugianhang WHERE trangThai = 'cho_duyet'");
-    $summary['activeDevices'] = (int) dashboard_query_value($conn, "SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong'");
+    $summary['stores']          = dashboard_count_paid_stores($conn);
+    $summary['activeOwners']    = dashboard_count_active_owners($conn);
+    $summary['foods']           = dashboard_count_paid_store_foods($conn);
+    $summary['paidOrders']      = dashboard_count_paid_orders_in_period($conn, $periodStart, $periodEnd);
+    $summary['pendingRequests'] = dashboard_count_pending_requests($conn);
+    $summary['activeDevices']   = dashboard_count_active_devices($conn);
 
     $visitorRevenue = (float) dashboard_query_value($conn, "
         SELECT COALESCE(SUM(tongTien), 0)
