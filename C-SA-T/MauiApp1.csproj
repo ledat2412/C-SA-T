@@ -16,11 +16,11 @@
 
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
-		<ApplicationTitle>C-SA-T</ApplicationTitle>
-		<ApplicationId>com.csat.mobile</ApplicationId>
+		<ApplicationTitle>C-SA-TT</ApplicationTitle>
+		<ApplicationId>com.csat.mobile.test</ApplicationId>
 
-		<ApplicationDisplayVersion>1.0.2</ApplicationDisplayVersion>
-		<ApplicationVersion>3</ApplicationVersion>
+		<ApplicationDisplayVersion>1.0.4</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
 
 		<WindowsPackageType>None</WindowsPackageType>
 
