@@ -36,13 +36,31 @@ namespace VinhKhanh.Controllers
         [HttpPost("{id}/visit")]
         public async Task<IActionResult> RecordVisit(int id)
         {
-            var success = await _gianHangService.IncrementVisitCountAsync(id);
-            if (!success)
+            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            var result = await _gianHangService.IncrementVisitCountAsync(id, deviceId);
+
+            if (!result.StoreExists)
             {
                 return NotFound(new { success = false, message = "Khong tim thay gian hang." });
             }
 
-            return Ok(new { success = true, message = "Da ghi nhan luot truy cap POI." });
+            if (!result.Success)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Khong the ghi nhan luot truy cap POI."
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                counted = result.Counted,
+                message = result.Counted
+                    ? "Da ghi nhan luot truy cap POI."
+                    : "Thiet bi nay da duoc ghi nhan cho gian hang nay trong ngay hom nay."
+            });
         }
     }
 }

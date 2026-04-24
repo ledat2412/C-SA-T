@@ -4,6 +4,13 @@ using VinhKhanh.Dtos;
 
 namespace VinhKhanh.Services
 {
+    public sealed class VisitRecordResult
+    {
+        public bool Success { get; set; }
+        public bool StoreExists { get; set; }
+        public bool Counted { get; set; }
+    }
+
     public class GianHangService
     {
         private readonly MySqlDbContext _db;
@@ -376,40 +383,101 @@ namespace VinhKhanh.Services
                 : languageCode.Trim().ToLowerInvariant();
         }
 
-        public async Task<bool> IncrementVisitCountAsync(int idGianHang)
+        public async Task<VisitRecordResult> IncrementVisitCountAsync(int idGianHang, string? deviceId = null)
         {
             try
             {
                 using var conn = _db.GetConnection();
                 await conn.OpenAsync();
-                
-                const string sql1 = @"
-                    UPDATE gianhang 
-                    SET luotTruyCap = luotTruyCap + 1 
-                    WHERE idGianHang = @idGianHang";
-                    
-                using var cmd1 = new MySqlCommand(sql1, conn);
-                cmd1.Parameters.AddWithValue("@idGianHang", idGianHang);
-                var affected = await cmd1.ExecuteNonQueryAsync();
 
-                if (affected > 0)
+                using var transaction = await conn.BeginTransactionAsync();
+
+                const string storeSql = @"
+                    SELECT 1
+                    FROM gianhang
+                    WHERE idGianHang = @idGianHang
+                    LIMIT 1;";
+
+                using var storeCmd = new MySqlCommand(storeSql, conn, transaction);
+                storeCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+                var storeExists = await storeCmd.ExecuteScalarAsync();
+                if (storeExists == null)
                 {
+                    await transaction.RollbackAsync();
+                    return new VisitRecordResult
+                    {
+                        Success = false,
+                        StoreExists = false,
+                        Counted = false
+                    };
+                }
+
+                var normalizedDeviceId = NormalizeDeviceId(deviceId);
+                var shouldCountVisit = true;
+
+                if (!string.IsNullOrWhiteSpace(normalizedDeviceId))
+                {
+                    const string dedupeSql = @"
+                        INSERT IGNORE INTO luot_truy_cap_thiet_bi_ngay (idGianHang, maThietBi, ngay)
+                        VALUES (@idGianHang, @maThietBi, CURDATE());";
+
+                    using var dedupeCmd = new MySqlCommand(dedupeSql, conn, transaction);
+                    dedupeCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+                    dedupeCmd.Parameters.AddWithValue("@maThietBi", normalizedDeviceId);
+                    shouldCountVisit = await dedupeCmd.ExecuteNonQueryAsync() > 0;
+                }
+
+                if (shouldCountVisit)
+                {
+                    const string sql1 = @"
+                        UPDATE gianhang
+                        SET luotTruyCap = luotTruyCap + 1
+                        WHERE idGianHang = @idGianHang";
+
+                    using var cmd1 = new MySqlCommand(sql1, conn, transaction);
+                    cmd1.Parameters.AddWithValue("@idGianHang", idGianHang);
+                    await cmd1.ExecuteNonQueryAsync();
+
                     const string sql2 = @"
-                        INSERT INTO luot_truy_cap_ngay (idGianHang, ngay, soLuot) 
-                        VALUES (@idGianHang, CURDATE(), 1) 
+                        INSERT INTO luot_truy_cap_ngay (idGianHang, ngay, soLuot)
+                        VALUES (@idGianHang, CURDATE(), 1)
                         ON DUPLICATE KEY UPDATE soLuot = soLuot + 1";
-                    using var cmd2 = new MySqlCommand(sql2, conn);
+                    using var cmd2 = new MySqlCommand(sql2, conn, transaction);
                     cmd2.Parameters.AddWithValue("@idGianHang", idGianHang);
                     await cmd2.ExecuteNonQueryAsync();
                 }
 
-                return affected > 0;
+                await transaction.CommitAsync();
+
+                return new VisitRecordResult
+                {
+                    Success = true,
+                    StoreExists = true,
+                    Counted = shouldCountVisit
+                };
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
-                return false;
+                return new VisitRecordResult
+                {
+                    Success = false,
+                    StoreExists = true,
+                    Counted = false
+                };
             }
+        }
+
+        private static string? NormalizeDeviceId(string? deviceId)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+                return null;
+
+            var normalized = deviceId.Trim().ToUpperInvariant();
+            if (normalized.Length > 100)
+                normalized = normalized.Substring(0, 100);
+
+            return normalized;
         }
     }
 }
