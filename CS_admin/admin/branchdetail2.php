@@ -768,8 +768,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
     $storeAccessError = '';
     $hasStoreAccess = $isCreateMode || store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $storeAccessError);
     $duplicateStoreNameError = '';
-    $hasDuplicateStoreName = $formData['ten'] !== ''
-        ? store_form_name_exists_in_database($formData['ten'], $isCreateMode ? 0 : $idGianHang, $duplicateStoreNameError)
+    $hasDuplicateStoreName = ($isCreateMode && $formData['ten'] !== '')
+        ? store_form_name_exists_in_database($formData['ten'], 0, $duplicateStoreNameError)
         : false;
 
     if ($formData['ten'] === '') {

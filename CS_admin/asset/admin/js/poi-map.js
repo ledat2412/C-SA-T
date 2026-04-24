@@ -305,7 +305,7 @@
 
     var canUseAdvanced = !!(config.mapId && config.mapId !== 'DEMO_MAP_ID' && google.maps.marker && google.maps.marker.AdvancedMarkerElement);
 
-    pois.forEach(function (poi) {
+    visiblePois().forEach(function (poi) {
       var position = { lat: poi._lat, lng: poi._lng };
       var content = canUseAdvanced ? buildMarkerContent(poi) : null;
       var marker = canUseAdvanced
@@ -840,18 +840,32 @@
       return;
     }
 
-    var visibleIds = {};
-    visiblePois().forEach(function (poi) {
-      visibleIds[poi.id] = true;
-    });
+    if (!map || !window.google) {
+      return;
+    }
 
-    markerEntries.forEach(function (entry) {
-      var visible = !!visibleIds[entry.poi.id];
-      setMarkerMap(entry, visible ? map : null);
-      if (entry.circle) {
-        entry.circle.setMap(visible ? map : null);
+    createMarkers();
+    updateHeatmapData();
+  }
+
+  function updateHeatmapData() {
+    if (!heatmap || !window.google || !google.maps || !google.maps.LatLng) {
+      return;
+    }
+
+    var heatData = [];
+    visiblePois().forEach(function (poi) {
+      if (poi.views > 0 && isFinite(poi._lat) && isFinite(poi._lng)) {
+        heatData.push({
+          location: new google.maps.LatLng(poi._lat, poi._lng),
+          weight: poi.views
+        });
       }
     });
+
+    if (typeof heatmap.setData === 'function') {
+      heatmap.setData(heatData);
+    }
   }
 
   function renderList() {
@@ -1166,7 +1180,6 @@
         });
       }
 
-      createMarkers();
       applyFilters({ fit: true });
       syncCameraControls();
     } catch (error) {
