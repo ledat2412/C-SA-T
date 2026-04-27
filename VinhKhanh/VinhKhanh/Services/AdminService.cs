@@ -18,12 +18,43 @@ namespace VinhKhanh.Services
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
 
+            const string paidStoreSubquery = @"
+                SELECT latest_invoice.idGianHang
+                FROM hoadongianhang latest_invoice
+                INNER JOIN (
+                    SELECT idGianHang, MAX(idHoaDonGianHang) AS latestId
+                    FROM hoadongianhang
+                    GROUP BY idGianHang
+                ) last_invoice ON last_invoice.latestId = latest_invoice.idHoaDonGianHang
+                WHERE latest_invoice.trangThai = 'da_thanh_toan'
+            ";
+
             return new AdminSummaryDto
             {
                 TongGianHang = await ExecuteCountAsync(conn, "SELECT COUNT(*) FROM gianhang;"),
                 TongChuQuanLy = await ExecuteCountAsync(conn, "SELECT COUNT(*) FROM chu_quan_ly;"),
                 TongThietBi = await ExecuteCountAsync(conn, "SELECT COUNT(*) FROM thietbi;"),
-                ThietBiDangHoatDong = await ExecuteCountAsync(conn, "SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong';")
+                ThietBiDangHoatDong = await ExecuteCountAsync(conn, "SELECT COUNT(*) FROM thietbi WHERE trangThai = 'hoat_dong';"),
+
+                PaidStores = await ExecuteCountAsync(conn,
+                    "SELECT COUNT(*) FROM gianhang gh INNER JOIN (" + paidStoreSubquery + ") paid ON paid.idGianHang = gh.idGianHang;"),
+                ActiveOwners = await ExecuteCountAsync(conn,
+                    "SELECT COUNT(DISTINCT cql.idChuQuanLy) FROM gianhang gh INNER JOIN (" + paidStoreSubquery + ") paid ON paid.idGianHang = gh.idGianHang INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan WHERE tk.tinhTrang = 'hoat_dong';"),
+                PaidStoreFoods = await ExecuteCountAsync(conn,
+                    "SELECT COUNT(*) FROM monan ma INNER JOIN (" + paidStoreSubquery + ") paid ON paid.idGianHang = ma.idGianHang;"),
+                PendingRequests = await ExecuteCountAsync(conn,
+                    "SELECT COUNT(*) FROM yeucaugianhang WHERE trangThai = 'cho_duyet';"),
+                DevicesWithActiveToken = await ExecuteCountAsync(conn, @"
+                    SELECT COUNT(*)
+                    FROM phien_vao_app pva
+                    INNER JOIN (
+                        SELECT maThietBi, MAX(id) AS latestId
+                        FROM phien_vao_app
+                        GROUP BY maThietBi
+                    ) latest ON latest.latestId = pva.id
+                    WHERE pva.trangThai = 'hieu_luc' AND pva.hetHanLuc >= NOW();"),
+                OnlineDevices = await ExecuteCountAsync(conn,
+                    "SELECT COUNT(*) FROM thietbi WHERE lanCuoiHoatDong IS NOT NULL AND lanCuoiHoatDong >= NOW() - INTERVAL 60 SECOND;")
             };
         }
 
@@ -747,6 +778,134 @@ namespace VinhKhanh.Services
                 return new OperationResultDto { Success = false, Message = "Không tìm thấy thiết bị." };
 
             return new OperationResultDto { Success = true, Message = "Cập nhật trạng thái thiết bị thành công." };
+        }
+
+        public async Task<List<AdminPoiMapItemDto>> GetPoiMapAsync(int? idTaiKhoanOwner)
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = @"
+                SELECT
+                    gh.idGianHang,
+                    gh.ten,
+                    gh.diaChi,
+                    gh.lat,
+                    gh.lon,
+                    gh.vongBo,
+                    gh.luotTruyCap,
+                    gh.tinhTrang,
+                    gh.phiHangThang,
+                    cql.hoTen AS tenChuQuanLy,
+                    tk.username AS usernameChuQuanLy,
+                    tk.email AS emailChuQuanLy,
+                    (
+                        SELECT hgg.duongDan
+                        FROM hinhanhgianhang hgg
+                        WHERE hgg.idGianHang = gh.idGianHang
+                        ORDER BY hgg.idHinhAnh
+                        LIMIT 1
+                    ) AS hinhAnh
+                FROM gianhang gh
+                LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
+                LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
+                WHERE gh.lat IS NOT NULL
+                  AND gh.lon IS NOT NULL
+                  AND gh.lat BETWEEN -90 AND 90
+                  AND gh.lon BETWEEN -180 AND 180";
+
+            if (idTaiKhoanOwner.HasValue)
+                sql += " AND cql.idTaiKhoan = @idTaiKhoanOwner";
+
+            sql += @"
+                ORDER BY
+                    CASE WHEN gh.tinhTrang = 'dang_hoat_dong' THEN 0 ELSE 1 END,
+                    gh.phiHangThang DESC,
+                    gh.idGianHang ASC;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            if (idTaiKhoanOwner.HasValue)
+                cmd.Parameters.AddWithValue("@idTaiKhoanOwner", idTaiKhoanOwner.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            var items = new List<AdminPoiMapItemDto>();
+            while (await reader.ReadAsync())
+            {
+                items.Add(new AdminPoiMapItemDto
+                {
+                    IdGianHang = reader.GetInt32("idGianHang"),
+                    Ten = reader["ten"]?.ToString() ?? string.Empty,
+                    DiaChi = reader["diaChi"] == DBNull.Value ? null : reader["diaChi"]?.ToString(),
+                    Lat = reader["lat"] == DBNull.Value ? null : Convert.ToDecimal(reader["lat"]),
+                    Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDecimal(reader["lon"]),
+                    VongBo = reader["vongBo"] == DBNull.Value ? 10m : Convert.ToDecimal(reader["vongBo"]),
+                    LuotTruyCap = reader["luotTruyCap"] == DBNull.Value ? 0 : Convert.ToInt32(reader["luotTruyCap"]),
+                    TinhTrang = reader["tinhTrang"]?.ToString(),
+                    PhiHangThang = reader["phiHangThang"] == DBNull.Value ? 0 : Convert.ToDecimal(reader["phiHangThang"]),
+                    TenChuQuanLy = reader["tenChuQuanLy"]?.ToString(),
+                    UsernameChuQuanLy = reader["usernameChuQuanLy"]?.ToString(),
+                    EmailChuQuanLy = reader["emailChuQuanLy"]?.ToString(),
+                    HinhAnh = reader["hinhAnh"] == DBNull.Value ? null : reader["hinhAnh"]?.ToString()
+                });
+            }
+            reader.Close();
+
+            if (items.Count == 0)
+                return items;
+
+            var ids = items.Select(p => p.IdGianHang).ToList();
+            var placeholders = string.Join(",", ids.Select((_, i) => "@id" + i));
+
+            var visitsSql = $@"
+                SELECT idGianHang, ngay, soLuot
+                FROM luot_truy_cap_ngay
+                WHERE idGianHang IN ({placeholders})
+                  AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+                ORDER BY idGianHang, ngay;";
+
+            using var visitsCmd = new MySqlCommand(visitsSql, conn);
+            for (var i = 0; i < ids.Count; i++)
+                visitsCmd.Parameters.AddWithValue("@id" + i, ids[i]);
+
+            var byId = items.ToDictionary(p => p.IdGianHang);
+            using var visitsReader = await visitsCmd.ExecuteReaderAsync();
+            while (await visitsReader.ReadAsync())
+            {
+                var idStore = visitsReader.GetInt32("idGianHang");
+                if (!byId.TryGetValue(idStore, out var poi))
+                    continue;
+                poi.DailyVisits ??= new Dictionary<string, int>();
+                var dateKey = Convert.ToDateTime(visitsReader["ngay"]).ToString("yyyy-MM-dd");
+                poi.DailyVisits[dateKey] = visitsReader["soLuot"] == DBNull.Value ? 0 : Convert.ToInt32(visitsReader["soLuot"]);
+            }
+
+            return items;
+        }
+
+        public async Task<Dictionary<string, int>> GetStoreDailyVisitsAsync(int idGianHang)
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+                SELECT ngay, soLuot
+                FROM luot_truy_cap_ngay
+                WHERE idGianHang = @id
+                  AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+                ORDER BY ngay;";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@id", idGianHang);
+
+            var data = new Dictionary<string, int>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var dateKey = Convert.ToDateTime(reader["ngay"]).ToString("yyyy-MM-dd");
+                data[dateKey] = reader["soLuot"] == DBNull.Value ? 0 : Convert.ToInt32(reader["soLuot"]);
+            }
+
+            return data;
         }
     }
 }

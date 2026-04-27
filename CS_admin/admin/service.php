@@ -11,18 +11,16 @@ if (!in_array($statusFilter, array('all', 'hoat_dong', 'tam_ngung', 'ngung_ap_du
     $statusFilter = 'all';
 }
 
-function service_packages_api_url($idTaiKhoan, $idGoi = null, $suffix = '')
+function service_packages_path($idGoi = null, $suffix = '')
 {
     $path = 'Admin/service-packages';
     if ($idGoi !== null) {
         $path .= '/' . rawurlencode((string) $idGoi);
     }
-
     if ($suffix !== '') {
         $path .= '/' . ltrim($suffix, '/');
     }
-
-    return backend_api_url($path) . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return $path;
 }
 
 function service_page_url($statusFilter, $selectedPackageId = 0, $message = '', $error = '', $notice = '', $action = '')
@@ -54,49 +52,6 @@ function service_page_url($statusFilter, $selectedPackageId = 0, $message = '', 
     }
 
     return admin_url('index1st.php?' . http_build_query($params));
-}
-
-function service_call_json($method, $url, $payload, &$error)
-{
-    $error = '';
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-
-    $body = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($body === false) {
-        $error = $curlError !== '' ? $curlError : 'Không thể kết nối backend.';
-        return null;
-    }
-
-    $decoded = json_decode($body, true);
-    if ($httpCode >= 400) {
-        if (is_array($decoded) && isset($decoded['message'])) {
-            $error = (string) $decoded['message'];
-        } else {
-            $error = 'API trả về HTTP ' . $httpCode . '.';
-        }
-
-        return null;
-    }
-
-    if ($decoded === null && trim((string) $body) !== '') {
-        $error = 'Phản hồi API không hợp lệ.';
-        return null;
-    }
-
-    return $decoded;
 }
 
 function service_status_meta($status)
@@ -137,207 +92,6 @@ function service_format_datetime($value)
     return date('d/m/Y H:i', $timestamp);
 }
 
-function service_fetch_from_database(&$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return array();
-    }
-
-    $sql = "
-        SELECT idGoi, ten, moTa, gia, thoiHanNgay, trangThai, ngayTao
-        FROM goidichvu
-        ORDER BY idGoi";
-
-    $result = $conn->query($sql);
-    if (!$result) {
-        $error = 'Không thể đọc dữ liệu gói dịch vụ: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-
-    $items = array();
-    while ($row = $result->fetch_assoc()) {
-        $items[] = $row;
-    }
-
-    $result->free();
-    $conn->close();
-    return $items;
-}
-
-function service_name_exists_in_database($packageName, $excludeId, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return null;
-    }
-
-    $normalizedName = trim((string) $packageName);
-    $excludeId = (int) $excludeId;
-
-    $stmt = $conn->prepare("
-        SELECT 1
-        FROM goidichvu
-        WHERE ten = ?
-          AND (? = 0 OR idGoi <> ?)
-        LIMIT 1
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return null;
-    }
-
-    $stmt->bind_param('sii', $normalizedName, $excludeId, $excludeId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $exists = $result && $result->fetch_row();
-    if ($result) {
-        $result->free();
-    }
-
-    $stmt->close();
-    $conn->close();
-    return (bool) $exists;
-}
-
-function service_db_upsert($idGoi, $payload, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return 0;
-    }
-
-    $checkStmt = $conn->prepare("
-        SELECT 1
-        FROM goidichvu
-        WHERE ten = ?
-          AND (? = 0 OR idGoi <> ?)
-        LIMIT 1
-    ");
-    if (!$checkStmt) {
-        $error = $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $checkStmt->bind_param('sii', $payload['ten'], $idGoi, $idGoi);
-    $checkStmt->execute();
-    $duplicateResult = $checkStmt->get_result();
-    $isDuplicate = $duplicateResult && $duplicateResult->fetch_row();
-    if ($duplicateResult) {
-        $duplicateResult->free();
-    }
-    $checkStmt->close();
-
-    if ($isDuplicate) {
-        $error = 'Tên gói dịch vụ đã tồn tại trong hệ thống.';
-        $conn->close();
-        return 0;
-    }
-
-    if ($idGoi > 0) {
-        $stmt = $conn->prepare("
-            UPDATE goidichvu
-            SET ten = ?, moTa = ?, gia = ?, thoiHanNgay = ?, trangThai = ?
-            WHERE idGoi = ?
-        ");
-        if (!$stmt) {
-            $error = $conn->error;
-            $conn->close();
-            return 0;
-        }
-
-        $moTa = $payload['moTa'] !== '' ? $payload['moTa'] : null;
-        $stmt->bind_param(
-            'ssdisi',
-            $payload['ten'],
-            $moTa,
-            $payload['gia'],
-            $payload['thoiHanNgay'],
-            $payload['trangThai'],
-            $idGoi
-        );
-        $stmt->execute();
-        $ok = $stmt->errno === 0;
-        $stmt->close();
-        $conn->close();
-
-        if (!$ok) {
-            $error = 'Không thể cập nhật gói dịch vụ.';
-            return 0;
-        }
-
-        return $idGoi;
-    }
-
-    $stmt = $conn->prepare("
-        INSERT INTO goidichvu (ten, moTa, gia, thoiHanNgay, trangThai)
-        VALUES (?, ?, ?, ?, ?)
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $moTa = $payload['moTa'] !== '' ? $payload['moTa'] : null;
-    $stmt->bind_param(
-        'ssdis',
-        $payload['ten'],
-        $moTa,
-        $payload['gia'],
-        $payload['thoiHanNgay'],
-        $payload['trangThai']
-    );
-    $stmt->execute();
-    $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
-    $stmt->close();
-    $conn->close();
-
-    if ($newId <= 0) {
-        $error = 'Không thể tạo gói dịch vụ.';
-    }
-
-    return $newId;
-}
-
-function service_db_update_status($idGoi, $status, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return false;
-    }
-
-    $stmt = $conn->prepare("UPDATE goidichvu SET trangThai = ? WHERE idGoi = ?");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    $stmt->bind_param('si', $status, $idGoi);
-    $stmt->execute();
-    $ok = $stmt->errno === 0;
-    $stmt->close();
-    $conn->close();
-
-    if (!$ok) {
-        $error = 'Không thể cập nhật trạng thái gói dịch vụ.';
-    }
-
-    return $ok;
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = isset($_POST['service_action']) ? (string) $_POST['service_action'] : '';
     $postStatusFilter = isset($_POST['status_filter']) ? strtolower(trim((string) $_POST['status_filter'])) : $statusFilter;
@@ -360,22 +114,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $duplicateCheckError = '';
-        $isDuplicateName = service_name_exists_in_database($payload['ten'], $idGoi, $duplicateCheckError);
-        if ($isDuplicateName === true) {
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', 'Tên gói dịch vụ đã tồn tại trong hệ thống.'));
-            exit;
-        }
-
-        if ($isDuplicateName === null && $duplicateCheckError !== '') {
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $duplicateCheckError));
-            exit;
-        }
-
         $apiError = '';
-        $result = service_call_json(
+        $apiHttpCode = 0;
+        $result = admin_api_call(
             $idGoi > 0 ? 'PUT' : 'POST',
-            service_packages_api_url($idTaiKhoan, $idGoi > 0 ? $idGoi : null),
+            service_packages_path($idGoi > 0 ? $idGoi : null),
             array(
                 'ten' => $payload['ten'],
                 'moTa' => $payload['moTa'],
@@ -383,23 +126,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'thoiHanNgay' => $payload['thoiHanNgay'],
                 'trangThai' => $payload['trangThai'],
             ),
-            $apiError
+            $apiError,
+            $apiHttpCode,
+            array('idTaiKhoan' => $idTaiKhoan)
         );
 
         if ($result === null) {
-            $fallbackError = '';
-            $savedId = service_db_upsert($idGoi, $payload, $fallbackError);
-            if ($savedId > 0) {
-                header('Location: ' . service_page_url($postStatusFilter, $savedId, $idGoi > 0 ? 'Cập nhật gói dịch vụ thành công.' : 'Tạo gói dịch vụ thành công.', '', 'Trang dịch vụ đang dùng DB fallback vì API chưa sẵn sàng.'));
-                exit;
-            }
-
-            $error = $apiError;
-            if ($fallbackError !== '') {
-                $error = trim($error . ' | ' . $fallbackError, ' |');
-            }
-
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $error));
+            $msg = $apiError !== '' ? $apiError : 'Không thể lưu gói dịch vụ: backend API chưa sẵn sàng.';
+            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $msg));
             exit;
         }
 
@@ -418,21 +152,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $apiError = '';
-        $result = service_call_json('PATCH', service_packages_api_url($idTaiKhoan, $idGoi, 'status'), array('trangThai' => $newStatus), $apiError);
+        $apiHttpCode = 0;
+        $result = admin_api_call(
+            'PATCH',
+            service_packages_path($idGoi, 'status'),
+            array('trangThai' => $newStatus),
+            $apiError,
+            $apiHttpCode,
+            array('idTaiKhoan' => $idTaiKhoan)
+        );
 
         if ($result === null) {
-            $fallbackError = '';
-            if (service_db_update_status($idGoi, $newStatus, $fallbackError)) {
-                header('Location: ' . service_page_url($postStatusFilter, $idGoi, 'Đổi trạng thái gói dịch vụ thành công.', '', 'Trang dịch vụ đang dùng DB fallback vì API chưa sẵn sàng.'));
-                exit;
-            }
-
-            $error = $apiError;
-            if ($fallbackError !== '') {
-                $error = trim($error . ' | ' . $fallbackError, ' |');
-            }
-
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $error));
+            $msg = $apiError !== '' ? $apiError : 'Không thể đổi trạng thái: backend API chưa sẵn sàng.';
+            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $msg));
             exit;
         }
 
@@ -444,22 +176,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $serviceError = $flashError;
 $serviceNotice = $flashNotice;
 $serviceMessage = $flashMessage;
-$packages = $idTaiKhoan > 0 ? service_call_json('GET', service_packages_api_url($idTaiKhoan), null, $serviceError) : null;
+$apiHttpCode = 0;
+$packages = $idTaiKhoan > 0
+    ? admin_api_call('GET', service_packages_path(), null, $serviceError, $apiHttpCode, array('idTaiKhoan' => $idTaiKhoan))
+    : null;
 
 if (!is_array($packages)) {
-    $fallbackError = '';
-    $fallbackPackages = service_fetch_from_database($fallbackError);
-    if (count($fallbackPackages) > 0) {
-        $packages = $fallbackPackages;
-        if ($serviceNotice === '') {
-            $serviceNotice = 'Trang dịch vụ đang dùng dữ liệu trực tiếp từ DB vì API chưa sẵn sàng.';
-        }
-        $serviceError = $flashError;
-    } else {
-        $packages = array();
-        if ($fallbackError !== '') {
-            $serviceError = trim($serviceError . ' | ' . $fallbackError, ' |');
-        }
+    $packages = array();
+    if ($serviceError === '') {
+        $serviceError = 'Không thể tải danh sách gói dịch vụ: backend API chưa sẵn sàng.';
     }
 }
 

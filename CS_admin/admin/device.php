@@ -14,18 +14,13 @@ if (!in_array($loaiFilter, array('all', 'app_client', 'portal_web', 'hardware'),
     $loaiFilter = 'all';
 }
 
-function device_api_url($idTaiKhoan, $loaiFilter = 'all')
+function device_list_query($idTaiKhoan, $loaiFilter = 'all')
 {
-    $url = backend_api_url('Admin/devices') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    $query = array('idTaiKhoan' => $idTaiKhoan);
     if ($loaiFilter !== 'all' && in_array($loaiFilter, array('app_client', 'portal_web', 'hardware'), true)) {
-        $url .= '&loai=' . rawurlencode($loaiFilter);
+        $query['loai'] = $loaiFilter;
     }
-    return $url;
-}
-
-function device_api_status_url($idTaiKhoan, $maThietBi)
-{
-    return backend_api_url('Admin/devices/' . rawurlencode((string) $maThietBi) . '/status') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return $query;
 }
 
 function device_list_url($statusFilter, $selectedDeviceId = 0, $message = '', $notice = '', $loaiFilter = 'all')
@@ -37,119 +32,6 @@ function device_list_url($statusFilter, $selectedDeviceId = 0, $message = '', $n
     if ($message !== '') $params['message'] = $message;
     if ($notice !== '') $params['notice'] = $notice;
     return admin_url('index1st.php?' . http_build_query($params));
-}
-
-function device_call_json($method, $url, $payload, &$error, &$httpCode = 0)
-{
-    $error = '';
-    $httpCode = 0;
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-    $body = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-    if ($body === false) {
-        $error = $curlError !== '' ? $curlError : 'Không thể kết nối backend.';
-        return null;
-    }
-    $decoded = json_decode($body, true);
-    if ($httpCode >= 400) {
-        $error = is_array($decoded) && isset($decoded['message']) ? (string) $decoded['message'] : 'API trả về HTTP ' . $httpCode . '.';
-        return null;
-    }
-    if ($decoded === null && trim((string) $body) !== '') {
-        $error = 'Phản hồi API không hợp lệ.';
-        return null;
-    }
-    return $decoded;
-}
-
-function device_fetch_from_database(&$error, $loaiFilter = 'all')
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return array();
-    }
-    $whereClause = '';
-    if (in_array($loaiFilter, array('app_client', 'portal_web', 'hardware'), true)) {
-        $whereClause = "WHERE tb.loaiThietBi = '" . $conn->real_escape_string($loaiFilter) . "'";
-    }
-    $sql = "
-        SELECT
-            tb.idThietBi,
-            tb.maThietBi,
-            tb.daKichHoat,
-            tb.thoiGianKichHoat,
-            tb.lanCuoiHoatDong,
-            tb.trangThai,
-            tb.loaiThietBi,
-            tb.platform,
-            tb.model,
-            tb.manufacturer,
-            tb.appVersion,
-            tb.idTaiKhoan,
-            COALESCE(ad.hoTen, cql.hoTen) AS tenChuSoHuu,
-            tk.email AS emailChuSoHuu
-        FROM thietbi tb
-        LEFT JOIN taikhoan tk ON tk.idTaiKhoan = tb.idTaiKhoan
-        LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
-        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
-        $whereClause
-        ORDER BY tb.idThietBi DESC";
-    $result = $conn->query($sql);
-    if (!$result) {
-        $error = 'Không thể đọc danh sách thiết bị: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-    $items = array();
-    while ($row = $result->fetch_assoc()) {
-        $items[] = $row;
-    }
-    $result->free();
-    $conn->close();
-    return $items;
-}
-
-function device_update_status_in_database($maThietBi, $trangThai, &$error)
-{
-    $error = '';
-    $valid = array('hoat_dong', 'khoa', 'cho_kich_hoat');
-    if (!in_array($trangThai, $valid, true)) {
-        $error = 'Trạng thái không hợp lệ.';
-        return false;
-    }
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return false;
-    }
-    $stmt = $conn->prepare("UPDATE thietbi SET trangThai = ? WHERE maThietBi = ?");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-    $stmt->bind_param('ss', $trangThai, $maThietBi);
-    $stmt->execute();
-    $affected = $stmt->affected_rows;
-    $stmt->close();
-    $conn->close();
-    if ($affected === 0) {
-        $error = 'Không tìm thấy thiết bị.';
-        return false;
-    }
-    return 'Cập nhật trạng thái thiết bị thành công.';
 }
 
 function device_status_meta($trangThai)
@@ -213,18 +95,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['device_action']) && $
     } else {
         $apiHttpCode = 0;
         $apiError = '';
+        $statusPath = 'Admin/devices/' . rawurlencode($targetMaThietBi) . '/status';
         $apiResult = $idTaiKhoan > 0
-            ? device_call_json('PATCH', device_api_status_url($idTaiKhoan, $targetMaThietBi), array('trangThai' => $targetTrangThai), $apiError, $apiHttpCode)
+            ? admin_api_call('PATCH', $statusPath, array('trangThai' => $targetTrangThai), $apiError, $apiHttpCode, array('idTaiKhoan' => $idTaiKhoan))
             : null;
 
         if (!is_array($apiResult)) {
-            $fallbackError = '';
-            $fallbackMessage = device_update_status_in_database($targetMaThietBi, $targetTrangThai, $fallbackError);
-            if ($fallbackMessage !== false) {
-                header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $fallbackMessage, 'Trang thiết bị đang dùng DB fallback vì API chưa sẵn sàng.', $loaiFilter));
-                exit;
-            }
-            $deviceError = $apiError !== '' ? $apiError : $fallbackError;
+            $deviceError = $apiError !== '' ? $apiError : 'Không thể cập nhật trạng thái: backend API chưa sẵn sàng.';
         } else {
             $successMsg = isset($apiResult['message']) && $apiResult['message'] !== '' ? (string) $apiResult['message'] : 'Cập nhật trạng thái thiết bị thành công.';
             header('Location: ' . device_list_url($statusFilter, $targetIdThietBi, $successMsg, '', $loaiFilter));
@@ -234,20 +111,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['device_action']) && $
 }
 
 $deviceHttpCode = 0;
-$devices = $idTaiKhoan > 0 ? device_call_json('GET', device_api_url($idTaiKhoan, $loaiFilter), null, $deviceError, $deviceHttpCode) : array();
+$devices = $idTaiKhoan > 0
+    ? admin_api_call('GET', 'Admin/devices', null, $deviceError, $deviceHttpCode, device_list_query($idTaiKhoan, $loaiFilter))
+    : array();
 
 if (!is_array($devices)) {
-    $fallbackError = '';
-    $fallbackDevices = device_fetch_from_database($fallbackError, $loaiFilter);
-    if (count($fallbackDevices) > 0) {
-        $devices = $fallbackDevices;
-        if ($deviceNotice === '') $deviceNotice = 'Trang thiết bị đang dùng dữ liệu trực tiếp từ DB vì API chưa sẵn sàng.';
-        if ($deviceHttpCode < 400) $deviceError = '';
-    } elseif ($fallbackError !== '') {
-        $deviceError = trim($deviceError . ' | ' . $fallbackError, ' |');
-        $devices = array();
-    } else {
-        $devices = array();
+    $devices = array();
+    if ($deviceError === '') {
+        $deviceError = 'Không thể tải danh sách thiết bị: backend API chưa sẵn sàng.';
     }
 }
 

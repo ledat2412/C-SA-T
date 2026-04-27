@@ -66,6 +66,21 @@ function dashboard_days_between($startDate, $endDate)
     return max(1, (int) $start->diff($end)->days + 1);
 }
 
+function dashboard_fetch_summary_from_api($idTaiKhoan, &$error)
+{
+    $error = '';
+    $apiHttpCode = 0;
+    $result = admin_api_call(
+        'GET',
+        'Admin/summary',
+        null,
+        $error,
+        $apiHttpCode,
+        array('idTaiKhoan' => $idTaiKhoan)
+    );
+    return is_array($result) ? $result : null;
+}
+
 function dashboard_paid_store_subquery()
 {
     return "
@@ -117,9 +132,12 @@ function dashboard_count_active_devices($conn)
     ");
 }
 
+// Mỗi thiết bị đếm là N (đổi tại đây nếu muốn weight khác).
+const DASHBOARD_DEVICE_WEIGHT = 1;
+
 function dashboard_count_devices_with_active_token($conn)
 {
-    return (int) dashboard_query_value($conn, "
+    $real = (int) dashboard_query_value($conn, "
         SELECT COUNT(*)
         FROM phien_vao_app pva
         INNER JOIN (
@@ -130,17 +148,19 @@ function dashboard_count_devices_with_active_token($conn)
         WHERE pva.trangThai = 'hieu_luc'
           AND pva.hetHanLuc >= NOW()
     ");
+    return $real * DASHBOARD_DEVICE_WEIGHT;
 }
 
 function dashboard_count_online_devices($conn, $windowSeconds = 60)
 {
     $windowSeconds = max(5, (int) $windowSeconds);
-    return (int) dashboard_query_value($conn, "
+    $real = (int) dashboard_query_value($conn, "
         SELECT COUNT(*)
         FROM thietbi
         WHERE lanCuoiHoatDong IS NOT NULL
           AND lanCuoiHoatDong >= NOW() - INTERVAL $windowSeconds SECOND
     ");
+    return $real * DASHBOARD_DEVICE_WEIGHT;
 }
 
 function dashboard_count_pending_requests($conn)
@@ -466,12 +486,23 @@ if (!$conn instanceof mysqli) {
 } else {
     $paidStoreSubquery = dashboard_paid_store_subquery();
 
-    $summary['stores']          = dashboard_count_paid_stores($conn);
-    $summary['activeOwners']    = dashboard_count_active_owners($conn);
-    $summary['foods']           = dashboard_count_paid_store_foods($conn);
+    // Lấy summary từ backend API (priority). Nếu API down → fallback DB local cho các số đã port.
+    $summaryApiError = '';
+    $apiSummary = dashboard_fetch_summary_from_api($idTaiKhoan, $summaryApiError);
+    if (is_array($apiSummary)) {
+        $summary['stores']          = (int) ($apiSummary['paidStores'] ?? 0);
+        $summary['activeOwners']    = (int) ($apiSummary['activeOwners'] ?? 0);
+        $summary['foods']           = (int) ($apiSummary['paidStoreFoods'] ?? 0);
+        $summary['pendingRequests'] = (int) ($apiSummary['pendingRequests'] ?? 0);
+        $summary['activeDevices']   = (int) ($apiSummary['onlineDevices'] ?? $apiSummary['thietBiDangHoatDong'] ?? 0);
+    } else {
+        $summary['stores']          = dashboard_count_paid_stores($conn);
+        $summary['activeOwners']    = dashboard_count_active_owners($conn);
+        $summary['foods']           = dashboard_count_paid_store_foods($conn);
+        $summary['pendingRequests'] = dashboard_count_pending_requests($conn);
+        $summary['activeDevices']   = dashboard_count_active_devices($conn);
+    }
     $summary['paidOrders']      = dashboard_count_paid_orders_in_period($conn, $periodStart, $periodEnd);
-    $summary['pendingRequests'] = dashboard_count_pending_requests($conn);
-    $summary['activeDevices']   = dashboard_count_active_devices($conn);
 
     $visitorRevenue = (float) dashboard_query_value($conn, "
         SELECT COALESCE(SUM(tongTien), 0)

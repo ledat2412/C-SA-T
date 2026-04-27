@@ -403,6 +403,24 @@ public sealed class GeofenceEngineService : IAsyncDisposable
             _currentPlayer.Play();
             StartPlaybackTimerInternal();
             PublishPlaybackState(CreateSnapshot(AudioPlaybackPhase.Playing));
+
+            // Ghi nhận lượt truy cập NGAY khi bắt đầu phát audio (backend dedupe đảm bảo
+            // 1 device/store/day = 1 lần count, dù user chỉ nghe vài giây).
+            var storeIdToRecordOnStart = _currentStoreId;
+            if (storeIdToRecordOnStart.HasValue)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _apiService.RecordPoiVisitAsync(storeIdToRecordOnStart.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Record POI visit (on start) error: {ex.Message}");
+                    }
+                });
+            }
         }
         catch (Exception ex)
         {

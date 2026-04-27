@@ -61,70 +61,24 @@ function invoice_payment_fetch($invoiceId, $idTaiKhoan, $isOwnerInvoiceViewer, &
         return null;
     }
 
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB để tải hóa đơn.';
-        return null;
-    }
+    $apiError = '';
+    $apiHttpCode = 0;
+    $query = array(
+        'idTaiKhoan' => $idTaiKhoan,
+        'ownerOnly' => $isOwnerInvoiceViewer ? 'true' : 'false',
+    );
 
-    $sql = "
-        SELECT
-            hdgh.idHoaDonGianHang,
-            hdgh.idGianHang,
-            hdgh.tongTien,
-            hdgh.ngayHetHan,
-            hdgh.trangThai,
-            hdgh.ghiChu,
-            hdgh.ngayTao,
-            gh.ten AS tenGianHang,
-            gh.diaChi,
-            gh.idChuQuanLy,
-            cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-            cql.hoTen AS hoTenChuQuanLy,
-            tk.email AS emailChuQuanLy
-        FROM hoadongianhang hdgh
-        INNER JOIN gianhang gh ON gh.idGianHang = hdgh.idGianHang
-        LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        WHERE hdgh.idHoaDonGianHang = ?";
-
-    if ($isOwnerInvoiceViewer) {
-        $sql .= " AND cql.idTaiKhoan = ?";
-    }
-
-    $sql .= " LIMIT 1";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        $error = 'Không thể đọc hóa đơn: ' . $conn->error;
-        $conn->close();
-        return null;
-    }
-
-    if ($isOwnerInvoiceViewer) {
-        $stmt->bind_param('ii', $invoiceId, $idTaiKhoan);
-    } else {
-        $stmt->bind_param('i', $invoiceId);
-    }
-
-    if (!$stmt->execute()) {
-        $error = 'Không thể đọc hóa đơn: ' . $stmt->error;
-        $stmt->close();
-        $conn->close();
-        return null;
-    }
-
-    $result = $stmt->get_result();
-    $invoice = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-
-    $stmt->close();
-    $conn->close();
+    $invoice = admin_api_call(
+        'GET',
+        'Admin/invoices/' . rawurlencode((string) $invoiceId),
+        null,
+        $apiError,
+        $apiHttpCode,
+        $query
+    );
 
     if (!is_array($invoice)) {
-        $error = 'Không tìm thấy hóa đơn hoặc bạn không có quyền xem hóa đơn này.';
+        $error = $apiError !== '' ? $apiError : 'Không tìm thấy hóa đơn hoặc bạn không có quyền xem hóa đơn này.';
         return null;
     }
 

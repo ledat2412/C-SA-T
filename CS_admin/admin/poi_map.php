@@ -104,72 +104,23 @@ if (!function_exists('poi_map_fetch_pois')) {
     function poi_map_fetch_pois($isOwner, $idTaiKhoan, &$error)
     {
         $error = '';
-        $conn = admin_db_connection();
-        if (!$conn instanceof mysqli) {
-            $error = 'Không thể kết nối DB để tải POI.';
+        $apiHttpCode = 0;
+        $items = $idTaiKhoan > 0
+            ? admin_api_call('GET', 'Admin/poi-map', null, $error, $apiHttpCode, array(
+                'idTaiKhoan' => $idTaiKhoan,
+                'ownerOnly' => $isOwner ? 'true' : 'false',
+            ))
+            : null;
+
+        if (!is_array($items)) {
+            if ($error === '') {
+                $error = 'Không thể tải danh sách POI: backend API chưa sẵn sàng.';
+            }
             return array();
         }
 
-        $sql = "
-            SELECT
-                gh.idGianHang,
-                gh.ten,
-                gh.diaChi,
-                gh.lat,
-                gh.lon,
-                gh.vongBo,
-                gh.luotTruyCap,
-                gh.tinhTrang,
-                gh.phiHangThang,
-                cql.hoTen AS tenChuQuanLy,
-                tk.username AS usernameChuQuanLy,
-                tk.email AS emailChuQuanLy,
-                (
-                    SELECT hgg.duongDan
-                    FROM hinhanhgianhang hgg
-                    WHERE hgg.idGianHang = gh.idGianHang
-                    ORDER BY hgg.idHinhAnh
-                    LIMIT 1
-                ) AS hinhAnh
-            FROM gianhang gh
-            LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-            LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-            WHERE gh.lat IS NOT NULL
-              AND gh.lon IS NOT NULL
-              AND gh.lat BETWEEN -90 AND 90
-              AND gh.lon BETWEEN -180 AND 180";
-
-        if ($isOwner) {
-            $sql .= " AND cql.idTaiKhoan = ?";
-        }
-
-        $sql .= "
-            ORDER BY
-                CASE WHEN gh.tinhTrang = 'dang_hoat_dong' THEN 0 ELSE 1 END,
-                gh.phiHangThang DESC,
-                gh.idGianHang ASC";
-
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            $error = $conn->error;
-            $conn->close();
-            return array();
-        }
-
-        if ($isOwner) {
-            $stmt->bind_param('i', $idTaiKhoan);
-        }
-
-        if (!$stmt->execute()) {
-            $error = $stmt->error;
-            $stmt->close();
-            $conn->close();
-            return array();
-        }
-
-        $result = $stmt->get_result();
         $pois = array();
-        while ($result && ($row = $result->fetch_assoc())) {
+        foreach ($items as $row) {
             $statusMeta = poi_map_status_meta($row['tinhTrang'] ?? '');
             $ownerName = '';
             if (!empty($row['tenChuQuanLy'])) {
@@ -190,8 +141,8 @@ if (!function_exists('poi_map_fetch_pois')) {
                 'id' => isset($row['idGianHang']) ? (int) $row['idGianHang'] : 0,
                 'name' => isset($row['ten']) ? (string) $row['ten'] : 'Gian hàng',
                 'address' => !empty($row['diaChi']) ? (string) $row['diaChi'] : 'Chưa cập nhật địa chỉ',
-                'lat' => (float) $row['lat'],
-                'lng' => (float) $row['lon'],
+                'lat' => isset($row['lat']) ? (float) $row['lat'] : 0.0,
+                'lng' => isset($row['lon']) ? (float) $row['lon'] : 0.0,
                 'radiusMeters' => $radius,
                 'views' => isset($row['luotTruyCap']) ? (int) $row['luotTruyCap'] : 0,
                 'status' => isset($row['tinhTrang']) ? (string) $row['tinhTrang'] : '',
@@ -201,101 +152,16 @@ if (!function_exists('poi_map_fetch_pois')) {
                 'monthlyFeeLabel' => poi_map_money($fee),
                 'ownerName' => $ownerName !== '' ? $ownerName : 'Chưa gán chủ quản lý',
                 'imageUrl' => !empty($row['hinhAnh']) ? poi_map_image_url((string) $row['hinhAnh']) : '',
+                'dailyVisits' => isset($row['dailyVisits']) && is_array($row['dailyVisits']) ? $row['dailyVisits'] : array(),
             );
         }
-
-        if ($result) {
-            $result->free();
-        }
-        $stmt->close();
-        $conn->close();
 
         return $pois;
     }
 }
 
-if (!function_exists('poi_map_attach_daily_visits')) {
-    function poi_map_attach_daily_visits(&$pois)
-    {
-        if (!is_array($pois) || count($pois) === 0) {
-            return;
-        }
-
-        $poiIds = array();
-        $poiIndex = array();
-        foreach ($pois as $index => $poi) {
-            $id = isset($poi['id']) ? (int) $poi['id'] : 0;
-            if ($id <= 0) {
-                continue;
-            }
-
-            $poiIds[] = $id;
-            $poiIndex[$id] = $index;
-            $pois[$index]['dailyVisits'] = array();
-        }
-
-        if (count($poiIds) === 0) {
-            return;
-        }
-
-        $conn = admin_db_connection();
-        if (!$conn instanceof mysqli) {
-            return;
-        }
-
-        $placeholders = implode(',', array_fill(0, count($poiIds), '?'));
-        $sql = "
-            SELECT idGianHang, ngay, soLuot
-            FROM luot_truy_cap_ngay
-            WHERE idGianHang IN ($placeholders)
-              AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-            ORDER BY idGianHang ASC, ngay ASC
-        ";
-
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            $conn->close();
-            return;
-        }
-
-        $types = str_repeat('i', count($poiIds));
-        $bindParams = array($types);
-        foreach ($poiIds as $key => $id) {
-            $bindParams[] = &$poiIds[$key];
-        }
-
-        call_user_func_array(array($stmt, 'bind_param'), $bindParams);
-
-        if ($stmt->execute()) {
-            $result = $stmt->get_result();
-            while ($result && ($row = $result->fetch_assoc())) {
-                $id = isset($row['idGianHang']) ? (int) $row['idGianHang'] : 0;
-                if ($id <= 0 || !isset($poiIndex[$id])) {
-                    continue;
-                }
-
-                $index = $poiIndex[$id];
-                $dateKey = isset($row['ngay']) ? (string) $row['ngay'] : '';
-                if ($dateKey === '') {
-                    continue;
-                }
-
-                $pois[$index]['dailyVisits'][$dateKey] = isset($row['soLuot']) ? (int) $row['soLuot'] : 0;
-            }
-
-            if ($result) {
-                $result->free();
-            }
-        }
-
-        $stmt->close();
-        $conn->close();
-    }
-}
-
 $poiError = '';
 $pois = poi_map_fetch_pois($isOwner, $idTaiKhoan, $poiError);
-poi_map_attach_daily_visits($pois);
 $googleMapsApiKey = poi_map_google_api_key();
 $googleMapsApiKeySource = poi_map_google_api_key_source();
 $googleMapsMapId = poi_map_google_map_id();

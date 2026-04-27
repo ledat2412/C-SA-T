@@ -48,261 +48,10 @@ function store_form_food_management_url($idGianHang)
     return admin_url('index1st.php?usecase=menu&idGianHang=' . (int) $idGianHang);
 }
 
-function store_form_request_db_create($idTaiKhoan, $payload, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB để lưu yêu cầu.';
-        return 0;
-    }
-
-    if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $ownerStmt = $conn->prepare("
-        SELECT idChuQuanLy
-        FROM chu_quan_ly
-        WHERE idTaiKhoan = ?
-        LIMIT 1
-    ");
-    if (!$ownerStmt) {
-        $error = $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $ownerStmt->bind_param('i', $idTaiKhoan);
-    $ownerStmt->execute();
-    $ownerResult = $ownerStmt->get_result();
-    $ownerRow = $ownerResult ? $ownerResult->fetch_assoc() : null;
-    if ($ownerResult) {
-        $ownerResult->free();
-    }
-    $ownerStmt->close();
-
-    $ownerId = isset($ownerRow['idChuQuanLy']) ? (int) $ownerRow['idChuQuanLy'] : 0;
-    if ($ownerId <= 0) {
-        $error = 'Tài khoản hiện tại chưa có hồ sơ chủ quản lý.';
-        $conn->close();
-        return 0;
-    }
-
-    $stmt = $conn->prepare("
-        INSERT INTO yeucaugianhang
-        (
-            idChuQuanLy,
-            tenDeNghi,
-            diaChiDeNghi,
-            ghiChuGui,
-            trangThai,
-            ngayGui
-        )
-        VALUES
-        (
-            ?,
-            ?,
-            NULLIF(?, ''),
-            NULLIF(?, ''),
-            'cho_duyet',
-            NOW()
-        )
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $ten = trim((string) ($payload['ten'] ?? ''));
-    $diaChi = isset($payload['diaChi']) && $payload['diaChi'] !== null ? trim((string) $payload['diaChi']) : '';
-    $moTa = isset($payload['moTa']) && $payload['moTa'] !== null ? trim((string) $payload['moTa']) : '';
-
-    $duplicateError = '';
-    if (store_form_store_name_exists($conn, $ten, 0, $duplicateError)) {
-        $error = 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.';
-        $stmt->close();
-        $conn->close();
-        return 0;
-    }
-
-    if ($duplicateError !== '') {
-        $error = $duplicateError;
-        $stmt->close();
-        $conn->close();
-        return 0;
-    }
-
-    $stmt->bind_param('isss', $ownerId, $ten, $diaChi, $moTa);
-
-    $stmt->execute();
-    $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
-    if ($stmt->errno !== 0) {
-        $error = $stmt->error !== '' ? $stmt->error : 'Không thể lưu yêu cầu mới.';
-    }
-
-    $stmt->close();
-    $conn->close();
-    return $newId;
-}
-
-function store_form_store_name_exists($conn, $name, $excludeId, &$error)
-{
-    $error = '';
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
-        return false;
-    }
-
-    $normalizedName = trim((string) $name);
-    if ($normalizedName === '') {
-        return false;
-    }
-
-    $excludeId = (int) $excludeId;
-    $stmt = $conn->prepare("
-        SELECT COUNT(*)
-        FROM gianhang
-        WHERE LOWER(TRIM(ten)) = LOWER(TRIM(?))
-          AND (? <= 0 OR idGianHang <> ?)
-    ");
-
-    if (!$stmt) {
-        $error = 'Không thể kiểm tra tên gian hàng: ' . $conn->error;
-        return false;
-    }
-
-    $stmt->bind_param('sii', $normalizedName, $excludeId, $excludeId);
-    if (!$stmt->execute()) {
-        $error = 'Không thể kiểm tra tên gian hàng: ' . $stmt->error;
-        $stmt->close();
-        return false;
-    }
-
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_row() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-
-    return $row && isset($row[0]) && (int) $row[0] > 0;
-}
-
-function store_form_name_exists_in_database($name, $excludeId, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
-        return false;
-    }
-
-    $exists = store_form_store_name_exists($conn, $name, $excludeId, $error);
-    $conn->close();
-    return $exists;
-}
-
-function store_form_can_access_store($role, $idTaiKhoan, $idGianHang, &$error)
-{
-    $error = '';
-    if ($role !== 'chu_quan_ly') {
-        return true;
-    }
-
-    if ((int) $idTaiKhoan <= 0 || (int) $idGianHang <= 0) {
-        $error = 'Phiên đăng nhập hoặc gian hàng không hợp lệ.';
-        return false;
-    }
-
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB để kiểm tra quyền gian hàng.';
-        return false;
-    }
-
-    $stmt = $conn->prepare("
-        SELECT 1
-        FROM gianhang gh
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        WHERE gh.idGianHang = ?
-          AND cql.idTaiKhoan = ?
-        LIMIT 1
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    $stmt->bind_param('ii', $idGianHang, $idTaiKhoan);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $allowed = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-    $conn->close();
-
-    if (!is_array($allowed)) {
-        $error = 'Bạn không có quyền xem hoặc chỉnh sửa gian hàng này.';
-        return false;
-    }
-
-    return true;
-}
-
 function store_form_fetch_daily_visits($idGianHang)
 {
-    $idGianHang = (int) $idGianHang;
-    if ($idGianHang <= 0) {
-        return array();
-    }
-
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        return array();
-    }
-
-    $stmt = $conn->prepare("
-        SELECT ngay, soLuot
-        FROM luot_truy_cap_ngay
-        WHERE idGianHang = ?
-          AND ngay >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-        ORDER BY ngay ASC
-    ");
-
-    if (!$stmt) {
-        $conn->close();
-        return array();
-    }
-
-    $stmt->bind_param('i', $idGianHang);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    $dailyVisits = array();
-    while ($result && ($row = $result->fetch_assoc())) {
-        $dateKey = isset($row['ngay']) ? (string) $row['ngay'] : '';
-        if ($dateKey === '') {
-            continue;
-        }
-
-        $dailyVisits[$dateKey] = isset($row['soLuot']) ? (int) $row['soLuot'] : 0;
-    }
-
-    if ($result) {
-        $result->free();
-    }
-
-    $stmt->close();
-    $conn->close();
-
-    return $dailyVisits;
+    // Daily visits: backend chưa có endpoint, trả về mảng rỗng cho heatmap đến khi có /Admin/stores/{id}/daily-visits.
+    return array();
 }
 
 function store_form_heatmap_level($count, $maxCount)
@@ -765,23 +514,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
     $latError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lat'], -90, 90, 'Vĩ độ', $requiresCoordinates) : '';
     $lonError = !$isOwnerRequestMode ? store_form_coordinate_error($formData['lon'], -180, 180, 'Kinh độ', $requiresCoordinates) : '';
     $vongBoError = $canEditVongBo ? store_form_positive_number_error($formData['vongBo'], 'Vòng bò', true) : '';
-    $storeAccessError = '';
-    $hasStoreAccess = $isCreateMode || store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $storeAccessError);
-    $duplicateStoreNameError = '';
-    $hasDuplicateStoreName = ($isCreateMode && $formData['ten'] !== '')
-        ? store_form_name_exists_in_database($formData['ten'], 0, $duplicateStoreNameError)
-        : false;
-
     if ($formData['ten'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng không được để trống.');
-    } elseif ($duplicateStoreNameError !== '') {
-        $pageMessage = array('type' => 'error', 'text' => $duplicateStoreNameError);
-    } elseif ($hasDuplicateStoreName) {
-        $pageMessage = array('type' => 'error', 'text' => 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.');
     } elseif ($idTaiKhoan <= 0) {
         $pageMessage = array('type' => 'error', 'text' => 'Phiên đăng nhập không hợp lệ, không thể lưu dữ liệu.');
-    } elseif (!$hasStoreAccess) {
-        $pageMessage = array('type' => 'error', 'text' => $storeAccessError);
     } elseif ($showOwnerEmailInput && $formData['emailChuQuanLy'] === '') {
         $pageMessage = array('type' => 'error', 'text' => 'Admin cần nhập email của chủ gian hàng.');
     } elseif ($latError !== '') {
@@ -836,18 +572,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                 $requestHttpCode = 0;
                 $requestResult = store_form_call_json('POST', store_form_request_collection_url($idTaiKhoan), $requestPayload, $requestError, $requestHttpCode);
 
-                if ($requestResult === null && ($requestHttpCode === 0 || $requestHttpCode === 404 || $requestHttpCode === 405)) {
-                    $newRequestId = store_form_request_db_create($idTaiKhoan, $requestPayload, $requestError);
-                    if ($newRequestId > 0) {
-                        header('Location: ' . admin_url('index1st.php?usecase=store&flash=request_sent'));
-                        exit;
-                    }
-                } elseif ($requestResult !== null) {
+                if ($requestResult !== null) {
                     header('Location: ' . admin_url('index1st.php?usecase=store&flash=request_sent'));
                     exit;
                 }
 
-                $pageMessage = array('type' => 'error', 'text' => 'Gửi yêu cầu thất bại: ' . $requestError);
+                $pageMessage = array('type' => 'error', 'text' => 'Gửi yêu cầu thất bại: ' . ($requestError !== '' ? $requestError : 'backend API chưa sẵn sàng.'));
             } else {
                 $createError = '';
                 $createResult = store_form_call_json('POST', store_form_collection_url($loaiTaiKhoan, $idTaiKhoan), $payload, $createError);
@@ -928,21 +658,16 @@ if (!$isCreateMode) {
     if ($idGianHang <= 0) {
         $pageError = 'Không xác định được gian hàng cần chỉnh sửa.';
     } else {
-        $accessError = '';
-        if (!store_form_can_access_store($loaiTaiKhoan, $idTaiKhoan, $idGianHang, $accessError)) {
-            $pageError = $accessError;
-        } else {
-            $detailError = '';
-            $detailResult = store_form_call_json('GET', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError);
+        $detailError = '';
+        $detailResult = store_form_call_json('GET', store_form_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError);
 
-            if (is_array($detailResult)) {
-                $store = $detailResult;
-                if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $pageMessage === null || $pageMessage['type'] !== 'error') {
-                    $formData = store_form_prepare_form_data($store);
-                }
-            } elseif ($pageError === '') {
-                $pageError = 'Không tải được thông tin gian hàng: ' . $detailError;
+        if (is_array($detailResult)) {
+            $store = $detailResult;
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $pageMessage === null || $pageMessage['type'] !== 'error') {
+                $formData = store_form_prepare_form_data($store);
             }
+        } elseif ($pageError === '') {
+            $pageError = 'Không tải được thông tin gian hàng: ' . $detailError;
         }
     }
 }

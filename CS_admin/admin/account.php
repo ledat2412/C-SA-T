@@ -11,16 +11,6 @@ if (!in_array($statusFilter, array('all', 'active', 'locked'), true)) {
     $statusFilter = 'all';
 }
 
-function account_api_url($idTaiKhoan)
-{
-    return backend_api_url('Admin/accounts') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
-}
-
-function account_api_status_url($idTaiKhoan, $targetAccountId)
-{
-    return backend_api_url('Admin/accounts/' . rawurlencode((string) $targetAccountId) . '/status') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
-}
-
 function account_list_url($statusFilter, $selectedAccountId = 0, $message = '', $notice = '', $action = '')
 {
     $params = array('usecase' => 'account');
@@ -46,51 +36,6 @@ function account_list_url($statusFilter, $selectedAccountId = 0, $message = '', 
     }
 
     return admin_url('index1st.php?' . http_build_query($params));
-}
-
-function account_request_json($method, $url, $payload, &$error, &$httpCode = 0)
-{
-    $error = '';
-    $httpCode = 0;
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-
-    $body = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($body === false) {
-        $error = $curlError !== '' ? $curlError : 'Không thể kết nối backend.';
-        return null;
-    }
-
-    $decoded = json_decode($body, true);
-    if ($httpCode >= 400) {
-        if (is_array($decoded) && isset($decoded['message'])) {
-            $error = (string) $decoded['message'];
-        } else {
-            $error = 'API trả về HTTP ' . $httpCode . '.';
-        }
-
-        return null;
-    }
-
-    if ($decoded === null && trim((string) $body) !== '') {
-        $error = 'Phản hồi API không hợp lệ.';
-        return null;
-    }
-
-    return $decoded;
 }
 
 function account_role_meta($role)
@@ -274,323 +219,6 @@ function account_validate_create_payload($values, &$error)
     return true;
 }
 
-function account_fetch_from_database(&$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return array();
-    }
-
-    $sql = "
-        SELECT
-            tk.idTaiKhoan,
-            tk.username,
-            tk.email,
-            tk.loaiTaiKhoan,
-            tk.tinhTrang,
-            tk.tinhTrangDangKy,
-            tk.ngayTao,
-            ad.idAdmin,
-            cql.idChuQuanLy,
-            COALESCE(ad.hoTen, cql.hoTen) AS hoTen
-        FROM taikhoan tk
-        LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
-        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
-        WHERE tk.loaiTaiKhoan IN ('admin', 'chu_quan_ly')
-        ORDER BY
-            CASE tk.loaiTaiKhoan
-                WHEN 'admin' THEN 0
-                WHEN 'chu_quan_ly' THEN 1
-                ELSE 2
-            END,
-            tk.ngayTao DESC,
-            tk.idTaiKhoan";
-
-    $result = $conn->query($sql);
-    if (!$result) {
-        $error = 'Không thể đọc danh sách tài khoản: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-
-    $items = array();
-    while ($row = $result->fetch_assoc()) {
-        $items[] = $row;
-    }
-
-    $result->free();
-    $conn->close();
-    return $items;
-}
-
-function account_fetch_one_from_database($idTaiKhoan, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return null;
-    }
-
-    $stmt = $conn->prepare("
-        SELECT
-            tk.idTaiKhoan,
-            tk.username,
-            tk.email,
-            tk.loaiTaiKhoan,
-            tk.tinhTrang,
-            tk.tinhTrangDangKy,
-            tk.ngayTao,
-            ad.idAdmin,
-            cql.idChuQuanLy,
-            COALESCE(ad.hoTen, cql.hoTen) AS hoTen
-        FROM taikhoan tk
-        LEFT JOIN admin ad ON ad.idTaiKhoan = tk.idTaiKhoan
-        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
-        WHERE tk.idTaiKhoan = ?
-        LIMIT 1
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return null;
-    }
-
-    $stmt->bind_param('i', $idTaiKhoan);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-    $conn->close();
-    return $row ?: null;
-}
-
-function account_db_value_exists($conn, $sql, $types, $params)
-{
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        return false;
-    }
-
-    $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $exists = $result && $result->fetch_row();
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-
-    return (bool) $exists;
-}
-
-function account_create_in_database($values, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return null;
-    }
-
-    $username = $values['username'];
-    $email = $values['email'];
-    $hoTen = $values['hoTen'];
-    $matKhau = $values['matKhau'];
-    $loaiTaiKhoan = $values['loaiTaiKhoan'];
-    $tinhTrang = $values['tinhTrang'];
-    $idLienKet = $values['idLienKet'] !== '' ? (int) $values['idLienKet'] : null;
-
-    if (account_db_value_exists($conn, "SELECT 1 FROM taikhoan WHERE email = ? LIMIT 1", 's', array($email))) {
-        $error = 'Email đã tồn tại trong hệ thống.';
-        $conn->close();
-        return null;
-    }
-
-    if (account_db_value_exists($conn, "SELECT 1 FROM taikhoan WHERE username = ? LIMIT 1", 's', array($username))) {
-        $error = 'Tài khoản đăng nhập đã tồn tại trong hệ thống.';
-        $conn->close();
-        return null;
-    }
-
-    if ($idLienKet !== null) {
-        if ($loaiTaiKhoan === 'admin' && account_db_value_exists($conn, "SELECT 1 FROM admin WHERE idAdmin = ? LIMIT 1", 'i', array($idLienKet))) {
-            $error = 'ID admin đã tồn tại trong hệ thống.';
-            $conn->close();
-            return null;
-        }
-
-        if ($loaiTaiKhoan === 'chu_quan_ly' && account_db_value_exists($conn, "SELECT 1 FROM chu_quan_ly WHERE idChuQuanLy = ? LIMIT 1", 'i', array($idLienKet))) {
-            $error = 'ID chủ quản lý đã tồn tại trong hệ thống.';
-            $conn->close();
-            return null;
-        }
-    }
-
-    $conn->begin_transaction();
-
-    try {
-        $stmt = $conn->prepare("
-            INSERT INTO taikhoan (email, matKhau, username, loaiTaiKhoan, tinhTrang, tinhTrangDangKy)
-            VALUES (?, ?, ?, ?, ?, 'da_duyet')
-        ");
-        if (!$stmt) {
-            throw new Exception($conn->error);
-        }
-
-        $stmt->bind_param('sssss', $email, $matKhau, $username, $loaiTaiKhoan, $tinhTrang);
-        $stmt->execute();
-        $insertedAccountId = (int) $conn->insert_id;
-        $stmt->close();
-
-        if ($loaiTaiKhoan === 'admin') {
-            if ($idLienKet !== null) {
-                $stmt = $conn->prepare("INSERT INTO admin (idAdmin, idTaiKhoan, hoTen) VALUES (?, ?, ?)");
-                if (!$stmt) {
-                    throw new Exception($conn->error);
-                }
-                $stmt->bind_param('iis', $idLienKet, $insertedAccountId, $hoTen);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO admin (idTaiKhoan, hoTen) VALUES (?, ?)");
-                if (!$stmt) {
-                    throw new Exception($conn->error);
-                }
-                $stmt->bind_param('is', $insertedAccountId, $hoTen);
-            }
-        } else {
-            if ($idLienKet !== null) {
-                $stmt = $conn->prepare("INSERT INTO chu_quan_ly (idChuQuanLy, idTaiKhoan, hoTen) VALUES (?, ?, ?)");
-                if (!$stmt) {
-                    throw new Exception($conn->error);
-                }
-                $stmt->bind_param('iis', $idLienKet, $insertedAccountId, $hoTen);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO chu_quan_ly (idTaiKhoan, hoTen) VALUES (?, ?)");
-                if (!$stmt) {
-                    throw new Exception($conn->error);
-                }
-                $stmt->bind_param('is', $insertedAccountId, $hoTen);
-            }
-        }
-
-        $stmt->execute();
-        $stmt->close();
-        $conn->commit();
-        $conn->close();
-
-        $lookupError = '';
-        return account_fetch_one_from_database($insertedAccountId, $lookupError);
-    } catch (Throwable $throwable) {
-        $conn->rollback();
-        $error = $throwable->getMessage();
-        $conn->close();
-        return null;
-    }
-}
-
-function account_update_status_in_database($currentAdminAccountId, $targetAccountId, $targetStatus, &$error)
-{
-    $error = '';
-    $normalizedStatus = strtolower(trim((string) $targetStatus));
-    if (!array_key_exists($normalizedStatus, account_status_options())) {
-        $error = 'Tình trạng tài khoản không hợp lệ.';
-        return false;
-    }
-
-    if ($currentAdminAccountId > 0 && $currentAdminAccountId === $targetAccountId && $normalizedStatus === 'khoa') {
-        $error = 'Không thể khóa chính tài khoản admin đang đăng nhập.';
-        return false;
-    }
-
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return false;
-    }
-
-    $accountStmt = $conn->prepare("
-        SELECT tk.loaiTaiKhoan, cql.idChuQuanLy
-        FROM taikhoan tk
-        LEFT JOIN chu_quan_ly cql ON cql.idTaiKhoan = tk.idTaiKhoan
-        WHERE tk.idTaiKhoan = ?
-        LIMIT 1
-    ");
-    if (!$accountStmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    $accountStmt->bind_param('i', $targetAccountId);
-    $accountStmt->execute();
-    $accountResult = $accountStmt->get_result();
-    $accountRow = $accountResult ? $accountResult->fetch_assoc() : null;
-    if ($accountResult) {
-        $accountResult->free();
-    }
-    $accountStmt->close();
-
-    if (!is_array($accountRow)) {
-        $error = 'Không tìm thấy tài khoản cần cập nhật.';
-        $conn->close();
-        return false;
-    }
-
-    $conn->begin_transaction();
-
-    try {
-        $updateStmt = $conn->prepare("UPDATE taikhoan SET tinhTrang = ? WHERE idTaiKhoan = ?");
-        if (!$updateStmt) {
-            throw new Exception($conn->error);
-        }
-
-        $updateStmt->bind_param('si', $normalizedStatus, $targetAccountId);
-        $updateStmt->execute();
-        $updateStmt->close();
-
-        $affectedStores = 0;
-        if (($accountRow['loaiTaiKhoan'] ?? '') === 'chu_quan_ly' && $normalizedStatus === 'khoa' && !empty($accountRow['idChuQuanLy'])) {
-            $ownerId = (int) $accountRow['idChuQuanLy'];
-            $storeStmt = $conn->prepare("
-                UPDATE gianhang
-                SET tinhTrang = CASE
-                    WHEN tinhTrang = 'dong_cua' THEN 'dong_cua'
-                    ELSE 'tam_ngung'
-                END,
-                thoiGianCapNhat = NOW()
-                WHERE idChuQuanLy = ?
-            ");
-            if (!$storeStmt) {
-                throw new Exception($conn->error);
-            }
-
-            $storeStmt->bind_param('i', $ownerId);
-            $storeStmt->execute();
-            $affectedStores = (int) $storeStmt->affected_rows;
-            $storeStmt->close();
-        }
-
-        $conn->commit();
-        $conn->close();
-
-        if (($accountRow['loaiTaiKhoan'] ?? '') === 'chu_quan_ly' && $normalizedStatus === 'khoa') {
-            return 'Cập nhật tình trạng tài khoản thành công. Đã tạm ngừng ' . $affectedStores . ' gian hàng của chủ quản lý này.';
-        }
-
-        return 'Cập nhật tình trạng tài khoản thành công.';
-    } catch (Throwable $throwable) {
-        $conn->rollback();
-        $error = $throwable->getMessage();
-        $conn->close();
-        return false;
-    }
-}
-
 $accountError = '';
 $accountNotice = $flashNotice;
 $accountMessage = $flashMessage;
@@ -622,20 +250,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
 
         $apiHttpCode = 0;
         $apiError = '';
-        $createdAccount = $idTaiKhoan > 0 ? account_request_json('POST', account_api_url($idTaiKhoan), $payload, $apiError, $apiHttpCode) : null;
+        $createdAccount = $idTaiKhoan > 0
+            ? admin_api_call('POST', 'Admin/accounts', $payload, $apiError, $apiHttpCode, array('idTaiKhoan' => $idTaiKhoan))
+            : null;
 
         if (!is_array($createdAccount)) {
-            $fallbackError = '';
-            $createdAccount = account_create_in_database($createValues, $fallbackError);
-            if (is_array($createdAccount)) {
-                header('Location: ' . account_list_url('all', (int) $createdAccount['idTaiKhoan'], 'Tạo tài khoản mới thành công.', 'Trang tài khoản đang dùng DB fallback vì API chưa sẵn sàng.'));
-                exit;
-            }
-
-            $accountError = $apiError !== '' ? $apiError : $fallbackError;
-            if ($apiError !== '' && $fallbackError !== '' && $fallbackError !== $apiError) {
-                $accountError .= ' | ' . $fallbackError;
-            }
+            $accountError = $apiError !== '' ? $apiError : 'Không thể tạo tài khoản: backend API chưa sẵn sàng.';
         } else {
             header('Location: ' . account_list_url('all', (int) $createdAccount['idTaiKhoan'], 'Tạo tài khoản mới thành công.'));
             exit;
@@ -658,23 +278,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
     } else {
         $apiHttpCode = 0;
         $apiError = '';
+        $statusPath = 'Admin/accounts/' . rawurlencode((string) $targetAccountId) . '/status';
         $apiResult = $idTaiKhoan > 0
-            ? account_request_json('PATCH', account_api_status_url($idTaiKhoan, $targetAccountId), array('tinhTrang' => $targetStatus), $apiError, $apiHttpCode)
+            ? admin_api_call('PATCH', $statusPath, array('tinhTrang' => $targetStatus), $apiError, $apiHttpCode, array('idTaiKhoan' => $idTaiKhoan))
             : null;
 
         if (!is_array($apiResult)) {
-            $fallbackError = '';
-            $fallbackMessage = account_update_status_in_database($idTaiKhoan, $targetAccountId, $targetStatus, $fallbackError);
-            if ($fallbackMessage !== false) {
-                $nextFilter = $targetStatus === 'khoa' ? 'locked' : 'active';
-                header('Location: ' . account_list_url($nextFilter, $targetAccountId, $fallbackMessage, 'Trang tài khoản đang dùng DB fallback vì API chưa sẵn sàng.'));
-                exit;
-            }
-
-            $accountError = $apiError !== '' ? $apiError : $fallbackError;
-            if ($apiError !== '' && $fallbackError !== '' && $fallbackError !== $apiError) {
-                $accountError .= ' | ' . $fallbackError;
-            }
+            $accountError = $apiError !== '' ? $apiError : 'Không thể cập nhật trạng thái: backend API chưa sẵn sàng.';
         } else {
             $nextFilter = $targetStatus === 'khoa' ? 'locked' : 'active';
             $successMessage = isset($apiResult['message']) && $apiResult['message'] !== '' ? (string) $apiResult['message'] : 'Cập nhật tình trạng tài khoản thành công.';
@@ -685,23 +295,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['account_action']) && 
 }
 
 $accountHttpCode = 0;
-$accounts = $idTaiKhoan > 0 ? account_request_json('GET', account_api_url($idTaiKhoan), null, $accountError, $accountHttpCode) : array();
+$accounts = $idTaiKhoan > 0
+    ? admin_api_call('GET', 'Admin/accounts', null, $accountError, $accountHttpCode, array('idTaiKhoan' => $idTaiKhoan))
+    : array();
 
 if (!is_array($accounts)) {
-    $fallbackError = '';
-    $fallbackAccounts = account_fetch_from_database($fallbackError);
-    if (count($fallbackAccounts) > 0) {
-        $accounts = $fallbackAccounts;
-        if ($accountNotice === '') {
-            $accountNotice = 'Trang tài khoản đang dùng dữ liệu trực tiếp từ DB vì API chưa sẵn sàng.';
-        }
-        if ($accountHttpCode < 400) {
-            $accountError = '';
-        }
-    } elseif ($fallbackError !== '') {
-        $accountError = trim($accountError . ' | ' . $fallbackError, ' |');
-    } else {
-        $accounts = array();
+    $accounts = array();
+    if ($accountError === '') {
+        $accountError = 'Không thể tải danh sách tài khoản: backend API chưa sẵn sàng.';
     }
 }
 

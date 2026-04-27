@@ -102,6 +102,73 @@ if (!function_exists('backend_public_url')) {
     }
 }
 
+/**
+ * Gọi API backend .NET (VinhKhanh). Trả về dữ liệu JSON đã decode (assoc array)
+ * khi 2xx, hoặc null khi lỗi — ghi mô tả lỗi vào $error, mã HTTP vào $httpCode.
+ *
+ * @param string $method   GET|POST|PUT|PATCH|DELETE
+ * @param string $path     Phần path sau /api/, vd: 'Admin/stores'
+ * @param mixed  $payload  Body sẽ được json_encode (truyền null nếu không có)
+ * @param string $error    OUT — mô tả lỗi nếu có
+ * @param int    $httpCode OUT — mã HTTP trả về
+ * @param array  $query    Query string assoc array, vd ['idTaiKhoan' => 1]
+ * @return mixed|null
+ */
+if (!function_exists('admin_api_call')) {
+    function admin_api_call($method, $path, $payload = null, &$error = '', &$httpCode = 0, $query = array())
+    {
+        $error = '';
+        $httpCode = 0;
+
+        $url = backend_api_url($path);
+        if (is_array($query) && count($query) > 0) {
+            $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
+        }
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper((string) $method));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ));
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+
+        if ($payload !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        }
+
+        $body = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false) {
+            $error = $curlError !== '' ? $curlError : 'Khong the ket noi backend.';
+            return null;
+        }
+
+        $decoded = json_decode((string) $body, true);
+
+        if ($httpCode >= 400) {
+            $error = is_array($decoded) && isset($decoded['message'])
+                ? (string) $decoded['message']
+                : 'API tra ve HTTP ' . $httpCode . '.';
+            return null;
+        }
+
+        if ($decoded === null && trim((string) $body) !== '') {
+            $error = 'Phan hoi API khong hop le.';
+            return null;
+        }
+
+        return $decoded;
+    }
+}
+
 if (!function_exists('backend_connection_settings')) {
     function backend_connection_settings()
     {

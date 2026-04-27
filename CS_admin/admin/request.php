@@ -12,18 +12,16 @@ if (!in_array($statusFilter, array('all', 'cho_duyet', 'cho_thanh_toan', 'da_duy
     $statusFilter = 'all';
 }
 
-function request_api_url($idTaiKhoan, $isOwnerRequestViewer, $idYeuCau = null, $suffix = '')
+function request_path($isOwnerRequestViewer, $idYeuCau = null, $suffix = '')
 {
     $path = $isOwnerRequestViewer ? 'Owner/store-requests' : 'Admin/store-requests';
     if ($idYeuCau !== null) {
         $path .= '/' . rawurlencode((string) $idYeuCau);
     }
-
     if ($suffix !== '') {
         $path .= '/' . ltrim($suffix, '/');
     }
-
-    return backend_api_url($path) . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return $path;
 }
 
 function request_page_url($statusFilter, $selectedRequestId = 0, $message = '', $error = '', $notice = '')
@@ -51,101 +49,6 @@ function request_page_url($statusFilter, $selectedRequestId = 0, $message = '', 
     }
 
     return admin_url('index1st.php?' . http_build_query($params));
-}
-
-function request_store_name_exists($conn, $name, &$error)
-{
-    $error = '';
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB để kiểm tra tên gian hàng.';
-        return false;
-    }
-
-    $normalizedName = trim((string) $name);
-    if ($normalizedName === '') {
-        return false;
-    }
-
-    $stmt = $conn->prepare("
-        SELECT COUNT(*)
-        FROM gianhang
-        WHERE LOWER(TRIM(ten)) = LOWER(TRIM(?))
-    ");
-
-    if (!$stmt) {
-        $error = 'Không thể kiểm tra tên gian hàng: ' . $conn->error;
-        return false;
-    }
-
-    $stmt->bind_param('s', $normalizedName);
-    if (!$stmt->execute()) {
-        $error = 'Không thể kiểm tra tên gian hàng: ' . $stmt->error;
-        $stmt->close();
-        return false;
-    }
-
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_row() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-
-    return $row && isset($row[0]) && (int) $row[0] > 0;
-}
-
-function request_call_json($method, $url, $payload, &$error, &$httpCode = 0)
-{
-    $error = '';
-    $httpCode = 0;
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-
-    $body = curl_exec($ch);
-    if ($body === false) {
-        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Không thể kết nối backend.';
-        curl_close($ch);
-        return null;
-    }
-
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($body === '') {
-        if ($httpCode >= 400) {
-            $error = 'API trả về HTTP ' . $httpCode . '.';
-            return null;
-        }
-
-        return array();
-    }
-
-    $decoded = json_decode($body, true);
-    if ($decoded === null && strtolower(trim($body)) !== 'null') {
-        $error = 'Phản hồi từ backend không hợp lệ.';
-        return null;
-    }
-
-    if ($httpCode >= 400) {
-        if (is_array($decoded) && !empty($decoded['message'])) {
-            $error = (string) $decoded['message'];
-        } else {
-            $error = 'API trả về HTTP ' . $httpCode . '.';
-        }
-
-        return null;
-    }
-
-    return $decoded;
 }
 
 function request_status_meta($status)
@@ -184,282 +87,6 @@ function request_display_text($value, $emptyText = 'Chưa có')
     return $value !== '' ? $value : $emptyText;
 }
 
-function request_fetch_from_database($idTaiKhoan, $isOwnerRequestViewer, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return array();
-    }
-
-    if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-
-    $sql = "
-        SELECT
-            ycg.idYeuCau,
-            'them_gian_hang' AS loaiYeuCau,
-            ycg.idChuQuanLy,
-            cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-            cql.hoTen AS hoTenChuQuanLy,
-            tk.username AS usernameChuQuanLy,
-            tk.email AS emailChuQuanLy,
-            ycg.tenDeNghi AS tenGianHang,
-            ycg.diaChiDeNghi AS diaChi,
-            ycg.ghiChuGui AS moTa,
-            'vi' AS ngonNguMoTa,
-            gh.lat,
-            gh.lon,
-            gh.phiHangThang,
-            COALESCE(gh.tinhTrang, 'dang_hoat_dong') AS tinhTrangDeXuat,
-            ycg.trangThai AS trangThaiYeuCau,
-            NULL AS ghiChuXuLy,
-            NULL AS idTaiKhoanXuLy,
-            NULL AS tenNguoiXuLy,
-            ycg.idGianHang,
-            ycg.ngayGui AS ngayTao,
-            ycg.ngayXuLy AS thoiGianXuLy
-        FROM yeucaugianhang ycg
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = ycg.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        LEFT JOIN gianhang gh ON gh.idGianHang = ycg.idGianHang";
-
-    if ($isOwnerRequestViewer) {
-        $sql .= "
-        WHERE cql.idTaiKhoan = " . (int) $idTaiKhoan;
-    }
-
-    $sql .= "
-        ORDER BY
-            CASE ycg.trangThai
-                WHEN 'cho_duyet' THEN 0
-                WHEN 'cho_thanh_toan' THEN 1
-                WHEN 'da_duyet' THEN 2
-                ELSE 3
-            END,
-            ycg.ngayGui DESC,
-            ycg.idYeuCau DESC
-    ";
-
-    $result = $conn->query($sql);
-    if (!$result) {
-        $error = 'Không thể đọc dữ liệu yêu cầu: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-
-    $items = array();
-    while ($row = $result->fetch_assoc()) {
-        $items[] = $row;
-    }
-
-    $result->free();
-    $conn->close();
-    return $items;
-}
-
-function request_db_review($idYeuCau, $reviewerAccountId, $decision, $phiHangThang, $lat, $lon, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB fallback.';
-        return null;
-    }
-
-    if (!admin_ensure_store_request_table($conn)) {
-        $error = 'Không thể khởi tạo bảng yêu cầu: ' . $conn->error;
-        $conn->close();
-        return null;
-    }
-
-    $decision = strtolower(trim((string) $decision));
-    if (!in_array($decision, array('cho_thanh_toan', 'tu_choi'), true)) {
-        $error = 'Trạng thái xử lý không hợp lệ.';
-        $conn->close();
-        return null;
-    }
-
-    $statusToUpdate = $decision === 'cho_thanh_toan' ? 'cho_thanh_toan' : 'tu_choi';
-    $phiHangThangToSave = $decision === 'cho_thanh_toan' ? (float) $phiHangThang : null;
-
-    if ($decision === 'cho_thanh_toan') {
-        if ($phiHangThang === null || (float) $phiHangThang < 0) {
-            $error = 'Admin phải nhập phí hàng tháng hợp lệ trước khi phê duyệt.';
-            $conn->close();
-            return null;
-        }
-
-        if ($lat === null || $lon === null) {
-            $error = 'Admin phải nhập đầy đủ vĩ độ và kinh độ trước khi phê duyệt.';
-            $conn->close();
-            return null;
-        }
-    }
-
-    $conn->begin_transaction();
-
-    $selectStmt = $conn->prepare("
-        SELECT idYeuCau, idChuQuanLy, tenDeNghi, diaChiDeNghi, trangThai
-        FROM yeucaugianhang
-        WHERE idYeuCau = ?
-        LIMIT 1
-        FOR UPDATE
-    ");
-    if (!$selectStmt) {
-        $error = $conn->error;
-        $conn->close();
-        return null;
-    }
-
-    $selectStmt->bind_param('i', $idYeuCau);
-    $selectStmt->execute();
-    $result = $selectStmt->get_result();
-    $row = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-    $selectStmt->close();
-
-    if (!is_array($row)) {
-        $conn->rollback();
-        $conn->close();
-        $error = 'Không tìm thấy yêu cầu.';
-        return null;
-    }
-
-    if (($row['trangThai'] ?? '') !== 'cho_duyet') {
-        $conn->rollback();
-        $conn->close();
-        $error = 'Yêu cầu này đã được xử lý trước đó.';
-        return null;
-    }
-
-    $createdStoreId = null;
-    if ($decision === 'cho_thanh_toan') {
-        $insertStoreStmt = $conn->prepare("
-            INSERT INTO gianhang
-            (
-                idChuQuanLy,
-                ten,
-                diaChi,
-                lat,
-                lon,
-                tinhTrang,
-                phiHangThang,
-                ngayDangKy,
-                thoiGianCapNhat
-            )
-            VALUES
-            (?, ?, NULLIF(?, ''), ?, ?, 'tam_ngung', ?, NOW(), NOW())
-        ");
-        if (!$insertStoreStmt) {
-            $conn->rollback();
-            $conn->close();
-            $error = $conn->error;
-            return null;
-        }
-
-        $ownerId = (int) $row['idChuQuanLy'];
-        $tenGianHang = (string) $row['tenDeNghi'];
-        $diaChi = isset($row['diaChiDeNghi']) && $row['diaChiDeNghi'] !== null ? (string) $row['diaChiDeNghi'] : '';
-        $duplicateError = '';
-
-        if (request_store_name_exists($conn, $tenGianHang, $duplicateError)) {
-            $insertStoreStmt->close();
-            $conn->rollback();
-            $conn->close();
-            $error = 'Tên gian hàng đã tồn tại. Vui lòng chọn tên khác.';
-            return null;
-        }
-
-        if ($duplicateError !== '') {
-            $insertStoreStmt->close();
-            $conn->rollback();
-            $conn->close();
-            $error = $duplicateError;
-            return null;
-        }
-
-        $insertStoreStmt->bind_param('issddd', $ownerId, $tenGianHang, $diaChi, $lat, $lon, $phiHangThangToSave);
-        $insertStoreStmt->execute();
-        if ($insertStoreStmt->errno !== 0) {
-            $error = $insertStoreStmt->error !== '' ? $insertStoreStmt->error : 'Không thể tạo gian hàng từ yêu cầu.';
-            $insertStoreStmt->close();
-            $conn->rollback();
-            $conn->close();
-            return null;
-        }
-
-        $createdStoreId = (int) $conn->insert_id;
-        $insertStoreStmt->close();
-
-        $insertInvoiceStmt = $conn->prepare("
-            INSERT INTO hoadongianhang (idGianHang, tongTien, ngayHetHan, trangThai, ghiChu, ngayTao)
-            VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 MONTH), 'chua_thanh_toan', 'Phí duy trì tháng đầu tiên', NOW())
-        ");
-        if ($insertInvoiceStmt) {
-            $insertInvoiceStmt->bind_param('id', $createdStoreId, $phiHangThangToSave);
-            $insertInvoiceStmt->execute();
-            if ($insertInvoiceStmt->errno !== 0) {
-                $error = 'Không thể tạo hóa đơn cho gian hàng mới.';
-                $insertInvoiceStmt->close();
-                $conn->rollback();
-                $conn->close();
-                return null;
-            }
-            $insertInvoiceStmt->close();
-        }
-    }
-
-    if ($createdStoreId !== null) {
-        $updateStmt = $conn->prepare("
-            UPDATE yeucaugianhang
-            SET trangThai = ?,
-                idGianHang = ?,
-                ngayXuLy = NOW()
-            WHERE idYeuCau = ?
-        ");
-    } else {
-        $updateStmt = $conn->prepare("
-            UPDATE yeucaugianhang
-            SET trangThai = ?,
-                ngayXuLy = NOW()
-            WHERE idYeuCau = ?
-        ");
-    }
-    if (!$updateStmt) {
-        $conn->rollback();
-        $conn->close();
-        $error = $conn->error;
-        return null;
-    }
-
-    if ($createdStoreId !== null) {
-        $updateStmt->bind_param('sii', $statusToUpdate, $createdStoreId, $idYeuCau);
-    } else {
-        $updateStmt->bind_param('si', $statusToUpdate, $idYeuCau);
-    }
-    $updateStmt->execute();
-    if ($updateStmt->errno !== 0) {
-        $error = $updateStmt->error !== '' ? $updateStmt->error : 'Không thể cập nhật trạng thái yêu cầu.';
-        $updateStmt->close();
-        $conn->rollback();
-        $conn->close();
-        return null;
-    }
-
-    $updateStmt->close();
-    $conn->commit();
-    $conn->close();
-
-    return array('idGianHang' => $createdStoreId);
-}
-
 if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_action']) && $_POST['request_action'] === 'review') {
     $targetRequestId = isset($_POST['idYeuCau']) ? (int) $_POST['idYeuCau'] : 0;
     $decision = isset($_POST['decision']) ? strtolower(trim((string) $_POST['decision'])) : '';
@@ -480,9 +107,9 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
     $apiError = '';
     $httpCode = 0;
     $result = $idTaiKhoan > 0
-        ? request_call_json(
+        ? admin_api_call(
             'PATCH',
-            request_api_url($idTaiKhoan, $isOwnerRequestViewer, $targetRequestId, 'review'),
+            request_path($isOwnerRequestViewer, $targetRequestId, 'review'),
             array(
                 'trangThaiYeuCau' => $decision,
                 'phiHangThang' => $phiHangThang,
@@ -490,27 +117,14 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
                 'lon' => $lon,
             ),
             $apiError,
-            $httpCode
+            $httpCode,
+            array('idTaiKhoan' => $idTaiKhoan)
         )
         : null;
 
-    if ($result === null && ($httpCode === 0 || $httpCode === 404 || $httpCode === 405)) {
-        $fallbackError = '';
-        $fallbackResult = request_db_review($targetRequestId, $idTaiKhoan, $decision, $phiHangThang, $lat, $lon, $fallbackError);
-        if ($fallbackResult !== null) {
-            $successMessage = $decision === 'cho_thanh_toan'
-                ? 'Đã duyệt yêu cầu và tạo gian hàng mới.'
-                : 'Đã từ chối yêu cầu.';
-            header('Location: ' . request_page_url($statusFilter, $targetRequestId, $successMessage, '', 'Đang dùng DB fallback vì backend live chưa có endpoint mới.'));
-            exit;
-        }
-
-        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $fallbackError !== '' ? $fallbackError : 'Không thể xử lý yêu cầu.', $flashNotice));
-        exit;
-    }
-
     if ($result === null) {
-        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $apiError !== '' ? $apiError : 'Không thể xử lý yêu cầu.', $flashNotice));
+        $msg = $apiError !== '' ? $apiError : 'Không thể xử lý yêu cầu: backend API chưa sẵn sàng.';
+        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', $msg, $flashNotice));
         exit;
     }
 
@@ -524,27 +138,18 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
 
 $requestError = '';
 $requestHttpCode = 0;
-$allRequests = $idTaiKhoan > 0 ? request_call_json('GET', request_api_url($idTaiKhoan, $isOwnerRequestViewer), null, $requestError, $requestHttpCode) : array();
+$allRequests = $idTaiKhoan > 0
+    ? admin_api_call('GET', request_path($isOwnerRequestViewer), null, $requestError, $requestHttpCode, array('idTaiKhoan' => $idTaiKhoan))
+    : array();
 $pageNotice = $flashNotice;
 $usingFallback = false;
 
 if (!is_array($allRequests)) {
     $allRequests = array();
-}
-
-if ($idTaiKhoan <= 0 || (count($allRequests) === 0 && ($requestHttpCode >= 400 || $requestError !== ''))) {
-    $fallbackError = '';
-    $dbRequests = request_fetch_from_database($idTaiKhoan, $isOwnerRequestViewer, $fallbackError);
-    if (count($dbRequests) > 0 || $fallbackError === '') {
-        $allRequests = $dbRequests;
-        $usingFallback = true;
-        if ($pageNotice === '') {
-            $pageNotice = $isOwnerRequestViewer
-                ? 'Trang Yêu cầu đang dùng DB fallback để đọc các yêu cầu đã gửi của bạn.'
-                : 'Trang Yêu cầu đang dùng DB fallback vì backend live chưa hỗ trợ hoặc chưa được restart.';
-        }
-    } elseif ($flashError === '') {
-        $flashError = $requestError !== '' ? $requestError : $fallbackError;
+    if ($flashError === '' && $requestError !== '') {
+        $flashError = $requestError;
+    } elseif ($flashError === '' && $idTaiKhoan > 0) {
+        $flashError = 'Không thể tải danh sách yêu cầu: backend API chưa sẵn sàng.';
     }
 }
 

@@ -429,21 +429,25 @@ namespace VinhKhanh.Services
 
                 if (shouldCountVisit)
                 {
+                    const int VISIT_WEIGHT = 1; // +N mỗi lần thiết bị mới ghé trong ngày (đã qua dedupe).
+
                     const string sql1 = @"
                         UPDATE gianhang
-                        SET luotTruyCap = luotTruyCap + 1
+                        SET luotTruyCap = luotTruyCap + @weight
                         WHERE idGianHang = @idGianHang";
 
                     using var cmd1 = new MySqlCommand(sql1, conn, transaction);
                     cmd1.Parameters.AddWithValue("@idGianHang", idGianHang);
+                    cmd1.Parameters.AddWithValue("@weight", VISIT_WEIGHT);
                     await cmd1.ExecuteNonQueryAsync();
 
                     const string sql2 = @"
                         INSERT INTO luot_truy_cap_ngay (idGianHang, ngay, soLuot)
-                        VALUES (@idGianHang, CURDATE(), 1)
-                        ON DUPLICATE KEY UPDATE soLuot = soLuot + 1";
+                        VALUES (@idGianHang, CURDATE(), @weight)
+                        ON DUPLICATE KEY UPDATE soLuot = soLuot + @weight";
                     using var cmd2 = new MySqlCommand(sql2, conn, transaction);
                     cmd2.Parameters.AddWithValue("@idGianHang", idGianHang);
+                    cmd2.Parameters.AddWithValue("@weight", VISIT_WEIGHT);
                     await cmd2.ExecuteNonQueryAsync();
                 }
 

@@ -399,5 +399,98 @@ namespace VinhKhanh.Controllers
 
             return null;
         }
+
+        [HttpGet("poi-map")]
+        public async Task<IActionResult> GetPoiMap([FromQuery] int idTaiKhoan, [FromQuery] bool ownerOnly = false)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            var ownerFilter = ownerOnly ? (int?)idTaiKhoan : null;
+            return Ok(await _adminService.GetPoiMapAsync(ownerFilter));
+        }
+
+        [HttpGet("stores/{idGianHang}/daily-visits")]
+        public async Task<IActionResult> GetStoreDailyVisits(int idGianHang, [FromQuery] int idTaiKhoan)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await _adminService.GetStoreDailyVisitsAsync(idGianHang));
+        }
+
+        [HttpGet("invoices")]
+        public async Task<IActionResult> GetInvoices(
+            [FromQuery] int idTaiKhoan,
+            [FromQuery] bool ownerOnly,
+            [FromServices] InvoiceService invoiceService)
+        {
+            if (ownerOnly)
+            {
+                if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                    return ForbiddenResult();
+                return Ok(await invoiceService.ListAsync(idTaiKhoan));
+            }
+
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            return Ok(await invoiceService.ListAsync(null));
+        }
+
+        [HttpGet("invoices/{idHoaDon}")]
+        public async Task<IActionResult> GetInvoice(
+            int idHoaDon,
+            [FromQuery] int idTaiKhoan,
+            [FromQuery] bool ownerOnly,
+            [FromServices] InvoiceService invoiceService)
+        {
+            int? ownerFilter = null;
+            if (ownerOnly)
+            {
+                if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                    return ForbiddenResult();
+                ownerFilter = idTaiKhoan;
+            }
+            else
+            {
+                if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                    return ForbiddenResult();
+            }
+
+            var invoice = await invoiceService.GetByIdAsync(idHoaDon, ownerFilter);
+            if (invoice == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Không tìm thấy hóa đơn." });
+
+            return Ok(invoice);
+        }
+
+        [HttpGet("invoices/{idHoaDon}/status")]
+        public async Task<IActionResult> GetInvoiceStatus(
+            int idHoaDon,
+            [FromServices] InvoiceService invoiceService)
+        {
+            var status = await invoiceService.GetStatusAsync(idHoaDon);
+            if (status == null)
+                return NotFound(new { status = "error" });
+
+            return Ok(status);
+        }
+
+        [HttpPost("invoices/{idHoaDon}/mark-paid")]
+        public async Task<IActionResult> MarkInvoicePaid(
+            int idHoaDon,
+            [FromQuery] int idTaiKhoan,
+            [FromServices] InvoiceService invoiceService)
+        {
+            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            var ok = await invoiceService.MarkPaidAsync(idHoaDon);
+            if (!ok)
+                return BadRequest(new OperationResultDto { Success = false, Message = "Hóa đơn không tồn tại hoặc đã thanh toán." });
+
+            return Ok(new OperationResultDto { Success = true, Message = "Đã đánh dấu hóa đơn đã thanh toán." });
+        }
     }
 }

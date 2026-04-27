@@ -139,88 +139,17 @@ function invoice_matches_search($invoiceItem, $query)
     return false;
 }
 
-function invoice_fetch_from_database($idTaiKhoan, $isOwnerInvoiceViewer, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể mở kết nối DB để tải hóa đơn gian hàng.';
-        return array();
-    }
+$apiError = '';
+$apiHttpCode = 0;
+$query = array('idTaiKhoan' => $idTaiKhoan, 'ownerOnly' => $isOwnerInvoiceViewer ? 'true' : 'false');
+$allInvoices = $idTaiKhoan > 0
+    ? admin_api_call('GET', 'Admin/invoices', null, $apiError, $apiHttpCode, $query)
+    : null;
 
-    $sql = "
-        SELECT
-            hdgh.idHoaDonGianHang,
-            hdgh.idGianHang,
-            hdgh.tongTien,
-            hdgh.ngayHetHan,
-            hdgh.trangThai,
-            hdgh.ghiChu,
-            hdgh.ngayTao,
-            gh.ten AS tenGianHang,
-            gh.diaChi,
-            gh.phiHangThang,
-            gh.tinhTrang AS tinhTrangGianHang,
-            gh.idChuQuanLy,
-            cql.idTaiKhoan AS idTaiKhoanChuQuanLy,
-            cql.hoTen AS hoTenChuQuanLy,
-            tk.username AS usernameChuQuanLy,
-            tk.email AS emailChuQuanLy
-        FROM hoadongianhang hdgh
-        INNER JOIN gianhang gh ON gh.idGianHang = hdgh.idGianHang
-        LEFT JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        LEFT JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan";
-
-    if ($isOwnerInvoiceViewer) {
-        $sql .= "
-        WHERE cql.idTaiKhoan = ?";
-    }
-
-    $sql .= "
-        ORDER BY
-            CASE hdgh.trangThai
-                WHEN 'chua_thanh_toan' THEN 0
-                WHEN 'qua_han' THEN 1
-                WHEN 'da_thanh_toan' THEN 2
-                ELSE 3
-            END,
-            hdgh.ngayTao DESC,
-            hdgh.idHoaDonGianHang DESC
-    ";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        $error = 'Không thể đọc dữ liệu hóa đơn: ' . $conn->error;
-        $conn->close();
-        return array();
-    }
-
-    if ($isOwnerInvoiceViewer) {
-        $stmt->bind_param('i', $idTaiKhoan);
-    }
-
-    if (!$stmt->execute()) {
-        $error = 'Không thể đọc dữ liệu hóa đơn: ' . $stmt->error;
-        $stmt->close();
-        $conn->close();
-        return array();
-    }
-
-    $result = $stmt->get_result();
-    $items = array();
-    if ($result) {
-        while ($row = $result->fetch_assoc()) {
-            $items[] = $row;
-        }
-        $result->free();
-    }
-
-    $stmt->close();
-    $conn->close();
-    return $items;
+if (!is_array($allInvoices)) {
+    $allInvoices = array();
+    $invoiceError = $apiError !== '' ? $apiError : 'Không thể tải danh sách hóa đơn: backend API chưa sẵn sàng.';
 }
-
-$allInvoices = invoice_fetch_from_database($idTaiKhoan, $isOwnerInvoiceViewer, $invoiceError);
 
 $counts = array(
     'all' => count($allInvoices),

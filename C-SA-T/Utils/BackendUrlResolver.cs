@@ -78,11 +78,13 @@ public static class BackendUrlResolver
             }
             : new[]
             {
+                // Ngrok đứng đầu để phone không phụ thuộc LAN IP máy host.
+                // Nếu LAN IP máy đổi (Wi-Fi mới, DHCP renew), app vẫn reach được backend qua internet.
+                AndroidDeviceFallbackBaseUrl,
                 AndroidDeviceLocalHttpBaseUrl,
                 AndroidDeviceLocalHttpsBaseUrl,
                 AndroidDeviceReverseHttpBaseUrl,
-                AndroidDeviceReverseHttpsBaseUrl,
-                AndroidDeviceFallbackBaseUrl
+                AndroidDeviceReverseHttpsBaseUrl
             };
 #else
         return new[]

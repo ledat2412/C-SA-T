@@ -9,23 +9,19 @@ if ($invoiceId <= 0) {
     exit;
 }
 
-$conn = admin_db_connection();
-if (!$conn instanceof mysqli) {
+$apiError = '';
+$apiHttpCode = 0;
+$result = admin_api_call(
+    'GET',
+    'Admin/invoices/' . rawurlencode((string) $invoiceId) . '/status',
+    null,
+    $apiError,
+    $apiHttpCode
+);
+
+if (!is_array($result) || !isset($result['trangThai'])) {
     echo json_encode(['status' => 'error']);
     exit;
 }
 
-$stmt = $conn->prepare("SELECT trangThai FROM hoadongianhang WHERE idHoaDonGianHang = ? LIMIT 1");
-$stmt->bind_param('i', $invoiceId);
-$stmt->execute();
-$result = $stmt->get_result();
-$row = $result->fetch_assoc();
-
-if ($row) {
-    echo json_encode(['status' => $row['trangThai']]);
-} else {
-    echo json_encode(['status' => 'error']);
-}
-
-$stmt->close();
-$conn->close();
+echo json_encode(['status' => (string) $result['trangThai']]);

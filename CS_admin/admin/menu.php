@@ -8,77 +8,34 @@ $isCreateFoodMode = isset($_GET['mode']) && $_GET['mode'] === 'create';
 $pageMessage = null;
 $pageError = '';
 
-function menu_page_call_json($method, $url, $payload, &$error, &$httpCode = 0)
+function menu_page_role_prefix($role)
 {
-    $error = '';
-    $httpCode = 0;
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-
-    $body = curl_exec($ch);
-    if ($body === false) {
-        $error = curl_error($ch) !== '' ? curl_error($ch) : 'Không thể kết nối backend.';
-        curl_close($ch);
-        return null;
-    }
-
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    $decoded = $body !== '' ? json_decode($body, true) : array();
-    if ($httpCode >= 400) {
-        if (is_array($decoded) && !empty($decoded['message'])) {
-            $error = (string) $decoded['message'];
-        } else {
-            $error = 'API trả về HTTP ' . $httpCode . '.';
-        }
-        return null;
-    }
-
-    if ($decoded === null && trim((string) $body) !== '') {
-        $error = 'Phản hồi từ backend không hợp lệ.';
-        return null;
-    }
-
-    return is_array($decoded) ? $decoded : array();
+    return $role === 'chu_quan_ly' ? 'Owner' : 'Admin';
 }
 
-function menu_page_store_detail_url($role, $idTaiKhoan, $idGianHang)
+function menu_page_store_detail_path($role, $idGianHang)
 {
-    $endpoint = $role === 'chu_quan_ly' ? 'Owner/stores/' : 'Admin/stores/';
-    return backend_api_url($endpoint . rawurlencode((string) $idGianHang)) . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan) . '&lang=vi';
+    return menu_page_role_prefix($role) . '/stores/' . rawurlencode((string) $idGianHang);
 }
 
-function menu_page_foods_url($role, $idTaiKhoan, $idGianHang)
+function menu_page_foods_path($role, $idGianHang)
 {
-    $endpoint = $role === 'chu_quan_ly' ? 'Owner/stores/' : 'Admin/stores/';
-    return backend_api_url($endpoint . rawurlencode((string) $idGianHang) . '/foods') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return menu_page_role_prefix($role) . '/stores/' . rawurlencode((string) $idGianHang) . '/foods';
 }
 
-function menu_page_food_collection_url($role, $idTaiKhoan)
+function menu_page_food_collection_path($role)
 {
-    $endpoint = $role === 'chu_quan_ly' ? 'Owner/foods' : 'Admin/foods';
-    return backend_api_url($endpoint) . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return menu_page_role_prefix($role) . '/foods';
 }
 
-function menu_page_food_detail_url($role, $idTaiKhoan, $idMonAn)
+function menu_page_food_detail_path($role, $idMonAn)
 {
-    $endpoint = $role === 'chu_quan_ly' ? 'Owner/foods/' : 'Admin/foods/';
-    return backend_api_url($endpoint . rawurlencode((string) $idMonAn)) . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
+    return menu_page_role_prefix($role) . '/foods/' . rawurlencode((string) $idMonAn);
 }
 
 function menu_page_food_image_url($role, $idTaiKhoan, $idMonAn)
 {
-    $endpoint = $role === 'chu_quan_ly' ? 'Owner/foods/' : 'Admin/foods/';
+    $endpoint = menu_page_role_prefix($role) . '/foods/';
     return backend_api_url($endpoint . rawurlencode((string) $idMonAn) . '/image') . '?idTaiKhoan=' . rawurlencode((string) $idTaiKhoan);
 }
 
@@ -191,351 +148,6 @@ function menu_page_format_money($value)
     return number_format((float) $value, 0, ',', '.') . ' đ';
 }
 
-function menu_page_db_get_store($idGianHang, $idTaiKhoan, $role)
-{
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        return null;
-    }
-
-    $sql = "
-        SELECT
-            gh.idGianHang,
-            gh.ten,
-            gh.tinhTrang,
-            gh.phiHangThang,
-            gh.thoiGianCapNhat
-        FROM gianhang gh
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        WHERE gh.idGianHang = ?
-    ";
-    if ($role === 'chu_quan_ly') {
-        $sql .= " AND tk.idTaiKhoan = ?";
-    }
-    $sql .= " LIMIT 1";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        $conn->close();
-        return null;
-    }
-
-    if ($role === 'chu_quan_ly') {
-        $stmt->bind_param('ii', $idGianHang, $idTaiKhoan);
-    } else {
-        $stmt->bind_param('i', $idGianHang);
-    }
-
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-    $conn->close();
-
-    return is_array($row) ? $row : null;
-}
-
-function menu_page_db_get_foods($idGianHang, $idTaiKhoan, $role)
-{
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        return array();
-    }
-
-    $sql = "
-        SELECT
-            ma.idMonAn,
-            ma.idGianHang,
-            ma.ten,
-            ma.donGia,
-            ma.tinhTrang,
-            (
-                SELECT ham.duongDan
-                FROM hinhanhmonan ham
-                WHERE ham.idMonAn = ma.idMonAn
-                ORDER BY ham.idHinhAnh
-                LIMIT 1
-            ) AS hinhAnh
-        FROM monan ma
-        INNER JOIN gianhang gh ON gh.idGianHang = ma.idGianHang
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        WHERE ma.idGianHang = ?
-    ";
-    if ($role === 'chu_quan_ly') {
-        $sql .= " AND tk.idTaiKhoan = ?";
-    }
-    $sql .= " ORDER BY ma.idMonAn";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        $conn->close();
-        return array();
-    }
-
-    if ($role === 'chu_quan_ly') {
-        $stmt->bind_param('ii', $idGianHang, $idTaiKhoan);
-    } else {
-        $stmt->bind_param('i', $idGianHang);
-    }
-
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $foods = array();
-    if ($result) {
-        while ($row = $result->fetch_assoc()) {
-            $foods[] = $row;
-        }
-        $result->free();
-    }
-
-    $stmt->close();
-    $conn->close();
-    return $foods;
-}
-
-function menu_page_db_save_food_image($idMonAn, $fileInfo, $idTaiKhoan, $role, &$error)
-{
-    $error = '';
-    if (!is_array($fileInfo) || empty($fileInfo['tmp_name']) || !is_file($fileInfo['tmp_name'])) {
-        $error = 'Không tìm thấy file ảnh món ăn hợp lệ.';
-        return '';
-    }
-
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB để lưu ảnh món ăn.';
-        return '';
-    }
-
-    $sql = "
-        SELECT ham.idHinhAnh, ham.duongDan
-        FROM monan ma
-        INNER JOIN gianhang gh ON gh.idGianHang = ma.idGianHang
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        LEFT JOIN hinhanhmonan ham ON ham.idMonAn = ma.idMonAn
-        WHERE ma.idMonAn = ?
-    ";
-    if ($role === 'chu_quan_ly') {
-        $sql .= " AND tk.idTaiKhoan = ?";
-    }
-    $sql .= " ORDER BY ham.idHinhAnh LIMIT 1";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return '';
-    }
-
-    if ($role === 'chu_quan_ly') {
-        $stmt->bind_param('ii', $idMonAn, $idTaiKhoan);
-    } else {
-        $stmt->bind_param('i', $idMonAn);
-    }
-
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result ? $result->fetch_assoc() : null;
-    if ($result) {
-        $result->free();
-    }
-    $stmt->close();
-
-    if (!is_array($row)) {
-        $error = 'Bạn không có quyền cập nhật ảnh cho món ăn này.';
-        $conn->close();
-        return '';
-    }
-
-    $backendRoot = dirname(__DIR__, 2) . '/VinhKhanh/VinhKhanh/wwwroot';
-    $targetDir = $backendRoot . '/images/foods';
-    if (!is_dir($targetDir) && !mkdir($targetDir, 0777, true) && !is_dir($targetDir)) {
-        $error = 'Không thể tạo thư mục lưu ảnh món ăn.';
-        $conn->close();
-        return '';
-    }
-
-    $extension = pathinfo((string) $fileInfo['name'], PATHINFO_EXTENSION);
-    $extension = $extension !== '' ? '.' . strtolower($extension) : '.jpg';
-    $fileName = 'food_' . (int) $idMonAn . '_' . gmdate('YmdHis') . '_' . mt_rand(100, 999) . $extension;
-    $relativePath = 'images/foods/' . $fileName;
-    $absolutePath = $targetDir . '/' . $fileName;
-
-    if (!move_uploaded_file($fileInfo['tmp_name'], $absolutePath)) {
-        $error = 'Không thể lưu file ảnh món ăn.';
-        $conn->close();
-        return '';
-    }
-
-    $existingImageId = isset($row['idHinhAnh']) ? (int) $row['idHinhAnh'] : 0;
-    $existingPath = isset($row['duongDan']) ? (string) $row['duongDan'] : '';
-
-    if ($existingImageId > 0) {
-        $updateStmt = $conn->prepare("
-            UPDATE hinhanhmonan
-            SET duongDan = ?
-            WHERE idHinhAnh = ?
-        ");
-        if (!$updateStmt) {
-            $error = $conn->error;
-            $conn->close();
-            return '';
-        }
-        $updateStmt->bind_param('si', $relativePath, $existingImageId);
-        $updateStmt->execute();
-        $updateStmt->close();
-    } else {
-        $insertStmt = $conn->prepare("
-            INSERT INTO hinhanhmonan (idMonAn, duongDan)
-            VALUES (?, ?)
-        ");
-        if (!$insertStmt) {
-            $error = $conn->error;
-            $conn->close();
-            return '';
-        }
-        $insertStmt->bind_param('is', $idMonAn, $relativePath);
-        $insertStmt->execute();
-        $insertStmt->close();
-    }
-
-    $conn->close();
-
-    if ($existingPath !== '') {
-        $oldAbsolutePath = $backendRoot . '/' . ltrim(str_replace('\\', '/', $existingPath), '/');
-        if (is_file($oldAbsolutePath) && realpath(dirname($oldAbsolutePath)) === realpath($targetDir) && $oldAbsolutePath !== $absolutePath) {
-            @unlink($oldAbsolutePath);
-        }
-    }
-
-    return $relativePath;
-}
-
-function menu_page_db_create_food($payload, $idTaiKhoan, $role, &$error)
-{
-    $error = '';
-    $store = menu_page_db_get_store((int) $payload['idGianHang'], $idTaiKhoan, $role);
-    if (!is_array($store)) {
-        $error = 'Bạn không có quyền với gian hàng này.';
-        return 0;
-    }
-
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB.';
-        return 0;
-    }
-
-    $stmt = $conn->prepare("
-        INSERT INTO monan (idGianHang, ten, donGia, thoiGianCapNhat, tinhTrang)
-        VALUES (?, ?, ?, NOW(), ?)
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return 0;
-    }
-
-    $idStore = (int) $payload['idGianHang'];
-    $ten = trim((string) $payload['ten']);
-    $donGia = (float) $payload['donGia'];
-    $tinhTrang = trim((string) $payload['tinhTrang']);
-    $stmt->bind_param('isds', $idStore, $ten, $donGia, $tinhTrang);
-    $stmt->execute();
-
-    $newId = $stmt->errno === 0 ? (int) $conn->insert_id : 0;
-    if ($stmt->errno !== 0) {
-        $error = $stmt->error !== '' ? $stmt->error : 'Không thể thêm món ăn mới.';
-    }
-
-    $stmt->close();
-    $conn->close();
-    return $newId;
-}
-
-function menu_page_db_update_food($idMonAn, $payload, $idTaiKhoan, $role, &$error)
-{
-    $error = '';
-    $conn = admin_db_connection();
-    if (!$conn instanceof mysqli) {
-        $error = 'Không thể kết nối DB.';
-        return false;
-    }
-
-    $sql = "
-        SELECT ma.idMonAn
-        FROM monan ma
-        INNER JOIN gianhang gh ON gh.idGianHang = ma.idGianHang
-        INNER JOIN chu_quan_ly cql ON cql.idChuQuanLy = gh.idChuQuanLy
-        INNER JOIN taikhoan tk ON tk.idTaiKhoan = cql.idTaiKhoan
-        WHERE ma.idMonAn = ?
-    ";
-    if ($role === 'chu_quan_ly') {
-        $sql .= " AND tk.idTaiKhoan = ?";
-    }
-    $sql .= " LIMIT 1";
-
-    $checkStmt = $conn->prepare($sql);
-    if (!$checkStmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    if ($role === 'chu_quan_ly') {
-        $checkStmt->bind_param('ii', $idMonAn, $idTaiKhoan);
-    } else {
-        $checkStmt->bind_param('i', $idMonAn);
-    }
-
-    $checkStmt->execute();
-    $checkResult = $checkStmt->get_result();
-    $allowed = $checkResult ? $checkResult->fetch_assoc() : null;
-    if ($checkResult) {
-        $checkResult->free();
-    }
-    $checkStmt->close();
-
-    if (!is_array($allowed)) {
-        $error = 'Bạn không có quyền chỉnh sửa món ăn này.';
-        $conn->close();
-        return false;
-    }
-
-    $stmt = $conn->prepare("
-        UPDATE monan
-        SET ten = ?, donGia = ?, tinhTrang = ?, thoiGianCapNhat = NOW()
-        WHERE idMonAn = ? AND idGianHang = ?
-    ");
-    if (!$stmt) {
-        $error = $conn->error;
-        $conn->close();
-        return false;
-    }
-
-    $ten = trim((string) $payload['ten']);
-    $donGia = (float) $payload['donGia'];
-    $tinhTrang = trim((string) $payload['tinhTrang']);
-    $idStore = (int) $payload['idGianHang'];
-    $stmt->bind_param('sdsii', $ten, $donGia, $tinhTrang, $idMonAn, $idStore);
-    $stmt->execute();
-
-    $success = $stmt->errno === 0;
-    if (!$success) {
-        $error = $stmt->error !== '' ? $stmt->error : 'Không thể cập nhật món ăn.';
-    }
-
-    $stmt->close();
-    $conn->close();
-    return $success;
-}
-
 $flash = isset($_GET['flash']) ? (string) $_GET['flash'] : '';
 if ($flash === 'created') {
     $pageMessage = array('type' => 'success', 'text' => 'Đã thêm món ăn mới cho gian hàng.');
@@ -587,24 +199,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
         if ($formData['idMonAn'] > 0) {
             $apiError = '';
             $apiHttpCode = 0;
-            $updateResult = menu_page_call_json('PUT', menu_page_food_detail_url($loaiTaiKhoan, $idTaiKhoan, $formData['idMonAn']), $payload, $apiError, $apiHttpCode);
+            $updateResult = admin_api_call(
+                'PUT',
+                menu_page_food_detail_path($loaiTaiKhoan, $formData['idMonAn']),
+                $payload,
+                $apiError,
+                $apiHttpCode,
+                array('idTaiKhoan' => $idTaiKhoan)
+            );
 
-            if ($updateResult === null && ($apiHttpCode === 0 || $apiHttpCode === 404 || $apiHttpCode === 405)) {
-                $fallbackError = '';
-                if (menu_page_db_update_food($formData['idMonAn'], $payload, $idTaiKhoan, $loaiTaiKhoan, $fallbackError)) {
-                    $imageFailed = false;
-                    if ($hasUploadedImage) {
-                        $imageError = '';
-                        $imagePath = menu_page_db_save_food_image($formData['idMonAn'], $uploadedImage, $idTaiKhoan, $loaiTaiKhoan, $imageError);
-                        $imageFailed = $imagePath === '';
-                    }
-                    header('Location: ' . menu_page_redirect_url($idGianHang, $formData['idMonAn'], 'updated') . ($imageFailed ? '&image=failed' : ''));
-                    exit;
-                }
-
-                $pageMessage = array('type' => 'error', 'text' => $fallbackError !== '' ? $fallbackError : $apiError);
-            } elseif ($updateResult === null) {
-                $pageMessage = array('type' => 'error', 'text' => 'Cập nhật món ăn thất bại: ' . $apiError);
+            if ($updateResult === null) {
+                $pageMessage = array('type' => 'error', 'text' => 'Cập nhật món ăn thất bại: ' . ($apiError !== '' ? $apiError : 'backend API chưa sẵn sàng.'));
             } else {
                 $redirectFoodId = isset($updateResult['idMonAn']) ? (int) $updateResult['idMonAn'] : $formData['idMonAn'];
                 $imageFailed = false;
@@ -612,11 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
                     $imageError = '';
                     $imageHttpCode = 0;
                     $imageResult = menu_page_call_file_upload(menu_page_food_image_url($loaiTaiKhoan, $idTaiKhoan, $redirectFoodId), 'image', $uploadedImage, $imageError, $imageHttpCode);
-                    if ($imageResult === null && ($imageHttpCode === 0 || $imageHttpCode === 404 || $imageHttpCode === 405)) {
-                        $fallbackImageError = '';
-                        $fallbackImagePath = menu_page_db_save_food_image($redirectFoodId, $uploadedImage, $idTaiKhoan, $loaiTaiKhoan, $fallbackImageError);
-                        $imageFailed = $fallbackImagePath === '';
-                    } elseif ($imageResult === null) {
+                    if ($imageResult === null) {
                         $imageFailed = true;
                     }
                 }
@@ -626,25 +227,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
         } else {
             $apiError = '';
             $apiHttpCode = 0;
-            $createResult = menu_page_call_json('POST', menu_page_food_collection_url($loaiTaiKhoan, $idTaiKhoan), $payload, $apiError, $apiHttpCode);
+            $createResult = admin_api_call(
+                'POST',
+                menu_page_food_collection_path($loaiTaiKhoan),
+                $payload,
+                $apiError,
+                $apiHttpCode,
+                array('idTaiKhoan' => $idTaiKhoan)
+            );
 
-            if ($createResult === null && ($apiHttpCode === 0 || $apiHttpCode === 404 || $apiHttpCode === 405)) {
-                $fallbackError = '';
-                $newFoodId = menu_page_db_create_food($payload, $idTaiKhoan, $loaiTaiKhoan, $fallbackError);
-                if ($newFoodId > 0) {
-                    $imageFailed = false;
-                    if ($hasUploadedImage) {
-                        $imageError = '';
-                        $imagePath = menu_page_db_save_food_image($newFoodId, $uploadedImage, $idTaiKhoan, $loaiTaiKhoan, $imageError);
-                        $imageFailed = $imagePath === '';
-                    }
-                    header('Location: ' . menu_page_redirect_url($idGianHang, $newFoodId, 'created') . ($imageFailed ? '&image=failed' : ''));
-                    exit;
-                }
-
-                $pageMessage = array('type' => 'error', 'text' => $fallbackError !== '' ? $fallbackError : $apiError);
-            } elseif ($createResult === null) {
-                $pageMessage = array('type' => 'error', 'text' => 'Thêm món ăn thất bại: ' . $apiError);
+            if ($createResult === null) {
+                $pageMessage = array('type' => 'error', 'text' => 'Thêm món ăn thất bại: ' . ($apiError !== '' ? $apiError : 'backend API chưa sẵn sàng.'));
             } else {
                 $newFoodId = isset($createResult['idMonAn']) ? (int) $createResult['idMonAn'] : 0;
                 $imageFailed = false;
@@ -652,11 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
                     $imageError = '';
                     $imageHttpCode = 0;
                     $imageResult = menu_page_call_file_upload(menu_page_food_image_url($loaiTaiKhoan, $idTaiKhoan, $newFoodId), 'image', $uploadedImage, $imageError, $imageHttpCode);
-                    if ($imageResult === null && ($imageHttpCode === 0 || $imageHttpCode === 404 || $imageHttpCode === 405)) {
-                        $fallbackImageError = '';
-                        $fallbackImagePath = menu_page_db_save_food_image($newFoodId, $uploadedImage, $idTaiKhoan, $loaiTaiKhoan, $fallbackImageError);
-                        $imageFailed = $fallbackImagePath === '';
-                    } elseif ($imageResult === null) {
+                    if ($imageResult === null) {
                         $imageFailed = true;
                     }
                 }
@@ -672,34 +261,30 @@ if ($idGianHang <= 0) {
 } else {
     $detailError = '';
     $detailHttpCode = 0;
-    $storeSummary = menu_page_call_json('GET', menu_page_store_detail_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $detailError, $detailHttpCode);
-    if (!is_array($storeSummary)) {
-        $storeSummary = menu_page_db_get_store($idGianHang, $idTaiKhoan, $loaiTaiKhoan);
-    }
+    $storeSummary = admin_api_call(
+        'GET',
+        menu_page_store_detail_path($loaiTaiKhoan, $idGianHang),
+        null,
+        $detailError,
+        $detailHttpCode,
+        array('idTaiKhoan' => $idTaiKhoan, 'lang' => 'vi')
+    );
 
     if (!is_array($storeSummary)) {
-        $pageError = $detailError !== '' ? $detailError : 'Không tải được thông tin gian hàng để quản lý món ăn.';
+        $pageError = $detailError !== '' ? $detailError : 'Không tải được thông tin gian hàng: backend API chưa sẵn sàng.';
     } else {
         $foodsError = '';
         $foodsHttpCode = 0;
-        $foods = menu_page_call_json('GET', menu_page_foods_url($loaiTaiKhoan, $idTaiKhoan, $idGianHang), null, $foodsError, $foodsHttpCode);
+        $foods = admin_api_call(
+            'GET',
+            menu_page_foods_path($loaiTaiKhoan, $idGianHang),
+            null,
+            $foodsError,
+            $foodsHttpCode,
+            array('idTaiKhoan' => $idTaiKhoan)
+        );
         if (!is_array($foods)) {
-            $foods = menu_page_db_get_foods($idGianHang, $idTaiKhoan, $loaiTaiKhoan);
-        } elseif (count($foods) > 0 && (!array_key_exists('hinhAnh', $foods[0]) || !array_key_exists('idMonAn', $foods[0]))) {
-            $dbFoods = menu_page_db_get_foods($idGianHang, $idTaiKhoan, $loaiTaiKhoan);
-            if (count($dbFoods) > 0) {
-                $dbFoodsById = array();
-                foreach ($dbFoods as $dbFood) {
-                    $dbFoodsById[(int) ($dbFood['idMonAn'] ?? 0)] = $dbFood;
-                }
-
-                foreach ($foods as $index => $foodRow) {
-                    $foodId = (int) ($foodRow['idMonAn'] ?? 0);
-                    if ($foodId > 0 && isset($dbFoodsById[$foodId])) {
-                        $foods[$index]['hinhAnh'] = $dbFoodsById[$foodId]['hinhAnh'] ?? '';
-                    }
-                }
-            }
+            $foods = array();
         }
 
         foreach ($foods as $food) {
