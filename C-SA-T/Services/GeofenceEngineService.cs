@@ -284,7 +284,8 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         PublishLocationIfChanged(location);
 
-        List<GeofenceTriggeredEventArgs> triggers = [];
+        List<GeofenceTriggeredEventArgs> newlyEntered = [];
+        List<GeofenceTriggeredEventArgs> currentlyInside = [];
 
         await _sync.WaitAsync(ct);
         try
@@ -302,10 +303,11 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
                 if (isInside)
                 {
-                    var insideTarget = new GeofenceTriggeredEventArgs(target, distance);
+                    var triggerArgs = new GeofenceTriggeredEventArgs(target, distance);
+                    currentlyInside.Add(triggerArgs);
 
                     if (_insideTargetIds.Add(target.Id))
-                        triggers.Add(insideTarget);
+                        newlyEntered.Add(triggerArgs);
                 }
                 else
                 {
@@ -318,17 +320,15 @@ public sealed class GeofenceEngineService : IAsyncDisposable
             _sync.Release();
         }
 
-        if (triggers.Count == 0)
-            return;
-
-        var prioritizedTriggers = PrioritizeGeofenceTargets(triggers).ToList();
-        foreach (var trigger in prioritizedTriggers)
+        foreach (var trigger in PrioritizeGeofenceTargets(newlyEntered))
             EnteredGeofence?.Invoke(this, trigger);
 
-        if (!AutoPlayAudioWhenEntered)
+        if (!AutoPlayAudioWhenEntered || currentlyInside.Count == 0)
             return;
 
-        var preferredTarget = prioritizedTriggers[0];
+        // Re-evaluate priority on the full inside set every tick — entry order
+        // must not decide the winner when a visitor stands in overlapping zones.
+        var preferredTarget = PrioritizeGeofenceTargets(currentlyInside).First();
         await ScheduleAutoPlayAsync(preferredTarget.Target, ct);
     }
 
@@ -336,8 +336,10 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         IEnumerable<GeofenceTriggeredEventArgs> targets)
     {
         return targets
-            .OrderByDescending(x => x.Target.MonthlyFee)
-            .ThenBy(x => x.DistanceMeters)
+            .OrderBy(x => x.Target.RadiusMeters > 0
+                ? x.DistanceMeters / x.Target.RadiusMeters
+                : double.MaxValue)
+            .ThenByDescending(x => x.Target.MonthlyFee)
             .ThenBy(x => x.Target.Id);
     }
 
