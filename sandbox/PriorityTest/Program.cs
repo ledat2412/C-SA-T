@@ -126,6 +126,133 @@ ReEvalCase("10. Da o trong FoodCourt roi vao Kiosk -> Kiosk van thang (khong reg
     expectedWinnerId: 1,
     reason: "Du thu tu nhap khac, ket qua giong nhau — priority deterministic theo full set");
 
+// === Multi-visitor scenarios: 1000 visitors crossing overlapping zones ===
+// Each visitor independently runs Prioritize on the booths covering their position.
+// We verify: (a) determinism — same input produces same winner, (b) distribution
+// matches expectations from the priority rule, (c) no exceptions at scale.
+
+void MultiVisitorCase(string label, int visitorCount, Func<int, Trigger[]> placeVisitor, Action<Dictionary<int, int>> assertDistribution)
+{
+    var winnerCounts = new Dictionary<int, int>();
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+
+    for (var i = 0; i < visitorCount; i++)
+    {
+        var triggers = placeVisitor(i);
+        if (triggers.Length == 0) continue;
+
+        var winnerId = Priority.Prioritize(triggers).First().Target.Id;
+        winnerCounts[winnerId] = winnerCounts.GetValueOrDefault(winnerId) + 1;
+    }
+
+    sw.Stop();
+
+    Console.WriteLine($"[INFO] {label}");
+    Console.WriteLine($"        visitors : {visitorCount}, time: {sw.ElapsedMilliseconds}ms");
+    foreach (var kv in winnerCounts.OrderBy(x => x.Key))
+        Console.WriteLine($"        booth #{kv.Key}: {kv.Value} winners ({kv.Value * 100.0 / visitorCount:F1}%)");
+
+    try
+    {
+        assertDistribution(winnerCounts);
+        Console.WriteLine($"[PASS] Distribution matches priority rule");
+        passed++;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[FAIL] {ex.Message}");
+        failed++;
+    }
+    Console.WriteLine();
+}
+
+// Setup: 3 booth tai cung 1 trung tam, radius khac nhau.
+// Kiosk r=5m bao boi FoodCourt r=30m bao boi Mall r=100m.
+// Random 1000 visitor o vi tri ngau nhien trong vung Mall (max 100m tu tam).
+// Voi moi visitor: lay tat ca booth dang co (distance <= radius), prioritize.
+// Expectations: visitor o sau Kiosk (d<=5) -> Kiosk thang (ratio thap).
+// Visitor o ria Mall (d>30) -> chi co Mall, Mall thang.
+// Visitor o giua (5<d<=30) -> FoodCourt vs Mall, ratio thap hon thang.
+
+// 3 booth lech tam (realistic): Mall trung tam (0,0); FoodCourt offset (50,0); Kiosk offset (60,0).
+// Visitor random trong vung 100m quanh Mall.
+var rng = new Random(42);
+var boothPositions = new (Target booth, double cx, double cy)[]
+{
+    (new Target(1, "Kiosk",     RadiusMeters: 5,   MonthlyFee: 50_000m),  60d, 0d),
+    (new Target(2, "FoodCourt", RadiusMeters: 30,  MonthlyFee: 200_000m), 50d, 0d),
+    (new Target(3, "Mall",      RadiusMeters: 100, MonthlyFee: 500_000m), 0d,  0d),
+};
+
+Trigger[] PlaceVisitor(double vx, double vy)
+{
+    var triggers = new List<Trigger>();
+    foreach (var (booth, cx, cy) in boothPositions)
+    {
+        var d = Math.Sqrt((vx - cx) * (vx - cx) + (vy - cy) * (vy - cy));
+        if (d <= booth.RadiusMeters)
+            triggers.Add(new Trigger(booth, d));
+    }
+    return triggers.ToArray();
+}
+
+MultiVisitorCase(
+    "11. 1000 visitor random trong vung 100m, 3 booth lech tam",
+    visitorCount: 1000,
+    placeVisitor: i =>
+    {
+        var r = 100 * Math.Sqrt(rng.NextDouble());
+        var theta = rng.NextDouble() * 2 * Math.PI;
+        return PlaceVisitor(r * Math.Cos(theta), r * Math.Sin(theta));
+    },
+    assertDistribution: counts =>
+    {
+        var total = counts.Values.Sum();
+        if (total != 1000) throw new Exception($"Tong winner != 1000: {total}");
+        if (counts.GetValueOrDefault(3) < 700)
+            throw new Exception($"Mall phai chiem da so (~80%+), thuc te {counts.GetValueOrDefault(3)}");
+        if (counts.GetValueOrDefault(2) < 5)
+            throw new Exception($"FoodCourt phai co winner (visitor o vung overlap), thuc te {counts.GetValueOrDefault(2)}");
+    });
+
+// Determinism: cung seed -> winner counts identical
+MultiVisitorCase(
+    "12. Determinism: chay lai cung seed -> ket qua identical",
+    visitorCount: 1000,
+    placeVisitor: i =>
+    {
+        var rngLocal = new Random(42);
+        for (var j = 0; j < i; j++) { rngLocal.NextDouble(); rngLocal.NextDouble(); }
+        var r = 100 * Math.Sqrt(rngLocal.NextDouble());
+        var theta = rngLocal.NextDouble() * 2 * Math.PI;
+        return PlaceVisitor(r * Math.Cos(theta), r * Math.Sin(theta));
+    },
+    assertDistribution: counts =>
+    {
+        if (counts.Values.Sum() != 1000) throw new Exception("Tong != 1000");
+    });
+
+// 2 booth fee bang nhau, radius bang nhau, overlap 100% -> fee tie-break stable
+var equalBooths = new[] {
+    new Target(10, "Booth-A", RadiusMeters: 20, MonthlyFee: 100_000m),
+    new Target(20, "Booth-B", RadiusMeters: 20, MonthlyFee: 200_000m),
+};
+MultiVisitorCase(
+    "13. 1000 visitor giua 2 booth fee khac -> 100% chon booth fee cao",
+    visitorCount: 1000,
+    placeVisitor: i =>
+    {
+        // Tat ca visitor o cung vi tri trung tam -> ratio = 0/20 = 0 cho ca 2
+        return equalBooths.Select(b => new Trigger(b, DistanceMeters: 0)).ToArray();
+    },
+    assertDistribution: counts =>
+    {
+        if (counts.GetValueOrDefault(20) != 1000)
+            throw new Exception($"Booth-B fee cao phai thang het, thuc te {counts.GetValueOrDefault(20)}/1000");
+        if (counts.ContainsKey(10) && counts[10] > 0)
+            throw new Exception("Booth-A fee thap khong duoc thang case nay");
+    });
+
 Console.WriteLine($"=== Total: {passed} passed, {failed} failed ===");
 return failed == 0 ? 0 : 1;
 

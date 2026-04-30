@@ -30,6 +30,11 @@ public partial class PoiMapPage : ContentPage
     private readonly MonAnService _monAnService;
     private readonly GeofenceEngineService _geofenceEngine;
     private readonly SQLiteService _sqliteService;
+    private readonly AudioCacheService _audioCacheService;
+    private List<GianHang> _gianHangsForPrefetch = new();
+    private DateTime _lastLazyPrefetchAtUtc = DateTime.MinValue;
+    private double? _lastLazyPrefetchLat;
+    private double? _lastLazyPrefetchLon;
     private readonly Map _map;
     private readonly View _footer;
     private readonly Grid _topBar;
@@ -141,7 +146,8 @@ public partial class PoiMapPage : ContentPage
         MonAnService monAnService,
         GeofenceEngineService geofenceEngine,
         SQLiteService sqliteService,
-        LocalizationService localizationService)
+        LocalizationService localizationService,
+        AudioCacheService audioCacheService)
     {
         _poiService = poiService;
         _gianHangService = gianHangService;
@@ -149,6 +155,7 @@ public partial class PoiMapPage : ContentPage
         _geofenceEngine = geofenceEngine;
         _sqliteService = sqliteService;
         _loc = localizationService;
+        _audioCacheService = audioCacheService;
         _selectedLanguageCode = localizationService.CurrentLanguage;
 
         Title = "";

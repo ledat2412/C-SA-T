@@ -8,10 +8,12 @@ namespace VinhKhanh.Controllers
     public class PoiController : ControllerBase
     {
         private readonly GianHangService _gianHangService;
+        private readonly PoiVisitQueue _visitQueue;
 
-        public PoiController(GianHangService gianHangService)
+        public PoiController(GianHangService gianHangService, PoiVisitQueue visitQueue)
         {
             _gianHangService = gianHangService;
+            _visitQueue = visitQueue;
         }
 
         [HttpGet]
@@ -34,32 +36,25 @@ namespace VinhKhanh.Controllers
         }
 
         [HttpPost("{id}/visit")]
-        public async Task<IActionResult> RecordVisit(int id)
+        public IActionResult RecordVisit(int id)
         {
             var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-            var result = await _gianHangService.IncrementVisitCountAsync(id, deviceId);
-
-            if (!result.StoreExists)
+            if (string.IsNullOrWhiteSpace(deviceId))
             {
-                return NotFound(new { success = false, message = "Khong tim thay gian hang." });
+                return BadRequest(new { success = false, message = "Thieu header X-Device-Id." });
             }
 
-            if (!result.Success)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    success = false,
-                    message = "Khong the ghi nhan luot truy cap POI."
-                });
-            }
+            // Enqueue fire-and-forget. Worker batch-flush moi 5s (hoac 50 items),
+            // dedup ngay van duoc DB dam bao qua bang luot_truy_cap_thiet_bi_ngay.
+            var enqueued = _visitQueue.TryEnqueue(id, deviceId);
 
-            return Ok(new
+            return Accepted(new
             {
                 success = true,
-                counted = result.Counted,
-                message = result.Counted
-                    ? "Da ghi nhan luot truy cap POI."
-                    : "Thiet bi nay da duoc ghi nhan cho gian hang nay trong ngay hom nay."
+                queued = enqueued,
+                message = enqueued
+                    ? "Da xep hang ghi nhan luot truy cap."
+                    : "Yeu cau bi loai do dedup cooldown hoac queue day."
             });
         }
     }

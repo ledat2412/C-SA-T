@@ -29,6 +29,9 @@ builder.Services.AddSingleton<GoogleTtsService>();
 builder.Services.AddSingleton<DeviceTouchQueue>();
 builder.Services.AddHostedService<DeviceTouchWorker>();
 
+builder.Services.AddSingleton<PoiVisitQueue>();
+builder.Services.AddHostedService<PoiVisitWorker>();
+
 var app = builder.Build();
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions

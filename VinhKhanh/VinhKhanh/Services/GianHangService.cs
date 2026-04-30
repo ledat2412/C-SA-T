@@ -483,5 +483,72 @@ namespace VinhKhanh.Services
 
             return normalized;
         }
+
+        /// <summary>
+        /// Flush 1 batch (idGianHang, maThietBi) duoc PoiVisitWorker gom lai. Voi moi
+        /// gian hang trong batch: 1 INSERT IGNORE multi-row vao bang dedup ngay,
+        /// 1 UPDATE gianhang.luotTruyCap += newCount, 1 UPSERT luot_truy_cap_ngay.
+        /// Tat ca chay trong cung 1 transaction de tranh phan-failure.
+        /// </summary>
+        public async Task<int> FlushVisitBatchAsync(IEnumerable<PoiVisitItem> items, CancellationToken ct = default)
+        {
+            var grouped = items
+                .Select(x => new { x.IdGianHang, Device = NormalizeDeviceId(x.MaThietBi) })
+                .Where(x => !string.IsNullOrWhiteSpace(x.Device))
+                .GroupBy(x => x.IdGianHang)
+                .Select(g => new
+                {
+                    BoothId = g.Key,
+                    Devices = g.Select(x => x.Device!).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                })
+                .Where(g => g.Devices.Count > 0)
+                .ToList();
+
+            if (grouped.Count == 0)
+                return 0;
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync(ct);
+            using var transaction = await conn.BeginTransactionAsync(ct);
+
+            var totalCounted = 0;
+
+            foreach (var group in grouped)
+            {
+                var paramNames = group.Devices.Select((_, i) => $"@d{i}").ToList();
+                var valuesSql = string.Join(", ", paramNames.Select(p => $"(@booth, {p}, CURDATE())"));
+
+                var insertSql = "INSERT IGNORE INTO luot_truy_cap_thiet_bi_ngay (idGianHang, maThietBi, ngay) VALUES " + valuesSql + ";";
+                using var insertCmd = new MySqlCommand(insertSql, conn, transaction);
+                insertCmd.Parameters.AddWithValue("@booth", group.BoothId);
+                for (var i = 0; i < group.Devices.Count; i++)
+                    insertCmd.Parameters.AddWithValue(paramNames[i], group.Devices[i]);
+
+                var newlyInserted = await insertCmd.ExecuteNonQueryAsync(ct);
+                if (newlyInserted <= 0)
+                    continue;
+
+                using var updateCmd = new MySqlCommand(
+                    "UPDATE gianhang SET luotTruyCap = luotTruyCap + @count WHERE idGianHang = @booth;",
+                    conn, transaction);
+                updateCmd.Parameters.AddWithValue("@count", newlyInserted);
+                updateCmd.Parameters.AddWithValue("@booth", group.BoothId);
+                await updateCmd.ExecuteNonQueryAsync(ct);
+
+                using var upsertCmd = new MySqlCommand(
+                    @"INSERT INTO luot_truy_cap_ngay (idGianHang, ngay, soLuot)
+                      VALUES (@booth, CURDATE(), @count)
+                      ON DUPLICATE KEY UPDATE soLuot = soLuot + @count;",
+                    conn, transaction);
+                upsertCmd.Parameters.AddWithValue("@booth", group.BoothId);
+                upsertCmd.Parameters.AddWithValue("@count", newlyInserted);
+                await upsertCmd.ExecuteNonQueryAsync(ct);
+
+                totalCounted += newlyInserted;
+            }
+
+            await transaction.CommitAsync(ct);
+            return totalCounted;
+        }
     }
 }

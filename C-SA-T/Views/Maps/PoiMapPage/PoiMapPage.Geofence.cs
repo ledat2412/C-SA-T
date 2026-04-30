@@ -76,6 +76,7 @@ public partial class PoiMapPage
         try
         {
             var gianHangs = await _gianHangService.GetAllAsync(_selectedLanguageCode);
+            _gianHangsForPrefetch = gianHangs.ToList();
             await _geofenceEngine.UpdateTargetsAsync(gianHangs, radiusMeters: 10);
 
             if (!_isLiveLocationSubscribed)
@@ -114,6 +115,47 @@ public partial class PoiMapPage
                 _searchEntry.Text,
                 revealResults: false,
                 preserveSelectedPoi: true);
+        });
+
+        TriggerLazyAudioPrefetchIfDue(e.Location);
+    }
+
+    private void TriggerLazyAudioPrefetchIfDue(Location location)
+    {
+        if (_gianHangsForPrefetch.Count == 0)
+            return;
+
+        // Throttle: chỉ chạy nếu di chuyển >30m HOẶC quá 30s từ lần prefetch trước.
+        var now = DateTime.UtcNow;
+        var sinceLast = now - _lastLazyPrefetchAtUtc;
+        var movedFar = !_lastLazyPrefetchLat.HasValue ||
+                       Location.CalculateDistance(
+                           _lastLazyPrefetchLat.Value, _lastLazyPrefetchLon!.Value,
+                           location.Latitude, location.Longitude,
+                           DistanceUnits.Kilometers) * 1000d >= 30d;
+
+        if (sinceLast < TimeSpan.FromSeconds(30) && !movedFar)
+            return;
+
+        _lastLazyPrefetchAtUtc = now;
+        _lastLazyPrefetchLat = location.Latitude;
+        _lastLazyPrefetchLon = location.Longitude;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _audioCacheService.PrefetchNearbyAsync(
+                    location.Latitude,
+                    location.Longitude,
+                    _gianHangsForPrefetch,
+                    maxDistanceMeters: 200,
+                    topN: 3);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PoiMapPage] Lazy audio prefetch error: {ex.Message}");
+            }
         });
     }
 
