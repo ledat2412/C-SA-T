@@ -27,3 +27,8 @@ VinhKhanh/VinhKhanh/appsettings.Development.json
 **/bin/**/Credentials/service-account.json
 
 **/.claude/
+
+# Runtime logs – never commit
+CS_admin/logs/
+VinhKhanh/VinhKhanh/Logs/
+VinhKhanh/VinhKhanh/temp_*.log

@@ -178,6 +178,7 @@ if (!function_exists('backend_connection_settings')) {
             return $settings;
         }
 
+        // Read connection settings from VinhKhanh appsettings.json
         $appSettingsPath = dirname(__DIR__) . '/VinhKhanh/VinhKhanh/appsettings.json';
         if (!is_file($appSettingsPath)) {
             $settings = array();

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
@@ -455,20 +456,6 @@ namespace VinhKhanh.Services
                 };
             }
 
-            var bankBin = _configuration["Payment:VietQr:BankBin"] ?? string.Empty;
-            var bankAccountNo = _configuration["Payment:VietQr:BankAccountNo"] ?? string.Empty;
-            var bankAccountName = _configuration["Payment:VietQr:BankAccountName"] ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(bankBin) ||
-                string.IsNullOrWhiteSpace(bankAccountNo) ||
-                string.IsNullOrWhiteSpace(bankAccountName))
-            {
-                return new PackagePaymentResponseDto
-                {
-                    Success = false,
-                    Message = "Chua cau hinh Payment:VietQr trong appsettings."
-                };
-            }
-
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
             await EnsurePaymentColumnsAsync(conn);
@@ -497,7 +484,7 @@ namespace VinhKhanh.Services
                 invoiceCmd.Parameters.AddWithValue("@idGoi", package.IdGoi);
                 invoiceCmd.Parameters.AddWithValue("@email", hasEmail ? (object)email : DBNull.Value);
                 invoiceCmd.Parameters.AddWithValue("@tongTien", package.Price);
-                invoiceCmd.Parameters.AddWithValue("@ghiChu", "Cho thanh toan VietQR/Casso.");
+                invoiceCmd.Parameters.AddWithValue("@ghiChu", "Cho thanh toan PayOS.");
                 invoiceCmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
                 invoiceCmd.Parameters.AddWithValue("@guiEmail", request.SendEmail && hasEmail);
                 invoiceId = Convert.ToInt32(await invoiceCmd.ExecuteScalarAsync());
@@ -505,12 +492,6 @@ namespace VinhKhanh.Services
 
             var paymentReference = $"CSAT{invoiceId}";
             var paymentContent = VietQrPayloadBuilder.NormalizePaymentContent(invoiceId, package.IdGoi, clientDeviceId);
-            var paymentQrPayload = _vietQrPayloadBuilder.BuildPayload(
-                bankBin,
-                bankAccountNo,
-                bankAccountName,
-                package.Price,
-                paymentContent);
 
             const string updateInvoiceSql = @"
                 UPDATE hoadon
@@ -521,15 +502,40 @@ namespace VinhKhanh.Services
             using (var updateCmd = new MySqlCommand(updateInvoiceSql, conn))
             {
                 updateCmd.Parameters.AddWithValue("@maThanhToan", paymentReference);
-                updateCmd.Parameters.AddWithValue("@ghiChu", $"VietQR {paymentContent}; goi={package.IdGoi}; thietBi={clientDeviceId}");
+                updateCmd.Parameters.AddWithValue("@ghiChu", $"PayOS {paymentContent}; goi={package.IdGoi}; thietBi={clientDeviceId}");
                 updateCmd.Parameters.AddWithValue("@idHoaDon", invoiceId);
                 await updateCmd.ExecuteNonQueryAsync();
             }
 
+            var payOsResult = await CreatePayOsPaymentLinkAsync(invoiceId, package.Price, paymentContent);
+            if (!payOsResult.Success)
+            {
+                return new PackagePaymentResponseDto
+                {
+                    Success = false,
+                    Message = payOsResult.Message,
+                    Email = email,
+                    MaThietBi = clientDeviceId,
+                    IdGoi = package.IdGoi,
+                    TenGoi = package.TenGoi,
+                    SoNgayHieuLuc = package.DurationDays,
+                    IdHoaDon = invoiceId,
+                    Amount = package.Price,
+                    PaymentReference = paymentReference,
+                    PaymentContent = paymentContent,
+                    PaymentCreatedAt = DateTime.UtcNow,
+                    PaymentStatus = "moi_tao"
+                };
+            }
+
+            var paymentQrPayload = string.IsNullOrWhiteSpace(payOsResult.QrCode)
+                ? payOsResult.CheckoutUrl
+                : payOsResult.QrCode;
+
             return new PackagePaymentResponseDto
             {
                 Success = true,
-                Message = "Da tao ma QR thanh toan VietQR. Cho Casso webhook xac nhan giao dich.",
+                Message = "Da tao yeu cau thanh toan PayOS. Vui long quet QR PayOS de thanh toan.",
                 Email = email,
                 MaThietBi = clientDeviceId,
                 IdGoi = package.IdGoi,
@@ -540,12 +546,41 @@ namespace VinhKhanh.Services
                 PaymentReference = paymentReference,
                 PaymentContent = paymentContent,
                 PaymentQrPayload = paymentQrPayload,
-                BankBin = bankBin,
-                BankAccountNo = bankAccountNo,
-                BankAccountName = bankAccountName,
+                CheckoutUrl = payOsResult.CheckoutUrl,
+                PaymentLinkId = payOsResult.PaymentLinkId,
                 PaymentCreatedAt = DateTime.UtcNow,
                 PaymentStatus = "moi_tao"
             };
+        }
+
+        public async Task<RegisterPackageAccessResponseDto> ActivatePackagePaymentFromWebhookAsync(
+            string paymentReference,
+            decimal paidAmount,
+            string? transactionId,
+            DateTime? paidAt,
+            string transactionDescription)
+        {
+            paymentReference = NormalizePaymentReference(paymentReference);
+            if (string.IsNullOrWhiteSpace(paymentReference))
+            {
+                return new RegisterPackageAccessResponseDto
+                {
+                    Success = false,
+                    Message = "Khong co ma thanh toan hop le trong webhook."
+                };
+            }
+
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            await EnsurePaymentColumnsAsync(conn);
+
+            return await ActivatePaidPackageInvoiceAsync(
+                conn,
+                paymentReference,
+                paidAmount,
+                transactionId,
+                paidAt,
+                transactionDescription);
         }
 
         public async Task<PackagePaymentResponseDto> GetPackagePaymentStatusAsync(string paymentReference)
@@ -831,7 +866,7 @@ namespace VinhKhanh.Services
                 Message = string.Equals(status, "da_thanh_toan", StringComparison.OrdinalIgnoreCase) &&
                           !string.IsNullOrWhiteSpace(accessToken)
                     ? "Thanh toan da duoc xac nhan va QR token da san sang."
-                    : "Chua nhan duoc xac nhan thanh toan tu Casso.",
+                    : "Chua nhan duoc xac nhan thanh toan tu PayOS.",
                 Email = reader["email"]?.ToString() ?? string.Empty,
                 MaThietBi = reader["maThietBi"]?.ToString(),
                 IdGoi = reader["idGoi"] == DBNull.Value ? null : Convert.ToInt32(reader["idGoi"]),
@@ -914,7 +949,7 @@ namespace VinhKhanh.Services
                     return new RegisterPackageAccessResponseDto
                     {
                         Success = false,
-                        Message = "Giao dich Casso da duoc gan cho hoa don khac."
+                        Message = "Giao dich webhook da duoc gan cho hoa don khac."
                     };
                 }
             }
@@ -1057,7 +1092,7 @@ namespace VinhKhanh.Services
                 updateCmd.Parameters.AddWithValue("@idPhienVaoApp", sessionId);
                 updateCmd.Parameters.AddWithValue("@thoiGianThanhToan", paidAt ?? DateTime.UtcNow);
                 updateCmd.Parameters.AddWithValue("@cassoTransactionId", string.IsNullOrWhiteSpace(transactionId) ? DBNull.Value : transactionId);
-                updateCmd.Parameters.AddWithValue("@ghiChu", $"Casso xac nhan: {transactionDescription}");
+                updateCmd.Parameters.AddWithValue("@ghiChu", $"PayOS xac nhan: {transactionDescription}");
                 updateCmd.Parameters.AddWithValue("@idHoaDon", invoiceId);
                 await updateCmd.ExecuteNonQueryAsync();
             }
@@ -1077,7 +1112,7 @@ namespace VinhKhanh.Services
             return new RegisterPackageAccessResponseDto
             {
                 Success = true,
-                Message = "Casso da xac nhan thanh toan, kich hoat token va sinh QR token dang nhap thanh cong.",
+                Message = "PayOS da xac nhan thanh toan, kich hoat token va sinh QR token dang nhap thanh cong.",
                 Email = email,
                 MaThietBi = clientDeviceId,
                 IdGoi = package.IdGoi,
@@ -1181,6 +1216,116 @@ namespace VinhKhanh.Services
         {
             var match = Regex.Match(description ?? string.Empty, @"HDGH\d+", RegexOptions.IgnoreCase);
             return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
+        private async Task<(bool Success, string? QrCode, string? CheckoutUrl, string? PaymentLinkId, string Message)> CreatePayOsPaymentLinkAsync(
+            int invoiceId,
+            decimal amount,
+            string description)
+        {
+            var endpoint = _configuration["Payment:PayOS:Endpoint"];
+            if (string.IsNullOrWhiteSpace(endpoint))
+                endpoint = "https://api-merchant.payos.vn";
+
+            var clientId = _configuration["Payment:PayOS:ClientId"] ?? _configuration["PAYOS_CLIENT_ID"] ?? string.Empty;
+            var apiKey = _configuration["Payment:PayOS:ApiKey"] ?? _configuration["PAYOS_API_KEY"] ?? string.Empty;
+            var checksumKey = _configuration["Payment:PayOS:ChecksumKey"] ?? _configuration["PAYOS_CHECKSUM_KEY"] ?? string.Empty;
+            var returnUrl = _configuration["Payment:PayOS:ReturnUrl"] ?? _configuration["PAYOS_RETURN_URL"] ?? string.Empty;
+            var cancelUrl = _configuration["Payment:PayOS:CancelUrl"] ?? _configuration["PAYOS_CANCEL_URL"] ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(clientId) ||
+                string.IsNullOrWhiteSpace(apiKey) ||
+                string.IsNullOrWhiteSpace(checksumKey) ||
+                string.IsNullOrWhiteSpace(returnUrl) ||
+                string.IsNullOrWhiteSpace(cancelUrl))
+            {
+                return (false, null, null, null, "Chua cau hinh du thong tin Payment:PayOS (ClientId, ApiKey, ChecksumKey, ReturnUrl, CancelUrl).");
+            }
+
+            var safeDescription = Regex.Replace(description ?? string.Empty, @"\s+", " ").Trim();
+            if (safeDescription.Length > 25)
+                safeDescription = safeDescription[..25];
+
+            var orderCode = BuildPayOsOrderCode(invoiceId);
+            var expiredAt = DateTimeOffset.UtcNow.AddMinutes(30).ToUnixTimeSeconds();
+
+            var signData = new SortedDictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["amount"] = Convert.ToInt64(Math.Ceiling(amount)).ToString(),
+                ["cancelUrl"] = cancelUrl,
+                ["description"] = safeDescription,
+                ["orderCode"] = orderCode.ToString(),
+                ["returnUrl"] = returnUrl
+            };
+
+            var signature = ComputePayOsSignature(signData, checksumKey);
+
+            var requestBody = new
+            {
+                orderCode,
+                amount = Convert.ToInt64(Math.Ceiling(amount)),
+                description = safeDescription,
+                cancelUrl,
+                returnUrl,
+                expiredAt,
+                signature
+            };
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint.TrimEnd('/') + "/v2/payment-requests")
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            request.Headers.Add("x-client-id", clientId);
+            request.Headers.Add("x-api-key", apiKey);
+
+            using var response = await http.SendAsync(request);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (false, null, null, null, $"PayOS API loi {(int)response.StatusCode}: {responseContent}");
+            }
+
+            using var doc = JsonDocument.Parse(responseContent);
+            var root = doc.RootElement;
+
+            var code = root.TryGetProperty("code", out var c) ? c.GetString() : null;
+            if (!string.Equals(code, "00", StringComparison.OrdinalIgnoreCase))
+            {
+                var desc = root.TryGetProperty("desc", out var d) ? d.GetString() : "Khong tao duoc payment link PayOS.";
+                return (false, null, null, null, desc ?? "Khong tao duoc payment link PayOS.");
+            }
+
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                return (false, null, null, null, "PayOS API khong tra ve data hop le.");
+
+            string? qrCode = null;
+            string? checkoutUrl = null;
+            string? paymentLinkId = null;
+
+            if (data.TryGetProperty("qrCode", out var qr)) qrCode = qr.GetString();
+            if (data.TryGetProperty("checkoutUrl", out var ck)) checkoutUrl = ck.GetString();
+            if (data.TryGetProperty("paymentLinkId", out var pl)) paymentLinkId = pl.GetString();
+
+            if (string.IsNullOrWhiteSpace(qrCode) && string.IsNullOrWhiteSpace(checkoutUrl))
+                return (false, null, null, paymentLinkId, "PayOS khong tra ve QR/check-out URL.");
+
+            return (true, qrCode, checkoutUrl, paymentLinkId, "OK");
+        }
+
+        private static long BuildPayOsOrderCode(int invoiceId)
+        {
+            var unix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return (unix * 10000L) + (invoiceId % 10000);
+        }
+
+        private static string ComputePayOsSignature(SortedDictionary<string, string> data, string checksumKey)
+        {
+            var payload = string.Join("&", data.Select(kv => $"{kv.Key}={kv.Value}"));
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(checksumKey));
+            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         private static async Task<bool> ActivateStoreInvoiceAsync(MySqlConnection conn, int invoiceId, decimal amount)

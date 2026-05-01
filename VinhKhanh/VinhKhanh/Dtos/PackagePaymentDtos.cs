@@ -13,6 +13,8 @@ namespace VinhKhanh.Dtos
         public string? PaymentReference { get; set; }
         public string? PaymentQrPayload { get; set; }
         public string? PaymentContent { get; set; }
+        public string? CheckoutUrl { get; set; }
+        public string? PaymentLinkId { get; set; }
         public decimal Amount { get; set; }
         public string? BankBin { get; set; }
         public string? BankAccountNo { get; set; }
