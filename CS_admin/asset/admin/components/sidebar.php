@@ -69,6 +69,11 @@ if (!function_exists('sidebar_active_class')) {
       <i class="fa-solid fa-mobile-screen-button"></i>
       <span>Thiết bị</span>
     </a>
+
+    <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=tour'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item<?php echo sidebar_active_class('tour', $sidebarActive); ?>" data-sidebar-item="tour">
+      <i class="fa-solid fa-route"></i>
+      <span>Tour</span>
+    </a>
     <?php } ?>
   </nav>
 </div>

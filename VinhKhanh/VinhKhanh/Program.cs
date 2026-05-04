@@ -32,6 +32,8 @@ builder.Services.AddHostedService<DeviceTouchWorker>();
 builder.Services.AddSingleton<PoiVisitQueue>();
 builder.Services.AddHostedService<PoiVisitWorker>();
 
+builder.Services.AddScoped<TourService>();
+
 var app = builder.Build();
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions

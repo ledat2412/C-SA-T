@@ -80,6 +80,12 @@ $availableUseCases = array(
         'view' => __DIR__ . '/admin/device.php',
         'styles' => array('asset/admin/css/device-content.css'),
     ),
+    'tour' => array(
+        'title' => 'Quản lý tour',
+        'active' => 'tour',
+        'view' => __DIR__ . '/admin/tour.php',
+        'styles' => array('asset/admin/css/tour-content.css'),
+    ),
     'report' => array(
         'title' => 'Báo cáo',
         'active' => 'report',
