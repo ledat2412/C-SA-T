@@ -68,6 +68,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<GianHangService>();
         builder.Services.AddSingleton<MonAnService>();
         builder.Services.AddSingleton<PoiService>();
+        builder.Services.AddSingleton<TourService>();
 
         builder.Services.AddSingleton<LocalizationService>();
 
@@ -78,6 +79,7 @@ public static class MauiProgram
         builder.Services.AddTransient<MonAnPage>();
         builder.Services.AddTransient<PoiMapPage>();
         builder.Services.AddTransient<HomePage>();
+        builder.Services.AddTransient<TourPage>();
         builder.Services.AddTransient<LoginPage>();
         builder.Services.AddTransient<SettingsPage>();
         builder.Services.AddTransient<QrScanPage>();

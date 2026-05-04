@@ -95,6 +95,11 @@ public class HomePage : ContentPage
                 if (Application.Current is App app)
                     await app.ShowExplorePageAsync(autoOpenExplore: true);
             },
+            onTourTap: async () =>
+            {
+                if (Application.Current is App app)
+                    await app.ShowTourPageAsync();
+            },
             onSettingsTap: async () =>
             {
                 if (Application.Current is App app)

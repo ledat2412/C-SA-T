@@ -88,4 +88,20 @@ namespace VinhKhanh.Dtos
         public int? IdTour { get; set; }
         public string? Message { get; set; }
     }
+
+    public class RoutePointDto
+    {
+        public double Lat { get; set; }
+        public double Lon { get; set; }
+    }
+
+    public class TourRouteDto
+    {
+        public bool Success { get; set; }
+        public bool IsFallback { get; set; }
+        public string? Provider { get; set; }
+        public string? Status { get; set; }
+        public string? Message { get; set; }
+        public List<RoutePointDto> Points { get; set; } = new();
+    }
 }

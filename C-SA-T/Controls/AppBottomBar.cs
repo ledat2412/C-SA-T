@@ -7,6 +7,7 @@ public enum BottomBarTab
 {
     Home,
     Explore,
+    Tour,
     Settings
 }
 
@@ -14,18 +15,27 @@ public sealed class AppBottomBar : ContentView
 {
     private readonly Func<Task>? _onHomeTap;
     private readonly Func<Task>? _onExploreTap;
+    private readonly Func<Task>? _onTourTap;
     private readonly Func<Task>? _onSettingsTap;
     private readonly LocalizationService _loc;
     private Label _homeLabel = null!;
     private Label _exploreLabel = null!;
+    private Label _tourLabel = null!;
     private Label _settingsLabel = null!;
 
-    public AppBottomBar(BottomBarTab activeTab, LocalizationService localizationService, Func<Task>? onHomeTap = null, Func<Task>? onExploreTap = null, Func<Task>? onSettingsTap = null)
+    public AppBottomBar(
+        BottomBarTab activeTab,
+        LocalizationService localizationService,
+        Func<Task>? onHomeTap = null,
+        Func<Task>? onExploreTap = null,
+        Func<Task>? onTourTap = null,
+        Func<Task>? onSettingsTap = null)
     {
         ActiveTab = activeTab;
         _loc = localizationService;
         _onHomeTap = onHomeTap;
         _onExploreTap = onExploreTap;
+        _onTourTap = onTourTap;
         _onSettingsTap = onSettingsTap;
 
         HorizontalOptions = LayoutOptions.Fill;
@@ -42,6 +52,7 @@ public sealed class AppBottomBar : ContentView
     {
         _homeLabel.Text = _loc.Get("tab_home");
         _exploreLabel.Text = _loc.Get("tab_explore");
+        _tourLabel.Text = _loc.Get("tab_tour");
         _settingsLabel.Text = _loc.Get("tab_settings");
     }
 
@@ -51,6 +62,7 @@ public sealed class AppBottomBar : ContentView
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Star)
@@ -72,6 +84,13 @@ public sealed class AppBottomBar : ContentView
             _onExploreTap,
             out _exploreLabel);
 
+        var tour = BuildFooterItem(
+            BuildTourIcon(ActiveTab == BottomBarTab.Tour),
+            _loc.Get("tab_tour"),
+            ActiveTab == BottomBarTab.Tour,
+            _onTourTap,
+            out _tourLabel);
+
         var settings = BuildFooterItem(
             BuildSettingsIcon(ActiveTab == BottomBarTab.Settings),
             _loc.Get("tab_settings"),
@@ -82,8 +101,10 @@ public sealed class AppBottomBar : ContentView
         tabs.Children.Add(home);
         tabs.Children.Add(explore);
         Grid.SetColumn(explore, 1);
+        tabs.Children.Add(tour);
+        Grid.SetColumn(tour, 2);
         tabs.Children.Add(settings);
-        Grid.SetColumn(settings, 2);
+        Grid.SetColumn(settings, 3);
 
         return new Border
         {
@@ -310,6 +331,71 @@ public sealed class AppBottomBar : ContentView
                     Fill = new SolidColorBrush(strokeColor),
                     HorizontalOptions = LayoutOptions.Center,
                     VerticalOptions = LayoutOptions.Center
+                }
+            }
+        };
+    }
+
+    private static View BuildTourIcon(bool active)
+    {
+        var strokeColor = active ? Color.FromArgb("#DC2626") : Color.FromArgb("#94A3B8");
+        var accentColor = active ? Color.FromArgb("#FB7185") : Color.FromArgb("#CBD5E1");
+
+        return new Grid
+        {
+            WidthRequest = 20,
+            HeightRequest = 20,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                new Line
+                {
+                    X1 = 4,
+                    Y1 = 15,
+                    X2 = 9,
+                    Y2 = 7,
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1.8
+                },
+                new Line
+                {
+                    X1 = 9,
+                    Y1 = 7,
+                    X2 = 16,
+                    Y2 = 12,
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1.8
+                },
+                new Ellipse
+                {
+                    WidthRequest = 5,
+                    HeightRequest = 5,
+                    Fill = new SolidColorBrush(accentColor),
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1,
+                    TranslationX = -6,
+                    TranslationY = 5
+                },
+                new Ellipse
+                {
+                    WidthRequest = 5,
+                    HeightRequest = 5,
+                    Fill = new SolidColorBrush(accentColor),
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1,
+                    TranslationX = -1,
+                    TranslationY = -3
+                },
+                new Ellipse
+                {
+                    WidthRequest = 5,
+                    HeightRequest = 5,
+                    Fill = new SolidColorBrush(accentColor),
+                    Stroke = new SolidColorBrush(strokeColor),
+                    StrokeThickness = 1,
+                    TranslationX = 6,
+                    TranslationY = 2
                 }
             }
         };

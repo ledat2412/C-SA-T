@@ -17,17 +17,34 @@ using MauiApp1.Platforms.Android.Maps;
 using Android.Gms.Maps;
 using Android.Gms.Maps.Model;
 using Microsoft.Maui.Maps.Handlers;
+using AndroidColor = Android.Graphics.Color;
+using AndroidBitmap = Android.Graphics.Bitmap;
+using AndroidBitmapConfig = Android.Graphics.Bitmap.Config;
+using AndroidCanvas = Android.Graphics.Canvas;
+using AndroidPaint = Android.Graphics.Paint;
+using AndroidPaintFlags = Android.Graphics.PaintFlags;
+using AndroidPaintStyle = Android.Graphics.Paint.Style;
+using AndroidPath = Android.Graphics.Path;
 #endif
 using Map = Microsoft.Maui.Controls.Maps.Map;
+using MauiPolyline = Microsoft.Maui.Controls.Maps.Polyline;
 using Path = System.IO.Path;
 
 namespace MauiApp1.Views.Maps;
 
 public partial class PoiMapPage : ContentPage
 {
+    private enum TourSegmentState
+    {
+        Past,
+        Active,
+        Future
+    }
+
     private readonly GianHangService _gianHangService;
     private readonly PoiService _poiService;
     private readonly MonAnService _monAnService;
+    private readonly TourService _tourService;
     private readonly GeofenceEngineService _geofenceEngine;
     private readonly SQLiteService _sqliteService;
     private readonly AudioCacheService _audioCacheService;
@@ -42,8 +59,15 @@ public partial class PoiMapPage : ContentPage
     private readonly MapActionButton _refreshButton;
     private readonly MapActionButton _mapModeButton;
     private readonly Label _mapModeLabel;
+    private readonly Border _tourProgressBanner;
+    private readonly Label _tourProgressStatusLabel;
+    private readonly Label _tourProgressTitleLabel;
+    private readonly Label _tourProgressSubtitleLabel;
+    private readonly ProgressBar _tourProgressBar;
 
     private const string DefaultLanguageCode = "vi";
+    private const double TourProgressBannerBottomMargin = 100;
+    private const double TourProgressBannerEstimatedHeight = 76;
 
     private Entry _searchEntry = null!;
 
@@ -131,6 +155,9 @@ public partial class PoiMapPage : ContentPage
     private bool _isOpeningFoodGallery;
     private bool _isPlaybackStateSubscribed;
     private GianHang? _currentDetailGianHang;
+    private TourDetail? _activeTourDetail;
+    private TourProgress? _activeTourProgress;
+    private readonly List<MauiPolyline> _mauiTourLines = new();
     private readonly List<NgonNgu> _languages = new();
     private string _selectedLanguageCode = DefaultLanguageCode; // overridden in constructor
     private bool _isLiveLocationSubscribed;
@@ -138,12 +165,17 @@ public partial class PoiMapPage : ContentPage
 
 #if ANDROID
     private GoogleMap? _androidGoogleMap;
+    private bool _hasPendingTourRender;
+    private readonly List<Android.Gms.Maps.Model.Polyline> _androidTourLines = new();
+    private readonly List<Marker> _androidTourArrows = new();
+    private static BitmapDescriptor? _tourArrowIcon;
 #endif
 
     public PoiMapPage(
         PoiService poiService,
         GianHangService gianHangService,
         MonAnService monAnService,
+        TourService tourService,
         GeofenceEngineService geofenceEngine,
         SQLiteService sqliteService,
         LocalizationService localizationService,
@@ -152,6 +184,7 @@ public partial class PoiMapPage : ContentPage
         _poiService = poiService;
         _gianHangService = gianHangService;
         _monAnService = monAnService;
+        _tourService = tourService;
         _geofenceEngine = geofenceEngine;
         _sqliteService = sqliteService;
         _loc = localizationService;
@@ -200,6 +233,38 @@ public partial class PoiMapPage : ContentPage
         _refreshButton = CreateRefreshButton();
         _mapModeLabel = CreateMapModeLabel();
         _mapModeButton = CreateMapModeButton();
+        _tourProgressStatusLabel = new Label
+        {
+            Text = _loc.Get("tour_progress_running"),
+            FontSize = 10,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#C2410C")
+        };
+        _tourProgressTitleLabel = new Label
+        {
+            Text = _loc.Get("tour_page_title"),
+            FontSize = 12,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Color.FromArgb("#0F172A"),
+            MaxLines = 1,
+            LineBreakMode = LineBreakMode.TailTruncation
+        };
+        _tourProgressSubtitleLabel = new Label
+        {
+            Text = string.Empty,
+            FontSize = 10,
+            TextColor = Color.FromArgb("#64748B"),
+            MaxLines = 1,
+            LineBreakMode = LineBreakMode.TailTruncation
+        };
+        _tourProgressBar = new ProgressBar
+        {
+            Progress = 0,
+            ProgressColor = Color.FromArgb("#DC2626"),
+            BackgroundColor = Color.FromArgb("#FEE2E2"),
+            HeightRequest = 3
+        };
+        _tourProgressBanner = CreateTourProgressBanner();
         _footer = new AppBottomBar(
             BottomBarTab.Explore,
             localizationService,
@@ -209,6 +274,11 @@ public partial class PoiMapPage : ContentPage
                     await app.ShowMainPageAsync();
             },
             onExploreTap: ToggleSuggestionSheetAsync,
+            onTourTap: async () =>
+            {
+                if (Application.Current is App app)
+                    await app.ShowTourPageAsync();
+            },
             onSettingsTap: async () =>
             {
                 if (Application.Current is App app)
@@ -223,6 +293,8 @@ public partial class PoiMapPage : ContentPage
             _selectedLanguageCode = _loc.CurrentLanguage;
             RenderLanguageOptions();
             _ = ApplySelectedLanguageToCurrentDetailAsync();
+            if (_activeTourDetail is not null)
+                _ = RefreshActiveTourTextAsync();
             if (_isInitialLoadCompleted)
                 _ = LoadRealPoisAsync(forceRefresh: true);
         });
@@ -311,11 +383,383 @@ public partial class PoiMapPage : ContentPage
         root.Children.Add(_refreshButton);
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
+        root.Children.Add(_tourProgressBanner);
         root.Children.Add(_footer);
         root.Children.Add(new AudioPlaybackBanner(_geofenceEngine, _loc));
 
         return root;
     }
+
+    private Border CreateTourProgressBanner()
+    {
+        var stopButton = new Border
+        {
+            StrokeThickness = 0,
+            HeightRequest = 32,
+            WidthRequest = 32,
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            BackgroundColor = Colors.White,
+            VerticalOptions = LayoutOptions.Center,
+            Content = new Border
+            {
+                StrokeThickness = 0,
+                BackgroundColor = Color.FromArgb("#EF4444"),
+                StrokeShape = new RoundRectangle { CornerRadius = 4 },
+                HeightRequest = 11,
+                WidthRequest = 11,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalOptions = LayoutOptions.Center
+            },
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.05f,
+                Radius = 8,
+                Offset = new Point(0, 2)
+            }
+        };
+
+        var stopTap = new TapGestureRecognizer();
+        stopTap.Tapped += async (_, __) => await StopActiveTourAsync();
+        stopButton.GestureRecognizers.Add(stopTap);
+
+        var textWrap = new VerticalStackLayout
+        {
+            Spacing = 3,
+            VerticalOptions = LayoutOptions.Center,
+            Children =
+            {
+                _tourProgressStatusLabel,
+                _tourProgressTitleLabel,
+                _tourProgressSubtitleLabel,
+                _tourProgressBar
+            }
+        };
+
+        var content = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto)
+            },
+            ColumnSpacing = 12,
+            Children =
+            {
+                textWrap,
+                stopButton
+            }
+        };
+        Grid.SetColumn(stopButton, 1);
+
+        var banner = new Border
+        {
+            StrokeThickness = 0,
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            BackgroundColor = Color.FromArgb("#FFF6EF"),
+            Padding = new Thickness(12, 7),
+            Shadow = new Shadow
+            {
+                Brush = Brush.Black,
+                Opacity = 0.08f,
+                Radius = 14,
+                Offset = new Point(0, 5)
+            },
+            Content = content,
+            IsVisible = false,
+            Opacity = 0,
+            VerticalOptions = LayoutOptions.End,
+            HorizontalOptions = LayoutOptions.Fill,
+            Margin = new Thickness(16, 0, 16, TourProgressBannerBottomMargin),
+            ZIndex = 39
+        };
+
+        return banner;
+    }
+
+    public void RequestStartTour(TourDetail tourDetail)
+    {
+        _activeTourDetail = tourDetail;
+#if ANDROID
+        _hasPendingTourRender = true;
+#endif
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await BeginActiveTourAsync();
+        });
+    }
+
+    private async Task BeginActiveTourAsync()
+    {
+        if (_activeTourDetail is null)
+            return;
+
+#if ANDROID
+        if (_androidGoogleMap is null)
+        {
+            _hasPendingTourRender = true;
+            return;
+        }
+#endif
+
+#if ANDROID
+        _hasPendingTourRender = false;
+#endif
+        _activeTourProgress = await _tourService.GetProgressAsync(_activeTourDetail.Tour.IdTour);
+
+        var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress);
+        var nextStop = ResolveNextAvailableStop(_activeTourDetail, currentStop);
+
+        _titleLabel.Text = _loc.Get("tour_page_title");
+        _subtitleLabel.Text = nextStop is null
+            ? _activeTourDetail.Tour.Ten
+            : $"{currentStop?.TenGianHang ?? _loc.Get("tour_current_stop_fallback")} -> {nextStop.TenGianHang ?? _loc.Get("tour_next_stop_fallback")}";
+        await ShowOrUpdateTourProgressBannerAsync(_activeTourDetail, currentStop, nextStop);
+
+        ClearSelectedPoiFocus();
+        await RenderActiveTourRouteAsync();
+    }
+
+    private async Task RefreshActiveTourTextAsync()
+    {
+        if (_activeTourDetail is null)
+            return;
+
+        var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress);
+        var nextStop = ResolveNextAvailableStop(_activeTourDetail, currentStop);
+
+        _titleLabel.Text = _loc.Get("tour_page_title");
+        _subtitleLabel.Text = nextStop is null
+            ? _activeTourDetail.Tour.Ten
+            : $"{currentStop?.TenGianHang ?? _loc.Get("tour_current_stop_fallback")} -> {nextStop.TenGianHang ?? _loc.Get("tour_next_stop_fallback")}";
+        await ShowOrUpdateTourProgressBannerAsync(_activeTourDetail, currentStop, nextStop);
+    }
+
+    private async Task RenderActiveTourRouteAsync()
+    {
+        ClearTourRouteVisuals();
+
+        if (_activeTourDetail is null)
+            return;
+
+        var stops = TourService.GetUsableStops(_activeTourDetail).ToList();
+        if (stops.Count == 0)
+            return;
+
+        FitTourStops(stops);
+
+        if (stops.Count == 1)
+            return;
+
+        var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress) ?? stops[0];
+        var currentIndex = Math.Max(0, stops.FindIndex(s => s.IdGianHang == currentStop.IdGianHang));
+
+        for (var i = 0; i < stops.Count - 1; i++)
+        {
+            var from = stops[i];
+            var to = stops[i + 1];
+            var route = await _tourService.GetRouteAsync(from, to);
+            var points = route.Points.Count > 1
+                ? route.Points
+                : new List<RoutePoint>
+                {
+                    new() { Lat = from.Lat!.Value, Lon = from.Lon!.Value },
+                    new() { Lat = to.Lat!.Value, Lon = to.Lon!.Value }
+                };
+
+            var state = i < currentIndex
+                ? TourSegmentState.Past
+                : i == currentIndex
+                    ? TourSegmentState.Active
+                    : TourSegmentState.Future;
+
+            DrawTourSegment(points, state);
+        }
+    }
+
+    private void DrawTourSegment(IReadOnlyList<RoutePoint> points, TourSegmentState state)
+    {
+        if (points.Count < 2)
+            return;
+
+#if ANDROID
+        if (_androidGoogleMap is not null)
+        {
+            DrawAndroidTourSegment(points, state);
+            return;
+        }
+#endif
+
+        DrawMauiTourSegment(points, state);
+    }
+
+    private void DrawMauiTourSegment(IReadOnlyList<RoutePoint> points, TourSegmentState state)
+    {
+        var line = new MauiPolyline
+        {
+            StrokeColor = state switch
+            {
+                TourSegmentState.Active => Color.FromArgb("#DC2626"),
+                TourSegmentState.Future => Color.FromArgb("#F97316"),
+                _ => Color.FromArgb("#94A3B8")
+            },
+            StrokeWidth = state == TourSegmentState.Active ? 8 : 4
+        };
+
+        foreach (var point in points)
+            line.Geopath.Add(new Location(point.Lat, point.Lon));
+
+        _map.MapElements.Add(line);
+        _mauiTourLines.Add(line);
+    }
+
+    private void ClearTourRouteVisuals()
+    {
+        foreach (var line in _mauiTourLines)
+            _map.MapElements.Remove(line);
+        _mauiTourLines.Clear();
+
+#if ANDROID
+        foreach (var line in _androidTourLines)
+            line.Remove();
+        _androidTourLines.Clear();
+
+        foreach (var marker in _androidTourArrows)
+            marker.Remove();
+        _androidTourArrows.Clear();
+#endif
+    }
+
+    private async Task ShowOrUpdateTourProgressBannerAsync(TourDetail detail, TourStop? currentStop, TourStop? nextStop)
+    {
+        var stops = TourService.GetUsableStops(detail).ToList();
+        var totalStops = Math.Max(1, stops.Count);
+        var currentIndex = currentStop is null
+            ? 0
+            : Math.Max(0, stops.FindIndex(s => s.IdGianHang == currentStop.IdGianHang));
+        if (currentIndex < 0)
+            currentIndex = 0;
+
+        var completedStops = nextStop is null ? totalStops : currentIndex + 1;
+        var progress = Math.Clamp((double)completedStops / totalStops, 0, 1);
+
+        _tourProgressStatusLabel.Text = string.Format(_loc.Get("tour_progress_status"), completedStops, totalStops);
+        _tourProgressTitleLabel.Text = string.IsNullOrWhiteSpace(detail.Tour.Ten)
+            ? $"Tour #{detail.Tour.IdTour}"
+            : detail.Tour.Ten;
+        _tourProgressSubtitleLabel.Text = nextStop is null
+            ? _loc.Get("tour_completed")
+            : $"{currentStop?.TenGianHang ?? _loc.Get("tour_start_fallback")} -> {nextStop.TenGianHang ?? _loc.Get("tour_next_stop_fallback")}";
+        _tourProgressBar.Progress = progress;
+
+        if (_tourProgressBanner.IsVisible)
+        {
+#if ANDROID
+            UpdateAndroidMapPadding();
+#endif
+            return;
+        }
+
+        _tourProgressBanner.IsVisible = true;
+        _tourProgressBanner.TranslationY = 16;
+        _tourProgressBanner.Opacity = 0;
+#if ANDROID
+        UpdateAndroidMapPadding();
+#endif
+
+        await Task.WhenAll(
+            _tourProgressBanner.TranslateToAsync(0, 0, 180, Easing.CubicOut),
+            _tourProgressBanner.FadeToAsync(1, 180, Easing.CubicOut));
+    }
+
+    private async Task StopActiveTourAsync()
+    {
+        if (_activeTourDetail is null && !_tourProgressBanner.IsVisible)
+            return;
+
+        var shouldStop = await DisplayAlertAsync(
+            _loc.Get("tour_stop_confirm_title"),
+            _loc.Get("tour_stop_confirm_message"),
+            _loc.Get("tour_stop_confirm_accept"),
+            _loc.Get("tour_stop_confirm_cancel"));
+
+        if (!shouldStop)
+            return;
+
+        _activeTourDetail = null;
+        _activeTourProgress = null;
+#if ANDROID
+        _hasPendingTourRender = false;
+#endif
+        ClearTourRouteVisuals();
+        _titleLabel.Text = _loc.Get("map_title");
+        _subtitleLabel.Text = _loc.Get("map_subtitle_default");
+        await HideTourProgressBannerAsync();
+    }
+
+    private async Task HideTourProgressBannerAsync()
+    {
+        if (!_tourProgressBanner.IsVisible)
+            return;
+
+        await Task.WhenAll(
+            _tourProgressBanner.TranslateToAsync(0, 16, 140, Easing.CubicIn),
+            _tourProgressBanner.FadeToAsync(0, 140, Easing.CubicIn));
+
+        _tourProgressBanner.IsVisible = false;
+        _tourProgressBanner.TranslationY = 0;
+        _tourProgressBar.Progress = 0;
+#if ANDROID
+        UpdateAndroidMapPadding();
+#endif
+    }
+
+    private static TourStop? ResolveNextAvailableStop(TourDetail detail, TourStop? currentStop)
+    {
+        if (currentStop is null)
+            return null;
+
+        return TourService.GetUsableStops(detail)
+            .FirstOrDefault(s => s.ThuTu > currentStop.ThuTu);
+    }
+
+    private void FitTourStops(IReadOnlyList<TourStop> stops)
+    {
+        var validStops = stops
+            .Where(s => s.Lat.HasValue && s.Lon.HasValue)
+            .ToList();
+
+        if (validStops.Count == 0)
+            return;
+
+        var minLat = validStops.Min(s => s.Lat!.Value);
+        var maxLat = validStops.Max(s => s.Lat!.Value);
+        var minLon = validStops.Min(s => s.Lon!.Value);
+        var maxLon = validStops.Max(s => s.Lon!.Value);
+        var center = new Location((minLat + maxLat) / 2, (minLon + maxLon) / 2);
+        var radiusMeters = Math.Max(
+            250,
+            CalculateDistanceMeters(minLat, minLon, maxLat, maxLon) * 0.65);
+
+        _map.MoveToRegion(MapSpan.FromCenterAndRadius(center, Distance.FromMeters(radiusMeters)));
+        RestoreMapModeAfterRegionMove();
+    }
+
+    private static double CalculateDistanceMeters(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double earthRadiusMeters = 6371000.0;
+        var dLat = DegreesToRadians(lat2 - lat1);
+        var dLon = DegreesToRadians(lon2 - lon1);
+        var a =
+            Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+            Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) *
+            Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return earthRadiusMeters * c;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
     private MapActionButton CreateCurrentLocationButton()
     {
@@ -1975,6 +2419,101 @@ public partial class PoiMapPage : ContentPage
     }
 
 #if ANDROID
+    private void DrawAndroidTourSegment(IReadOnlyList<RoutePoint> points, TourSegmentState state)
+    {
+        if (_androidGoogleMap is null)
+            return;
+
+        var options = new PolylineOptions();
+        foreach (var point in points)
+            options.Add(new LatLng(point.Lat, point.Lon));
+
+        var colorHex = state switch
+        {
+            TourSegmentState.Active => "#DC2626",
+            TourSegmentState.Future => "#F97316",
+            _ => "#94A3B8"
+        };
+
+        options.InvokeColor(AndroidColor.ParseColor(colorHex).ToArgb());
+        options.InvokeWidth(state == TourSegmentState.Active ? 12f : 7f);
+        options.InvokeZIndex(state == TourSegmentState.Active ? 50f : state == TourSegmentState.Future ? 30f : 10f);
+
+        if (state == TourSegmentState.Future)
+            options.InvokePattern(new List<PatternItem> { new Dash(28f), new Gap(18f) });
+
+        var line = _androidGoogleMap.AddPolyline(options);
+        _androidTourLines.Add(line);
+
+        if (state == TourSegmentState.Active)
+            AddAndroidTourArrow(points);
+    }
+
+    private void AddAndroidTourArrow(IReadOnlyList<RoutePoint> points)
+    {
+        if (_androidGoogleMap is null || points.Count < 2)
+            return;
+
+        var index = Math.Clamp(points.Count / 2, 1, points.Count - 1);
+        var from = points[index - 1];
+        var to = points[index];
+        var markerOptions = new MarkerOptions()
+            .SetPosition(new LatLng(to.Lat, to.Lon))
+            .Anchor(0.5f, 0.5f)
+            .Flat(true)
+            .SetRotation(CalculateBearing(from, to))
+            .SetIcon(GetTourArrowIcon());
+
+        var marker = _androidGoogleMap.AddMarker(markerOptions);
+        if (marker is not null)
+            _androidTourArrows.Add(marker);
+    }
+
+    private static BitmapDescriptor GetTourArrowIcon()
+    {
+        if (_tourArrowIcon is not null)
+            return _tourArrowIcon;
+
+        var bitmap = AndroidBitmap.CreateBitmap(48, 48, AndroidBitmapConfig.Argb8888!);
+        var canvas = new AndroidCanvas(bitmap);
+        var paint = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+        {
+            Color = AndroidColor.ParseColor("#DC2626")
+        };
+        paint.SetStyle(AndroidPaintStyle.Fill);
+
+        var path = new AndroidPath();
+        path.MoveTo(24, 5);
+        path.LineTo(38, 39);
+        path.LineTo(24, 31);
+        path.LineTo(10, 39);
+        path.Close();
+        canvas.DrawPath(path, paint);
+
+        var stroke = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+        {
+            Color = AndroidColor.White,
+            StrokeWidth = 3
+        };
+        stroke.SetStyle(AndroidPaintStyle.Stroke);
+        canvas.DrawPath(path, stroke);
+
+        _tourArrowIcon = BitmapDescriptorFactory.FromBitmap(bitmap);
+        bitmap.Dispose();
+        return _tourArrowIcon;
+    }
+
+    private static float CalculateBearing(RoutePoint from, RoutePoint to)
+    {
+        var lat1 = DegreesToRadians(from.Lat);
+        var lat2 = DegreesToRadians(to.Lat);
+        var dLon = DegreesToRadians(to.Lon - from.Lon);
+        var y = Math.Sin(dLon) * Math.Cos(lat2);
+        var x = Math.Cos(lat1) * Math.Sin(lat2) -
+                Math.Sin(lat1) * Math.Cos(lat2) * Math.Cos(dLon);
+        return (float)((Math.Atan2(y, x) * 180.0 / Math.PI + 360.0) % 360.0);
+    }
+
     private void TryInitializeAndroidMap()
     {
         if (_androidGoogleMap is not null)
@@ -1989,6 +2528,8 @@ public partial class PoiMapPage : ContentPage
             _androidGoogleMap.UiSettings.ZoomControlsEnabled = true;
             ApplyAndroidMapMode(animate: false);
             UpdateAndroidMapPadding();
+            if (_hasPendingTourRender)
+                _ = BeginActiveTourAsync();
         }));
     }
 
@@ -2044,6 +2585,15 @@ public partial class PoiMapPage : ContentPage
 
         if (_detailSheet.IsVisible)
             overlayTop = Math.Min(overlayTop, _detailCurrentY);
+
+        if (_tourProgressBanner.IsVisible)
+        {
+            var bannerHeight = _tourProgressBanner.Height > 0
+                ? _tourProgressBanner.Height
+                : TourProgressBannerEstimatedHeight;
+            var bannerTop = Height - TourProgressBannerBottomMargin - bannerHeight;
+            overlayTop = Math.Min(overlayTop, bannerTop);
+        }
 
         var bottomInsetDip = Math.Max(0, Height - overlayTop + 8);
         var bottomInsetPx = (int)Math.Ceiling(bottomInsetDip * DeviceDisplay.MainDisplayInfo.Density);

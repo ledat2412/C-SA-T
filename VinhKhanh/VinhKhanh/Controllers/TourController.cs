@@ -10,11 +10,16 @@ namespace VinhKhanh.Controllers
     {
         private readonly TourService _tourService;
         private readonly AccountAccessService _accountAccessService;
+        private readonly GoogleDirectionsService _directionsService;
 
-        public TourController(TourService tourService, AccountAccessService accountAccessService)
+        public TourController(
+            TourService tourService,
+            AccountAccessService accountAccessService,
+            GoogleDirectionsService directionsService)
         {
             _tourService = tourService;
             _accountAccessService = accountAccessService;
+            _directionsService = directionsService;
         }
 
         private IActionResult ForbiddenResult() =>
@@ -27,7 +32,22 @@ namespace VinhKhanh.Controllers
             return Ok(tours);
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("route")]
+        public async Task<IActionResult> GetRoute(
+            [FromQuery] double fromLat,
+            [FromQuery] double fromLon,
+            [FromQuery] double toLat,
+            [FromQuery] double toLon,
+            CancellationToken ct = default)
+        {
+            if (!IsValidCoordinate(fromLat, fromLon) || !IsValidCoordinate(toLat, toLon))
+                return BadRequest(new { success = false, message = "Toa do khong hop le." });
+
+            var route = await _directionsService.GetWalkingRouteAsync(fromLat, fromLon, toLat, toLon, ct);
+            return Ok(route);
+        }
+
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetDetail(int id, CancellationToken ct = default)
         {
             var detail = await _tourService.GetTourDetailAsync(id, ct);
@@ -36,7 +56,7 @@ namespace VinhKhanh.Controllers
             return Ok(detail);
         }
 
-        [HttpGet("{id}/progress")]
+        [HttpGet("{id:int}/progress")]
         public async Task<IActionResult> GetProgress(int id, CancellationToken ct = default)
         {
             var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
@@ -47,7 +67,7 @@ namespace VinhKhanh.Controllers
             return Ok(tienDo ?? new TourTienDoDto { IdTour = id, MaThietBi = deviceId, StepHienTai = 0 });
         }
 
-        [HttpPost("{id}/advance")]
+        [HttpPost("{id:int}/advance")]
         public async Task<IActionResult> Advance(int id, [FromBody] AdvanceTourRequestDto body, CancellationToken ct = default)
         {
             var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
@@ -73,7 +93,7 @@ namespace VinhKhanh.Controllers
             return Ok(list);
         }
 
-        [HttpGet("/api/admin/tour/{id}")]
+        [HttpGet("/api/admin/tour/{id:int}")]
         public async Task<IActionResult> AdminGetDetail(int id, [FromQuery] int idTaiKhoan, CancellationToken ct = default)
         {
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
@@ -95,7 +115,7 @@ namespace VinhKhanh.Controllers
             return result.Success ? Ok(result) : BadRequest(result);
         }
 
-        [HttpPut("/api/admin/tour/{id}")]
+        [HttpPut("/api/admin/tour/{id:int}")]
         public async Task<IActionResult> AdminUpdate(int id, [FromQuery] int idTaiKhoan, [FromBody] UpsertTourRequestDto body, CancellationToken ct = default)
         {
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
@@ -106,13 +126,23 @@ namespace VinhKhanh.Controllers
             return result.Success ? Ok(result) : BadRequest(result);
         }
 
-        [HttpDelete("/api/admin/tour/{id}")]
+        [HttpDelete("/api/admin/tour/{id:int}")]
         public async Task<IActionResult> AdminDelete(int id, [FromQuery] int idTaiKhoan, CancellationToken ct = default)
         {
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
                 return ForbiddenResult();
             var result = await _tourService.DeleteAsync(id, ct);
             return result.Success ? Ok(result) : NotFound(result);
+        }
+
+        private static bool IsValidCoordinate(double lat, double lon)
+        {
+            return !double.IsNaN(lat) &&
+                   !double.IsNaN(lon) &&
+                   !double.IsInfinity(lat) &&
+                   !double.IsInfinity(lon) &&
+                   lat is >= -90 and <= 90 &&
+                   lon is >= -180 and <= 180;
         }
     }
 }

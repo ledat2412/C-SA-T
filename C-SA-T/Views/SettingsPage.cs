@@ -191,6 +191,11 @@ public class SettingsPage : ContentPage
             {
                 if (Application.Current is App app)
                     await app.ShowExplorePageAsync(autoOpenExplore: true);
+            },
+            onTourTap: async () =>
+            {
+                if (Application.Current is App app)
+                    await app.ShowTourPageAsync();
             });
         root.Children.Add(footer);
         Grid.SetRow(footer, 1);

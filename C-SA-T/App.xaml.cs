@@ -1,4 +1,5 @@
 using MauiApp1.Services;
+using MauiApp1.Models;
 using MauiApp1.Utils;
 using MauiApp1.Views;
 using MauiApp1.Views.Maps;
@@ -11,6 +12,7 @@ public partial class App : Application
     private readonly DeviceHeartbeatService _heartbeatService;
     private HomePage? _homePage;
     private PoiMapPage? _explorePage;
+    private TourPage? _tourPage;
     private SettingsPage? _settingsPage;
 
     public App(
@@ -47,6 +49,7 @@ public partial class App : Application
     {
         _homePage = null;
         _explorePage = null;
+        _tourPage = null;
         _settingsPage = null;
         return SetRootAsync(_services.GetRequiredService<AccessEntryPage>());
     }
@@ -64,6 +67,18 @@ public partial class App : Application
     public Task ShowSettingsPageAsync()
     {
         return ShowTabPageInternalAsync(GetOrCreateSettingsPage);
+    }
+
+    public Task ShowTourPageAsync()
+    {
+        return ShowTabPageInternalAsync(GetOrCreateTourPage);
+    }
+
+    public async Task StartTourAsync(TourDetail tourDetail)
+    {
+        var explorePage = GetOrCreateExplorePage();
+        explorePage.RequestStartTour(tourDetail);
+        await ShowTabPageInternalAsync(() => explorePage);
     }
 
     public Task PreloadExplorePageAsync()
@@ -187,6 +202,8 @@ public partial class App : Application
                     var freshPage = _services.GetRequiredService<TPage>();
                     if (freshPage is PoiMapPage freshExplore)
                         _explorePage = freshExplore;
+                    else if (freshPage is TourPage freshTour)
+                        _tourPage = freshTour;
                     else if (freshPage is SettingsPage freshSettings)
                         _settingsPage = freshSettings;
 
@@ -215,6 +232,11 @@ public partial class App : Application
     private PoiMapPage GetOrCreateExplorePage()
     {
         return _explorePage ??= _services.GetRequiredService<PoiMapPage>();
+    }
+
+    private TourPage GetOrCreateTourPage()
+    {
+        return _tourPage ??= _services.GetRequiredService<TourPage>();
     }
 
     private SettingsPage GetOrCreateSettingsPage()

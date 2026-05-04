@@ -398,6 +398,108 @@ namespace MauiApp1.Services
             }
         }
 
+        public async Task<List<TourSummary>> GetActiveToursAsync(int? langId = null)
+        {
+            try
+            {
+                MarkRequestSent();
+                var path = langId.HasValue
+                    ? $"api/tour?lang={langId.Value}"
+                    : "api/tour";
+                var result = await _httpClient.GetFromJsonAsync<List<TourSummary>>(BuildApiUrl(path));
+                return result ?? new List<TourSummary>();
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Tour list error: {BuildNetworkErrorMessage(ex)}");
+                return new List<TourSummary>();
+            }
+        }
+
+        public async Task<TourDetail?> GetTourDetailAsync(int idTour)
+        {
+            try
+            {
+                MarkRequestSent();
+                return await _httpClient.GetFromJsonAsync<TourDetail>(BuildApiUrl($"api/tour/{idTour}"));
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Tour detail error: {BuildNetworkErrorMessage(ex)}");
+                return null;
+            }
+        }
+
+        public async Task<TourProgress?> GetTourProgressAsync(int idTour)
+        {
+            try
+            {
+                MarkRequestSent();
+                return await _httpClient.GetFromJsonAsync<TourProgress>(BuildApiUrl($"api/tour/{idTour}/progress"));
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Tour progress error: {BuildNetworkErrorMessage(ex)}");
+                return null;
+            }
+        }
+
+        public async Task<AdvanceTourResult?> AdvanceTourAsync(int idTour, int idGianHangVuaDen)
+        {
+            try
+            {
+                MarkRequestSent();
+                var response = await _httpClient.PostAsJsonAsync(BuildApiUrl($"api/tour/{idTour}/advance"), new
+                {
+                    IdTour = idTour,
+                    IdGianHangVuaDen = idGianHangVuaDen
+                });
+
+                return await response.Content.ReadFromJsonAsync<AdvanceTourResult>();
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Tour advance error: {BuildNetworkErrorMessage(ex)}");
+                return null;
+            }
+        }
+
+        public async Task<TourRoute> GetTourRouteAsync(double fromLat, double fromLon, double toLat, double toLon)
+        {
+            var fallback = new TourRoute
+            {
+                Success = true,
+                IsFallback = true,
+                Provider = "local",
+                Points =
+                {
+                    new RoutePoint { Lat = fromLat, Lon = fromLon },
+                    new RoutePoint { Lat = toLat, Lon = toLon }
+                }
+            };
+
+            if (!IsValidCoordinate(fromLat, fromLon) || !IsValidCoordinate(toLat, toLon))
+                return fallback;
+
+            try
+            {
+                MarkRequestSent();
+                var path =
+                    $"api/tour/route?fromLat={Uri.EscapeDataString(fromLat.ToString(System.Globalization.CultureInfo.InvariantCulture))}" +
+                    $"&fromLon={Uri.EscapeDataString(fromLon.ToString(System.Globalization.CultureInfo.InvariantCulture))}" +
+                    $"&toLat={Uri.EscapeDataString(toLat.ToString(System.Globalization.CultureInfo.InvariantCulture))}" +
+                    $"&toLon={Uri.EscapeDataString(toLon.ToString(System.Globalization.CultureInfo.InvariantCulture))}";
+
+                var result = await _httpClient.GetFromJsonAsync<TourRoute>(BuildApiUrl(path));
+                return result is { Points.Count: > 1 } ? result : fallback;
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ApiService] Tour route error: {BuildNetworkErrorMessage(ex)}");
+                return fallback;
+            }
+        }
+
         public async Task<ActivateTokenResult> ActivateTokenAsync(string accessToken, string? qrRaw = null)
         {
             if (string.IsNullOrWhiteSpace(accessToken))
@@ -463,6 +565,16 @@ namespace MauiApp1.Services
         private static double DegreesToRadians(double degrees)
         {
             return degrees * Math.PI / 180.0;
+        }
+
+        private static bool IsValidCoordinate(double lat, double lon)
+        {
+            return !double.IsNaN(lat) &&
+                   !double.IsNaN(lon) &&
+                   !double.IsInfinity(lat) &&
+                   !double.IsInfinity(lon) &&
+                   lat is >= -90 and <= 90 &&
+                   lon is >= -180 and <= 180;
         }
 
         private static string BuildApiUrl(string relativePath)

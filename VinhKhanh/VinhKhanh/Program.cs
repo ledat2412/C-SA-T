@@ -25,6 +25,7 @@ builder.Services.AddScoped<AccessSessionService>();
 builder.Services.AddScoped<PackageAccessEmailService>();
 builder.Services.AddSingleton<VietQrPayloadBuilder>();
 builder.Services.AddSingleton<GoogleTtsService>();
+builder.Services.AddHttpClient<GoogleDirectionsService>();
 
 builder.Services.AddSingleton<DeviceTouchQueue>();
 builder.Services.AddHostedService<DeviceTouchWorker>();
