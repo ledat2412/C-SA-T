@@ -3,10 +3,23 @@ $auth = isset($_SESSION['admin_auth']) && is_array($_SESSION['admin_auth']) ? $_
 $idTaiKhoan = isset($auth['idTaiKhoan']) ? (int) $auth['idTaiKhoan'] : 0;
 $accountRole = isset($auth['loaiTaiKhoan']) ? (string) $auth['loaiTaiKhoan'] : '';
 
+function tour_redirect($url)
+{
+    $url = (string) $url;
+    if (!headers_sent()) {
+        header('Location: ' . $url);
+        exit;
+    }
+
+    $escapedUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    echo '<script>window.location.href=' . json_encode($url, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . $escapedUrl . '"><a href="' . $escapedUrl . '">Tiep tuc</a></noscript>';
+    exit;
+}
+
 // Admin-only guard.
 if ($accountRole !== 'admin') {
-    header('Location: ' . admin_url('index1st.php?usecase=store'));
-    exit;
+    tour_redirect(admin_url('index1st.php?usecase=store'));
 }
 
 $action = isset($_GET['action']) ? trim((string) $_GET['action']) : '';
@@ -54,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
         if ($payload['ten'] === '') {
-            header('Location: ' . tour_page_url('edit', $idTour, '', 'Vui lòng nhập tên tour.'));
+            tour_redirect(tour_page_url('edit', $idTour, '', 'Vui lòng nhập tên tour.'));
             exit;
         }
 
@@ -73,18 +86,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result === null || empty($result['success'])) {
             $msg = $apiError !== '' ? $apiError : (is_array($result) && !empty($result['message']) ? $result['message'] : 'Lỗi lưu tour.');
-            header('Location: ' . tour_page_url('edit', $idTour, '', $msg));
+            tour_redirect(tour_page_url('edit', $idTour, '', $msg));
             exit;
         }
 
-        header('Location: ' . tour_page_url('', 0, $idTour > 0 ? 'Cập nhật tour thành công.' : 'Tạo tour thành công.'));
+        tour_redirect(tour_page_url('', 0, $idTour > 0 ? 'Cập nhật tour thành công.' : 'Tạo tour thành công.'));
         exit;
     }
 
     if ($postAction === 'delete') {
         $idTour = isset($_POST['idTour']) ? (int) $_POST['idTour'] : 0;
         if ($idTour <= 0) {
-            header('Location: ' . tour_page_url('', 0, '', 'Thiếu id tour.'));
+            tour_redirect(tour_page_url('', 0, '', 'Thiếu id tour.'));
             exit;
         }
         $apiError = '';
@@ -99,10 +112,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         if ($result === null || empty($result['success'])) {
             $msg = $apiError !== '' ? $apiError : 'Không xóa được tour.';
-            header('Location: ' . tour_page_url('', 0, '', $msg));
+            tour_redirect(tour_page_url('', 0, '', $msg));
             exit;
         }
-        header('Location: ' . tour_page_url('', 0, 'Xóa tour thành công.'));
+        tour_redirect(tour_page_url('', 0, 'Xóa tour thành công.'));
         exit;
     }
 }

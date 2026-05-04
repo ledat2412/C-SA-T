@@ -403,17 +403,26 @@ namespace VinhKhanh.Controllers
         [HttpGet("poi-map")]
         public async Task<IActionResult> GetPoiMap([FromQuery] int idTaiKhoan, [FromQuery] bool ownerOnly = false)
         {
+            if (ownerOnly)
+            {
+                if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                    return ForbiddenResult();
+
+                return Ok(await _adminService.GetPoiMapAsync(idTaiKhoan));
+            }
+
             if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
                 return ForbiddenResult();
 
-            var ownerFilter = ownerOnly ? (int?)idTaiKhoan : null;
-            return Ok(await _adminService.GetPoiMapAsync(ownerFilter));
+            return Ok(await _adminService.GetPoiMapAsync(null));
         }
 
         [HttpGet("stores/{idGianHang}/daily-visits")]
         public async Task<IActionResult> GetStoreDailyVisits(int idGianHang, [FromQuery] int idTaiKhoan)
         {
-            if (!await _accountAccessService.IsAdminAsync(idTaiKhoan))
+            var canView = await _accountAccessService.IsAdminAsync(idTaiKhoan) ||
+                          await _accountAccessService.IsStoreOwnedByAccountAsync(idTaiKhoan, idGianHang);
+            if (!canView)
                 return ForbiddenResult();
 
             return Ok(await _adminService.GetStoreDailyVisitsAsync(idGianHang));

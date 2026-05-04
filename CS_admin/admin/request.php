@@ -104,6 +104,11 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
         exit;
     }
 
+    if ($decision === 'cho_thanh_toan' && ($phiHangThang === null || $lat === null || $lon === null)) {
+        header('Location: ' . request_page_url($statusFilter, $targetRequestId, '', 'Vui long nhap phi hang thang, vi do va kinh do truoc khi phe duyet.', $flashNotice));
+        exit;
+    }
+
     $apiError = '';
     $httpCode = 0;
     $result = $idTaiKhoan > 0
@@ -128,7 +133,7 @@ if (!$isOwnerRequestViewer && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_P
         exit;
     }
 
-    $successMessage = $decision === 'da_duyet'
+    $successMessage = $decision === 'cho_thanh_toan'
         ? 'Đã phê duyệt yêu cầu và tạo gian hàng mới.'
         : 'Đã từ chối yêu cầu.';
 
