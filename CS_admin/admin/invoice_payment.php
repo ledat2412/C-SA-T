@@ -29,9 +29,12 @@ function invoice_payment_text($value, $emptyText = 'Chưa có')
 function invoice_payment_settings()
 {
     $settings = array(
-        'bankBin' => '',
-        'bankAccountNo' => '',
-        'bankAccountName' => '',
+        'payOsEndpoint' => '',
+        'payOsClientId' => '',
+        'payOsApiKey' => '',
+        'payOsChecksumKey' => '',
+        'payOsReturnUrl' => '',
+        'payOsCancelUrl' => '',
     );
 
     $appSettingsPath = dirname(__DIR__, 2) . '/VinhKhanh/VinhKhanh/appsettings.json';
@@ -41,17 +44,199 @@ function invoice_payment_settings()
 
     $raw = file_get_contents($appSettingsPath);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
-    if (!is_array($decoded) || empty($decoded['Payment']['VietQr'])) {
+    if (!is_array($decoded)) {
         return $settings;
     }
 
-    $vietQr = $decoded['Payment']['VietQr'];
-    $settings['bankBin'] = isset($vietQr['BankBin']) ? preg_replace('/\D+/', '', (string) $vietQr['BankBin']) : '';
-    $settings['bankAccountNo'] = isset($vietQr['BankAccountNo']) ? preg_replace('/\D+/', '', (string) $vietQr['BankAccountNo']) : '';
-    $settings['bankAccountName'] = isset($vietQr['BankAccountName']) ? trim((string) $vietQr['BankAccountName']) : '';
+    $payOs = array();
+    if (!empty($decoded['Payment']['PayOS']) && is_array($decoded['Payment']['PayOS'])) {
+      $payOs = $decoded['Payment']['PayOS'];
+    }
+
+    $settings['payOsEndpoint'] = isset($payOs['Endpoint']) ? trim((string) $payOs['Endpoint']) : 'https://api-merchant.payos.vn';
+    if ($settings['payOsEndpoint'] === '') {
+      $settings['payOsEndpoint'] = 'https://api-merchant.payos.vn';
+    }
+    $settings['payOsClientId'] = isset($payOs['ClientId']) ? trim((string) $payOs['ClientId']) : '';
+    $settings['payOsApiKey'] = isset($payOs['ApiKey']) ? trim((string) $payOs['ApiKey']) : '';
+    $settings['payOsChecksumKey'] = isset($payOs['ChecksumKey']) ? trim((string) $payOs['ChecksumKey']) : '';
+    $settings['payOsReturnUrl'] = isset($payOs['ReturnUrl']) ? trim((string) $payOs['ReturnUrl']) : '';
+    $settings['payOsCancelUrl'] = isset($payOs['CancelUrl']) ? trim((string) $payOs['CancelUrl']) : '';
 
     return $settings;
 }
+
+  function invoice_payment_create_order_code($invoiceId)
+  {
+    $invoiceId = (int) $invoiceId;
+    $invoiceSuffix = $invoiceId % 10000;
+    return (int) (time() * 10000 + $invoiceSuffix);
+  }
+
+  function invoice_payment_compute_signature($data, $checksumKey)
+  {
+    ksort($data, SORT_STRING);
+
+    $pairs = array();
+    foreach ($data as $key => $value) {
+      $pairs[] = $key . '=' . $value;
+    }
+
+    $payload = implode('&', $pairs);
+    return strtolower(hash_hmac('sha256', $payload, $checksumKey));
+  }
+
+  function invoice_payment_http_post_json($url, $headers, $payload, &$httpCode, &$responseBody, &$error)
+  {
+    $httpCode = 0;
+    $responseBody = '';
+    $error = '';
+
+    if (function_exists('curl_init')) {
+      $ch = curl_init($url);
+      curl_setopt($ch, CURLOPT_POST, true);
+      curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+      curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+      curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+      curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+
+      $result = curl_exec($ch);
+      if ($result === false) {
+        $error = 'Khong goi duoc PayOS: ' . curl_error($ch);
+        curl_close($ch);
+        return false;
+      }
+
+      $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $responseBody = (string) $result;
+      curl_close($ch);
+      return true;
+    }
+
+    $context = stream_context_create(array(
+      'http' => array(
+        'method' => 'POST',
+        'header' => implode("\r\n", $headers),
+        'content' => $payload,
+        'timeout' => 20,
+        'ignore_errors' => true,
+      ),
+    ));
+
+    $result = @file_get_contents($url, false, $context);
+    if ($result === false) {
+      $error = 'Khong goi duoc PayOS qua HTTP client hien tai.';
+      return false;
+    }
+
+    $responseBody = (string) $result;
+    if (isset($http_response_header) && is_array($http_response_header)) {
+      foreach ($http_response_header as $headerLine) {
+        if (preg_match('/^HTTP\/\S+\s+(\d{3})/i', (string) $headerLine, $matches)) {
+          $httpCode = (int) $matches[1];
+          break;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  function invoice_payment_create_payos_link($invoiceId, $amount, $paymentContent, $settings, &$error)
+  {
+    $error = '';
+    $requiredFields = array('payOsClientId', 'payOsApiKey', 'payOsChecksumKey', 'payOsReturnUrl', 'payOsCancelUrl');
+    foreach ($requiredFields as $field) {
+      if (empty($settings[$field])) {
+        $error = 'Chua cau hinh du Payment:PayOS (ClientId, ApiKey, ChecksumKey, ReturnUrl, CancelUrl).';
+        return null;
+      }
+    }
+
+    $amountInt = (int) ceil((float) $amount);
+    if ($amountInt <= 0) {
+      $error = 'So tien hoa don khong hop le de tao thanh toan PayOS.';
+      return null;
+    }
+
+    $description = trim((string) preg_replace('/\s+/', ' ', (string) $paymentContent));
+    if ($description === '') {
+      $description = 'HDGH' . (int) $invoiceId;
+    }
+    $description = substr($description, 0, 25);
+
+    $orderCode = invoice_payment_create_order_code($invoiceId);
+    $expiredAt = time() + (30 * 60);
+
+    $signData = array(
+      'amount' => (string) $amountInt,
+      'cancelUrl' => (string) $settings['payOsCancelUrl'],
+      'description' => $description,
+      'orderCode' => (string) $orderCode,
+      'returnUrl' => (string) $settings['payOsReturnUrl'],
+    );
+    $signature = invoice_payment_compute_signature($signData, (string) $settings['payOsChecksumKey']);
+
+    $payloadArray = array(
+      'orderCode' => $orderCode,
+      'amount' => $amountInt,
+      'description' => $description,
+      'cancelUrl' => (string) $settings['payOsCancelUrl'],
+      'returnUrl' => (string) $settings['payOsReturnUrl'],
+      'expiredAt' => $expiredAt,
+      'signature' => $signature,
+    );
+    $payload = json_encode($payloadArray, JSON_UNESCAPED_UNICODE);
+    if (!is_string($payload)) {
+      $error = 'Khong tao duoc payload JSON cho PayOS.';
+      return null;
+    }
+
+    $endpoint = rtrim((string) $settings['payOsEndpoint'], '/');
+    $url = $endpoint . '/v2/payment-requests';
+    $headers = array(
+      'Content-Type: application/json',
+      'x-client-id: ' . $settings['payOsClientId'],
+      'x-api-key: ' . $settings['payOsApiKey'],
+    );
+
+    $httpCode = 0;
+    $responseBody = '';
+    if (!invoice_payment_http_post_json($url, $headers, $payload, $httpCode, $responseBody, $error)) {
+      return null;
+    }
+
+    $decoded = json_decode($responseBody, true);
+    if (!is_array($decoded)) {
+      $error = 'PayOS tra ve du lieu khong hop le.';
+      return null;
+    }
+
+    $code = isset($decoded['code']) ? (string) $decoded['code'] : '';
+    if ($httpCode >= 400 || $code !== '00') {
+      $desc = isset($decoded['desc']) ? trim((string) $decoded['desc']) : '';
+      $error = $desc !== '' ? $desc : ('PayOS API loi HTTP ' . $httpCode . '.');
+      return null;
+    }
+
+    $data = isset($decoded['data']) && is_array($decoded['data']) ? $decoded['data'] : array();
+    $checkoutUrl = isset($data['checkoutUrl']) ? trim((string) $data['checkoutUrl']) : '';
+    $qrCode = isset($data['qrCode']) ? trim((string) $data['qrCode']) : '';
+    $paymentLinkId = isset($data['paymentLinkId']) ? trim((string) $data['paymentLinkId']) : '';
+
+    if ($checkoutUrl === '' && $qrCode === '') {
+      $error = 'PayOS khong tra ve checkoutUrl hoac qrCode.';
+      return null;
+    }
+
+    return array(
+      'orderCode' => $orderCode,
+      'description' => $description,
+      'checkoutUrl' => $checkoutUrl,
+      'qrCode' => $qrCode,
+      'paymentLinkId' => $paymentLinkId,
+    );
+  }
 
 function invoice_payment_fetch($invoiceId, $idTaiKhoan, $isOwnerInvoiceViewer, &$error)
 {
@@ -101,20 +286,39 @@ $settings = invoice_payment_settings();
 $paymentContent = $invoice ? invoice_payment_content((int) $invoice['idHoaDonGianHang']) : '';
 $amount = $invoice ? (float) ($invoice['tongTien'] ?? 0) : 0;
 $qrImageUrl = '';
+$checkoutUrl = '';
+$paymentLinkId = '';
+$orderCode = '';
+$payOsPayload = null;
 $canPayInvoice = $invoice && in_array(($invoice['trangThai'] ?? ''), array('chua_thanh_toan', 'qua_han'), true);
 
 if ($invoice && !$canPayInvoice && $paymentError === '') {
     $paymentError = 'Hóa đơn này không ở trạng thái chờ thanh toán.';
 }
 
-if ($canPayInvoice && $settings['bankBin'] !== '' && $settings['bankAccountNo'] !== '' && $amount > 0) {
-    $qrImageUrl = 'https://img.vietqr.io/image/'
-        . rawurlencode($settings['bankBin'] . '-' . $settings['bankAccountNo'] . '-compact2.png')
-        . '?amount=' . rawurlencode((string) (int) $amount)
-        . '&addInfo=' . rawurlencode($paymentContent)
-        . '&accountName=' . rawurlencode($settings['bankAccountName']);
+if ($canPayInvoice && $paymentError === '') {
+  $payOsPayload = invoice_payment_create_payos_link(
+    (int) $invoice['idHoaDonGianHang'],
+    $amount,
+    $paymentContent,
+    $settings,
+    $paymentError
+  );
+
+  if (is_array($payOsPayload)) {
+    $checkoutUrl = isset($payOsPayload['checkoutUrl']) ? (string) $payOsPayload['checkoutUrl'] : '';
+    $paymentLinkId = isset($payOsPayload['paymentLinkId']) ? (string) $payOsPayload['paymentLinkId'] : '';
+    $orderCode = isset($payOsPayload['orderCode']) ? (string) $payOsPayload['orderCode'] : '';
+    $qrPayload = isset($payOsPayload['qrCode']) && $payOsPayload['qrCode'] !== ''
+      ? (string) $payOsPayload['qrCode']
+      : $checkoutUrl;
+
+    if ($qrPayload !== '') {
+      $qrImageUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=' . rawurlencode($qrPayload);
+    }
+  }
 } elseif ($canPayInvoice && $paymentError === '') {
-    $paymentError = 'Chưa cấu hình đủ Payment:VietQr trong appsettings hoặc số tiền hóa đơn không hợp lệ.';
+  $paymentError = 'Chua the tao thanh toan PayOS cho hoa don nay.';
 }
 ?>
 <main class="main-content">
@@ -154,6 +358,12 @@ if ($canPayInvoice && $settings['bankBin'] !== '' && $settings['bankAccountNo'] 
               <span>Nội dung chuyển khoản</span>
               <strong><?php echo htmlspecialchars($paymentContent, ENT_QUOTES, 'UTF-8'); ?></strong>
             </div>
+            <?php if ($orderCode !== '') { ?>
+            <div>
+              <span>PayOS orderCode</span>
+              <strong><?php echo htmlspecialchars($orderCode, ENT_QUOTES, 'UTF-8'); ?></strong>
+            </div>
+            <?php } ?>
             <div>
               <span>Trạng thái</span>
               <strong><?php echo htmlspecialchars(invoice_payment_text($invoice['trangThai'] ?? '', 'Chưa có'), ENT_QUOTES, 'UTF-8'); ?></strong>
@@ -161,9 +371,15 @@ if ($canPayInvoice && $settings['bankBin'] !== '' && $settings['bankAccountNo'] 
           </div>
 
           <div class="bank-box">
-            <span>Tài khoản nhận</span>
-            <strong><?php echo htmlspecialchars(invoice_payment_text($settings['bankAccountName']), ENT_QUOTES, 'UTF-8'); ?></strong>
-            <p><?php echo htmlspecialchars(invoice_payment_text($settings['bankAccountNo']), ENT_QUOTES, 'UTF-8'); ?> - BIN <?php echo htmlspecialchars(invoice_payment_text($settings['bankBin']), ENT_QUOTES, 'UTF-8'); ?></p>
+            <span>Phuong thuc thanh toan</span>
+            <strong>PayOS</strong>
+            <p>
+              <?php if ($paymentLinkId !== '') { ?>
+                PaymentLinkId: <?php echo htmlspecialchars($paymentLinkId, ENT_QUOTES, 'UTF-8'); ?>
+              <?php } else { ?>
+                Quet QR hoac mo checkout PayOS de thanh toan hoa don.
+              <?php } ?>
+            </p>
           </div>
         </div>
 
@@ -175,7 +391,10 @@ if ($canPayInvoice && $settings['bankBin'] !== '' && $settings['bankAccountNo'] 
             <div class="qr-empty">Chưa thể tạo QR</div>
             <?php } ?>
           </div>
-          <p>Quét mã bằng ứng dụng ngân hàng và giữ đúng số tiền, nội dung chuyển khoản.</p>
+          <?php if ($checkoutUrl !== '') { ?>
+          <p><a class="back-link" href="<?php echo htmlspecialchars($checkoutUrl, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener noreferrer">Mo trang checkout PayOS</a></p>
+          <?php } ?>
+          <p>Quet QR PayOS hoac mo checkout link de hoan tat thanh toan.</p>
         </div>
       </div>
       <?php } ?>
