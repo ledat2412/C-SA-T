@@ -46,6 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stopsRaw = isset($_POST['stops_json']) ? (string) $_POST['stops_json'] : '[]';
         $stops = json_decode($stopsRaw, true);
         if (!is_array($stops)) $stops = array();
+        $normalizedStops = array();
+        $seenStops = array();
+        foreach ($stops as $s) {
+            if (!is_array($s)) continue;
+            $idGianHang = (int) ($s['idGianHang'] ?? 0);
+            if ($idGianHang <= 0 || isset($seenStops[$idGianHang])) continue;
+            $seenStops[$idGianHang] = true;
+            $normalizedStops[] = $s;
+        }
 
         $payload = array(
             'ten' => trim((string) ($_POST['ten'] ?? '')),
@@ -63,11 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'thoiGianDeXuatPhut' => isset($s['thoiGianDeXuatPhut']) && $s['thoiGianDeXuatPhut'] !== '' ? (int) $s['thoiGianDeXuatPhut'] : null,
                     'ghiChu' => isset($s['ghiChu']) && $s['ghiChu'] !== '' ? $s['ghiChu'] : null,
                 );
-            }, $stops, array_keys($stops)),
+            }, $normalizedStops, array_keys($normalizedStops)),
         );
 
         if ($payload['ten'] === '') {
-            tour_redirect(tour_page_url('edit', $idTour, '', 'Vui lòng nhập tên tour.'));
+            tour_redirect(tour_page_url($idTour > 0 ? 'edit' : 'new', $idTour, '', 'Vui lòng nhập tên tour.'));
             exit;
         }
 
@@ -86,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result === null || empty($result['success'])) {
             $msg = $apiError !== '' ? $apiError : (is_array($result) && !empty($result['message']) ? $result['message'] : 'Lỗi lưu tour.');
-            tour_redirect(tour_page_url('edit', $idTour, '', $msg));
+            tour_redirect(tour_page_url($idTour > 0 ? 'edit' : 'new', $idTour, '', $msg));
             exit;
         }
 
@@ -350,20 +359,32 @@ if ($action === 'edit' || $action === 'new') {
       const stopsJsonInput = document.getElementById('stopsJson');
       const counterEl = document.getElementById('stopCounter');
 
-      let selected = initialStops.map(s => ({
-        idGianHang: s.idGianHang,
-        ten: s.tenGianHang || ('GH#' + s.idGianHang),
-        audioIntroUrl: s.audioIntroUrl || '',
-        thoiGianDeXuatPhut: s.thoiGianDeXuatPhut || '',
-        ghiChu: s.ghiChu || '',
-      }));
+      const selectedSeed = new Set();
+      let selected = initialStops
+        .map(s => ({
+          idGianHang: parseInt(s.idGianHang || 0, 10),
+          ten: s.tenGianHang || ('GH#' + (s.idGianHang || '')),
+          audioIntroUrl: s.audioIntroUrl || '',
+          thoiGianDeXuatPhut: s.thoiGianDeXuatPhut || '',
+          ghiChu: s.ghiChu || '',
+        }))
+        .filter(s => {
+          if (!s.idGianHang || selectedSeed.has(s.idGianHang)) return false;
+          selectedSeed.add(s.idGianHang);
+          return true;
+        });
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       }
 
+      function syncStopsJson() {
+        stopsJsonInput.value = JSON.stringify(selected);
+      }
+
       function renderSelected() {
         counterEl.textContent = selected.length;
+        syncStopsJson();
         if (selected.length === 0) {
           selectedEl.innerHTML = '<div class="tour-stop-empty">Chưa có điểm dừng nào. Chọn từ danh sách bên dưới.</div>';
           return;
@@ -399,7 +420,7 @@ if ($action === 'edit' || $action === 'new') {
         availableEl.innerHTML = '';
         const selectedIds = new Set(selected.map(s => s.idGianHang));
         const candidates = allStores
-          .map(s => ({ id: parseInt(s.idGianHang || s.id || 0), ten: s.ten || '' }))
+          .map(s => ({ id: parseInt(s.idGianHang || s.id || 0, 10), ten: s.ten || '' }))
           .filter(s => s.id && !selectedIds.has(s.id))
           .filter(s => !filter || s.ten.toLowerCase().indexOf(filter) !== -1);
 
@@ -429,22 +450,24 @@ if ($action === 'edit' || $action === 'new') {
         });
       }
 
-      Sortable.create(selectedEl, {
-        animation: 180,
-        ghostClass: 'is-dragging',
-        onEnd: () => {
-          const newOrder = Array.from(selectedEl.children)
-            .map(el => parseInt(el.dataset.id || 0))
-            .filter(id => id > 0);
-          selected = newOrder.map(id => selected.find(s => s.idGianHang === id)).filter(Boolean);
-          renderSelected();
-        }
-      });
+      if (window.Sortable && typeof window.Sortable.create === 'function') {
+        Sortable.create(selectedEl, {
+          animation: 180,
+          ghostClass: 'is-dragging',
+          onEnd: () => {
+            const newOrder = Array.from(selectedEl.children)
+              .map(el => parseInt(el.dataset.id || 0, 10))
+              .filter(id => id > 0);
+            selected = newOrder.map(id => selected.find(s => s.idGianHang === id)).filter(Boolean);
+            renderSelected();
+          }
+        });
+      }
 
       filterInput.addEventListener('input', renderAvailable);
 
       document.getElementById('tourForm').addEventListener('submit', () => {
-        stopsJsonInput.value = JSON.stringify(selected);
+        syncStopsJson();
       });
 
       renderSelected();

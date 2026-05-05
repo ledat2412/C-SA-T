@@ -216,7 +216,7 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@tinhTrang", request.TinhTrang ?? "hoat_dong");
             var idTour = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
 
-            await ReplaceStopsInternalAsync(conn, tx, idTour, request.DanhSachStop, ct);
+            await ReplaceStopsInternalAsync(conn, tx, idTour, request.DanhSachStop ?? new List<UpsertTourStopDto>(), ct);
 
             await tx.CommitAsync(ct);
             return new TourActionResultDto { Success = true, IdTour = idTour, Message = "Tao tour thanh cong." };
@@ -251,7 +251,7 @@ namespace VinhKhanh.Services
                 return new TourActionResultDto { Success = false, Message = "Khong tim thay tour." };
             }
 
-            await ReplaceStopsInternalAsync(conn, tx, idTour, request.DanhSachStop, ct);
+            await ReplaceStopsInternalAsync(conn, tx, idTour, request.DanhSachStop ?? new List<UpsertTourStopDto>(), ct);
 
             await tx.CommitAsync(ct);
             return new TourActionResultDto { Success = true, IdTour = idTour, Message = "Cap nhat tour thanh cong." };
@@ -285,6 +285,8 @@ namespace VinhKhanh.Services
             var ordered = stops
                 .Where(s => s.IdGianHang > 0)
                 .OrderBy(s => s.ThuTu)
+                .GroupBy(s => s.IdGianHang)
+                .Select(g => g.First())
                 .Select((s, idx) => new UpsertTourStopDto
                 {
                     IdGianHang = s.IdGianHang,
