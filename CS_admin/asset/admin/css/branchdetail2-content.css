@@ -749,27 +749,6 @@ tbody td{
   border-radius:18px;
   border:1px solid #d9eff2;
   background:linear-gradient(135deg, rgba(34,203,203,.08), rgba(113,204,255,.08));
-<<<<<<< HEAD
-=======
-}
-
-.menu-shortcut-card p{
-  color:#526274;
-  font-size:14px;
-  line-height:1.6;
-  margin-bottom:14px;
-}
-
-.menu-link-btn{
-  width:100%;
-  justify-content:center;
-}
-
-@media (max-width: 1100px){
-  .store-edit-grid{
-    grid-template-columns:1fr;
-  }
->>>>>>> 065c556 (Update admin and backend features)
 }
 
 .menu-shortcut-card p{

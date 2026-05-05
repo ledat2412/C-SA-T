@@ -30,6 +30,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     private AudioPlaybackStateSnapshot _playbackState = AudioPlaybackStateSnapshot.Hidden;
 
     public event EventHandler<GeofenceTriggeredEventArgs>? EnteredGeofence;
+    public event EventHandler<GeofenceTriggeredEventArgs>? ExitedGeofence;
     public event EventHandler<LocationUpdatedEventArgs>? LocationUpdated;
     public event EventHandler<AudioPlaybackStateChangedEventArgs>? PlaybackStateChanged;
 
@@ -79,7 +80,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         }
     }
 
-    public async Task SetPriorityBoostsAsync(IReadOnlyDictionary<int, int> priorityBoosts)
+    public async Task SetPriorityBoostsAsync(IReadOnlyDictionary<int, int> priorityBoosts, bool resetInsideState = false)
     {
         await _sync.WaitAsync();
         try
@@ -93,6 +94,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
                 _priorityBoosts[storeId] = priority;
             }
+
+            if (resetInsideState)
+                _insideTargetIds.Clear();
         }
         finally
         {
@@ -100,9 +104,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         }
     }
 
-    public Task ClearPriorityBoostsAsync()
+    public Task ClearPriorityBoostsAsync(bool resetInsideState = false)
     {
-        return SetPriorityBoostsAsync(new Dictionary<int, int>());
+        return SetPriorityBoostsAsync(new Dictionary<int, int>(), resetInsideState);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -312,6 +316,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         PublishLocationIfChanged(location);
 
         List<GeofenceTriggeredEventArgs> newlyEntered = [];
+        List<GeofenceTriggeredEventArgs> newlyExited = [];
         List<GeofenceTriggeredEventArgs> currentlyInside = [];
         Dictionary<int, int> priorityBoosts;
 
@@ -339,7 +344,8 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 }
                 else
                 {
-                    _insideTargetIds.Remove(target.Id);
+                    if (_insideTargetIds.Remove(target.Id))
+                        newlyExited.Add(new GeofenceTriggeredEventArgs(target, distance));
                 }
             }
 
@@ -352,6 +358,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         foreach (var trigger in PrioritizeGeofenceTargets(newlyEntered, priorityBoosts))
             EnteredGeofence?.Invoke(this, trigger);
+
+        foreach (var trigger in newlyExited.OrderBy(x => x.Target.Id))
+            ExitedGeofence?.Invoke(this, trigger);
 
         if (!AutoPlayAudioWhenEntered || currentlyInside.Count == 0)
             return;

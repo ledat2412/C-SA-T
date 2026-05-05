@@ -82,6 +82,7 @@ public partial class PoiMapPage
             if (!_isLiveLocationSubscribed)
             {
                 _geofenceEngine.EnteredGeofence += OnEnteredGeofence;
+                _geofenceEngine.ExitedGeofence += OnExitedGeofence;
                 _geofenceEngine.LocationUpdated += OnLiveLocationUpdated;
                 _isLiveLocationSubscribed = true;
             }
@@ -103,6 +104,20 @@ public partial class PoiMapPage
 
         if (_activeTourDetail is not null)
             _ = HandleActiveTourGeofenceEnteredAsync(e.Target.Id);
+    }
+
+    private void OnExitedGeofence(object? sender, GeofenceTriggeredEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine(
+            $"[Geofence] Exited '{e.Target.Name}' at {e.DistanceMeters:F1}m (radius {e.Target.RadiusMeters:F0}m)");
+
+        if (_pendingTourCompletionExitStoreId == e.Target.Id)
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await FinishActiveTourAfterExitAsync(e.Target.Id);
+            });
+        }
     }
 
     private async Task HandleActiveTourGeofenceEnteredAsync(int idGianHang)
@@ -129,6 +144,15 @@ public partial class PoiMapPage
                 StepHienTai = result.StepKeTiep ?? tourStop.ThuTu,
                 IsCompleted = result.IsCompleted
             };
+
+            if (result.IsCompleted)
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await MarkActiveTourCompletedPendingExitAsync(detail, idGianHang);
+                });
+                return;
+            }
 
             await ApplyActiveTourGeofencePriorityAsync();
 

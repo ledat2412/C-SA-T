@@ -211,6 +211,226 @@ Section("14. After tour stop, normal geofence audio returns");
     Assert(audio.CurrentAudioUrl == "/audio/outsider.mp3", "Normal audio URL is restored.");
 }
 
+Section("15. Starting tour while already inside geofence re-confirms entry");
+{
+    var geofence = new MockGeofenceEventEngine();
+    var triggers = new[] { new Trigger(booths[1], DistanceMeters: 0) };
+
+    geofence.Evaluate(triggers);
+    var entriesBeforeTour = geofence.EntryCount;
+
+    geofence.ResetInsideState();
+    geofence.Evaluate(triggers);
+
+    Assert(entriesBeforeTour == 1, "Normal geofence entry was recorded once before tour.");
+    Assert(geofence.EntryCount == 2, "Reset on tour start makes current geofence fire again.");
+    Assert(geofence.LastEnteredStoreId == 1, "The currently occupied tour stop is confirmed.");
+}
+
+Section("16. Final stop completion waits until leaving audio radius");
+{
+    var completion = new MockTourCompletionNotifier();
+
+    completion.MarkFinalStopReached(finalStoreId: 4);
+    completion.HandleGeofenceExit(exitedStoreId: 99);
+
+    Assert(completion.AlertCount == 0, "Reaching final stop does not show completion immediately.");
+    Assert(completion.IsTourActive, "Tour remains active while visitor is still inside final stop radius.");
+
+    completion.HandleGeofenceExit(exitedStoreId: 4);
+
+    Assert(completion.AlertCount == 1, "Completion alert shows after exiting final stop radius.");
+    Assert(!completion.IsTourActive, "Tour state is cleared after the final-radius exit alert.");
+}
+
+Section("17. Geofence exit fires once after leaving radius");
+{
+    var geofence = new MockGeofenceEventEngine();
+
+    geofence.Evaluate(new[] { new Trigger(booths[1], DistanceMeters: 0) });
+    geofence.Evaluate(Array.Empty<Trigger>());
+    geofence.Evaluate(Array.Empty<Trigger>());
+
+    Assert(geofence.EntryCount == 1, "Initial inside tick records one entry.");
+    Assert(geofence.ExitCount == 1, "Leaving the radius records exactly one exit.");
+    Assert(geofence.LastExitedStoreId == 1, "Exit belongs to the booth that was previously inside.");
+}
+
+Section("18. Moving between booths exits old and enters new");
+{
+    var geofence = new MockGeofenceEventEngine();
+
+    geofence.Evaluate(new[] { new Trigger(booths[1], DistanceMeters: 0) });
+    geofence.Evaluate(new[] { new Trigger(booths[2], DistanceMeters: 0) });
+
+    Assert(geofence.EntryCount == 2, "New booth entry is recorded.");
+    Assert(geofence.ExitCount == 1, "Previous booth exit is recorded.");
+    Assert(geofence.LastEnteredStoreId == 2 && geofence.LastExitedStoreId == 1, "Move is tracked as exit 1 then enter 2.");
+}
+
+Section("19. Overlapping booths do not re-fire while still inside");
+{
+    var geofence = new MockGeofenceEventEngine();
+    var overlap = new[]
+    {
+        new Trigger(booths[1], DistanceMeters: 0),
+        new Trigger(booths[2], DistanceMeters: 0),
+    };
+
+    geofence.Evaluate(overlap);
+    geofence.Evaluate(overlap);
+
+    Assert(geofence.EntryCount == 2, "Two booths enter once each.");
+    Assert(geofence.ExitCount == 0, "No exit fires while still inside both booths.");
+}
+
+Section("20. Final completion alert is idempotent");
+{
+    var completion = new MockTourCompletionNotifier();
+
+    completion.MarkFinalStopReached(finalStoreId: 4);
+    completion.HandleGeofenceExit(exitedStoreId: 4);
+    completion.HandleGeofenceExit(exitedStoreId: 4);
+
+    Assert(completion.AlertCount == 1, "Duplicate final exit does not show duplicate alert.");
+    Assert(!completion.IsTourActive, "Tour remains cleared after duplicate final exit.");
+}
+
+Section("21. Exit before final stop reached never completes tour");
+{
+    var completion = new MockTourCompletionNotifier();
+
+    completion.HandleGeofenceExit(exitedStoreId: 4);
+
+    Assert(completion.AlertCount == 0, "No pending final stop means no completion alert.");
+    Assert(completion.IsTourActive, "Tour stays active.");
+}
+
+Section("22. Wrong exit is ignored before correct final exit");
+{
+    var completion = new MockTourCompletionNotifier();
+
+    completion.MarkFinalStopReached(finalStoreId: 4);
+    completion.HandleGeofenceExit(exitedStoreId: 3);
+    completion.HandleGeofenceExit(exitedStoreId: 4);
+
+    Assert(completion.AlertCount == 1, "Only the final booth exit completes the tour.");
+    Assert(!completion.IsTourActive, "Tour clears after the correct final exit.");
+}
+
+Section("23. Normal priority tie uses higher monthly fee");
+{
+    var cheap = new Booth(201, "Cheap Tie", 0, 0, 10, 10_000m, "/audio/cheap.mp3");
+    var expensive = new Booth(202, "Expensive Tie", 0, 0, 10, 20_000m, "/audio/expensive.mp3");
+    var triggers = new[]
+    {
+        new Trigger(cheap, DistanceMeters: 5),
+        new Trigger(expensive, DistanceMeters: 5),
+    };
+
+    var winner = Priority.Prioritize(triggers, new Dictionary<int, int>()).First();
+    Assert(winner.Booth.Id == 202, "When distance ratio ties, higher fee wins.");
+}
+
+Section("24. Normal priority final tie uses lower id");
+{
+    var later = new Booth(302, "Later Id", 0, 0, 10, 10_000m, "/audio/later.mp3");
+    var earlier = new Booth(301, "Earlier Id", 0, 0, 10, 10_000m, "/audio/earlier.mp3");
+    var triggers = new[]
+    {
+        new Trigger(later, DistanceMeters: 5),
+        new Trigger(earlier, DistanceMeters: 5),
+    };
+
+    var winner = Priority.Prioritize(triggers, new Dictionary<int, int>()).First();
+    Assert(winner.Booth.Id == 301, "When ratio and fee tie, lower booth id wins.");
+}
+
+Section("25. Zero-radius normal booth loses distance-ratio priority");
+{
+    var zeroRadius = new Booth(401, "Zero Radius", 0, 0, 0, 999_000m, "/audio/zero.mp3");
+    var normal = new Booth(402, "Normal Radius", 0, 0, 10, 1_000m, "/audio/normal.mp3");
+    var triggers = new[]
+    {
+        new Trigger(zeroRadius, DistanceMeters: 0),
+        new Trigger(normal, DistanceMeters: 9),
+    };
+
+    var winner = Priority.Prioritize(triggers, new Dictionary<int, int>()).First();
+    Assert(winner.Booth.Id == 402, "Zero radius is treated as max ratio in normal priority.");
+}
+
+Section("26. Boosted zero-radius booth still wins while tour is active");
+{
+    var zeroRadius = new Booth(401, "Zero Radius", 0, 0, 0, 1_000m, "/audio/zero.mp3");
+    var normal = new Booth(402, "Normal Radius", 0, 0, 10, 999_000m, "/audio/normal.mp3");
+    var boosts = new Dictionary<int, int> { [401] = 4000 };
+    var triggers = new[]
+    {
+        new Trigger(zeroRadius, DistanceMeters: 0),
+        new Trigger(normal, DistanceMeters: 0),
+    };
+
+    var winner = Priority.Prioritize(triggers, boosts).First();
+    Assert(winner.Booth.Id == 401, "Tour boost is applied before distance-ratio fallback.");
+}
+
+Section("27. Audio switches when tour priority winner changes");
+{
+    var audio = new MockAudioEngine();
+
+    audio.EvaluateGeofence(new[] { new Trigger(booths[1], DistanceMeters: 0) }, new Dictionary<int, int>());
+    audio.EvaluateGeofence(
+        new[]
+        {
+            new Trigger(booths[1], DistanceMeters: 0),
+            new Trigger(booths[2], DistanceMeters: 9),
+        },
+        new Dictionary<int, int> { [2] = 4000 });
+
+    Assert(audio.CurrentStoreId == 2, "Boosted stop 2 replaces previous audio.");
+    Assert(audio.PlayCount == 2, "Switching to a different playable booth starts audio once more.");
+}
+
+Section("28. Silent boosted winner does not kill current audio");
+{
+    var audio = new MockAudioEngine();
+
+    audio.EvaluateGeofence(new[] { new Trigger(booths[1], DistanceMeters: 0) }, new Dictionary<int, int>());
+    audio.EvaluateGeofence(
+        new[]
+        {
+            new Trigger(booths[1], DistanceMeters: 0),
+            new Trigger(booths[98], DistanceMeters: 0),
+        },
+        new Dictionary<int, int> { [98] = 4000 });
+
+    Assert(audio.CurrentStoreId == 1, "Silent boosted booth is ignored by autoplay.");
+    Assert(audio.PlayCount == 1, "Ignoring silent booth does not restart audio.");
+}
+
+Section("29. Old stop re-entry after progress does not change next target");
+{
+    var state = new TourState { StepHienTai = 3 };
+    var result = TourProgress.Advance(tour, state, idGianHangVuaDen: 1);
+
+    Assert(result.Success, "Old stop is still recognized as a tour stop.");
+    Assert(state.StepHienTai == 3, "Progress does not move backward.");
+    Assert(result.IdGianHangKeTiep == 3, "Next booth remains the current forward target.");
+}
+
+Section("30. Empty tour is safely ignored");
+{
+    var emptyTour = new Tour(8, "Empty Tour", new List<TourStop>());
+    var state = new TourState();
+
+    var boosts = TourPriority.BuildBoosts(emptyTour, state);
+    var result = TourProgress.Advance(emptyTour, state, idGianHangVuaDen: 1);
+
+    Assert(boosts.Count == 0, "Empty tour creates no geofence boosts.");
+    Assert(!result.Success, "Advance rejects booths when tour has no stops.");
+}
+
 Console.WriteLine();
 Console.WriteLine($"=== Total: {passed} passed, {failed} failed ===");
 return failed == 0 ? 0 : 1;
@@ -342,5 +562,69 @@ sealed class MockAudioEngine
         CurrentStoreId = booth.Id;
         CurrentAudioUrl = booth.AudioUrl;
         PlayCount++;
+    }
+}
+
+sealed class MockGeofenceEventEngine
+{
+    private readonly HashSet<int> _insideTargetIds = new();
+
+    public int EntryCount { get; private set; }
+    public int ExitCount { get; private set; }
+    public int? LastEnteredStoreId { get; private set; }
+    public int? LastExitedStoreId { get; private set; }
+
+    public void ResetInsideState()
+    {
+        _insideTargetIds.Clear();
+    }
+
+    public void Evaluate(IEnumerable<Trigger> currentlyInside)
+    {
+        var current = currentlyInside.ToList();
+        var currentIds = current.Select(t => t.Booth.Id).ToHashSet();
+        var exitedIds = _insideTargetIds
+            .Where(id => !currentIds.Contains(id))
+            .OrderBy(id => id)
+            .ToList();
+
+        foreach (var exitedId in exitedIds)
+        {
+            _insideTargetIds.Remove(exitedId);
+            ExitCount++;
+            LastExitedStoreId = exitedId;
+        }
+
+        foreach (var trigger in current)
+        {
+            if (!_insideTargetIds.Add(trigger.Booth.Id))
+                continue;
+
+            EntryCount++;
+            LastEnteredStoreId = trigger.Booth.Id;
+        }
+    }
+}
+
+sealed class MockTourCompletionNotifier
+{
+    private int? _pendingFinalExitStoreId;
+
+    public int AlertCount { get; private set; }
+    public bool IsTourActive { get; private set; } = true;
+
+    public void MarkFinalStopReached(int finalStoreId)
+    {
+        _pendingFinalExitStoreId = finalStoreId;
+    }
+
+    public void HandleGeofenceExit(int exitedStoreId)
+    {
+        if (_pendingFinalExitStoreId != exitedStoreId || !IsTourActive)
+            return;
+
+        AlertCount++;
+        IsTourActive = false;
+        _pendingFinalExitStoreId = null;
     }
 }

@@ -158,6 +158,8 @@ public partial class PoiMapPage : ContentPage
     private GianHang? _currentDetailGianHang;
     private TourDetail? _activeTourDetail;
     private TourProgress? _activeTourProgress;
+    private int? _pendingTourCompletionExitStoreId;
+    private bool _isTourCompletionNotificationShowing;
     private readonly List<MauiPolyline> _mauiTourLines = new();
     private readonly List<NgonNgu> _languages = new();
     private string _selectedLanguageCode = DefaultLanguageCode; // overridden in constructor
@@ -481,6 +483,8 @@ public partial class PoiMapPage : ContentPage
     public void RequestStartTour(TourDetail tourDetail)
     {
         _activeTourDetail = tourDetail;
+        _pendingTourCompletionExitStoreId = null;
+        _isTourCompletionNotificationShowing = false;
 #if ANDROID
         _hasPendingTourRender = true;
 #endif
@@ -497,7 +501,7 @@ public partial class PoiMapPage : ContentPage
             return;
 
         _activeTourProgress = await _tourService.GetProgressAsync(_activeTourDetail.Tour.IdTour);
-        await ApplyActiveTourGeofencePriorityAsync();
+        await ApplyActiveTourGeofencePriorityAsync(resetInsideState: true);
         await _geofenceEngine.EvaluateNowAsync();
 
 #if ANDROID
@@ -690,15 +694,52 @@ public partial class PoiMapPage : ContentPage
         if (!shouldStop)
             return;
 
+        await ClearActiveTourStateAsync(resetHeader: true);
+    }
+
+    private async Task MarkActiveTourCompletedPendingExitAsync(TourDetail completedTour, int finalStoreId)
+    {
+        if (_activeTourDetail?.Tour.IdTour != completedTour.Tour.IdTour)
+            return;
+
+        _pendingTourCompletionExitStoreId = finalStoreId;
+        await ApplyActiveTourGeofencePriorityAsync();
+        await RefreshActiveTourTextAsync();
+        await RenderActiveTourRouteAsync();
+    }
+
+    private async Task FinishActiveTourAfterExitAsync(int exitedStoreId)
+    {
+        if (_pendingTourCompletionExitStoreId != exitedStoreId || _activeTourDetail is null || _isTourCompletionNotificationShowing)
+            return;
+
+        _isTourCompletionNotificationShowing = true;
+        try
+        {
+            await DisplayAlertAsync(_loc.Get("tour_page_title"), _loc.Get("tour_completed"), _loc.Get("alert_ok"));
+            await ClearActiveTourStateAsync(resetHeader: true);
+        }
+        finally
+        {
+            _isTourCompletionNotificationShowing = false;
+        }
+    }
+
+    private async Task ClearActiveTourStateAsync(bool resetHeader)
+    {
         _activeTourDetail = null;
         _activeTourProgress = null;
+        _pendingTourCompletionExitStoreId = null;
         await _geofenceEngine.ClearPriorityBoostsAsync();
 #if ANDROID
         _hasPendingTourRender = false;
 #endif
         ClearTourRouteVisuals();
-        _titleLabel.Text = _loc.Get("map_title");
-        _subtitleLabel.Text = _loc.Get("map_subtitle_default");
+        if (resetHeader)
+        {
+            _titleLabel.Text = _loc.Get("map_title");
+            _subtitleLabel.Text = _loc.Get("map_subtitle_default");
+        }
         await HideTourProgressBannerAsync();
     }
 
@@ -728,11 +769,11 @@ public partial class PoiMapPage : ContentPage
             .FirstOrDefault(s => s.ThuTu > currentStop.ThuTu);
     }
 
-    private async Task ApplyActiveTourGeofencePriorityAsync()
+    private async Task ApplyActiveTourGeofencePriorityAsync(bool resetInsideState = false)
     {
         if (_activeTourDetail is null)
         {
-            await _geofenceEngine.ClearPriorityBoostsAsync();
+            await _geofenceEngine.ClearPriorityBoostsAsync(resetInsideState);
             return;
         }
 
@@ -754,7 +795,7 @@ public partial class PoiMapPage : ContentPage
         if (nextStop is not null)
             boosts[nextStop.IdGianHang] = 4000;
 
-        await _geofenceEngine.SetPriorityBoostsAsync(boosts);
+        await _geofenceEngine.SetPriorityBoostsAsync(boosts, resetInsideState);
     }
 
     private void FitTourStops(IReadOnlyList<TourStop> stops)
@@ -2507,8 +2548,15 @@ public partial class PoiMapPage : ContentPage
         if (_tourArrowIcon is not null)
             return _tourArrowIcon;
 
-        var bitmap = AndroidBitmap.CreateBitmap(48, 48, AndroidBitmapConfig.Argb8888!);
+        var bitmap = AndroidBitmap.CreateBitmap(72, 72, AndroidBitmapConfig.Argb8888!);
         var canvas = new AndroidCanvas(bitmap);
+        var shadow = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+        {
+            Color = AndroidColor.Argb(90, 15, 23, 42)
+        };
+        shadow.SetStyle(AndroidPaintStyle.Fill);
+        shadow.SetShadowLayer(6f, 0f, 3f, AndroidColor.Argb(120, 15, 23, 42));
+
         var paint = new AndroidPaint(AndroidPaintFlags.AntiAlias)
         {
             Color = AndroidColor.ParseColor("#DC2626")
@@ -2516,17 +2564,18 @@ public partial class PoiMapPage : ContentPage
         paint.SetStyle(AndroidPaintStyle.Fill);
 
         var path = new AndroidPath();
-        path.MoveTo(24, 5);
-        path.LineTo(38, 39);
-        path.LineTo(24, 31);
-        path.LineTo(10, 39);
+        path.MoveTo(36, 5);
+        path.LineTo(59, 64);
+        path.LineTo(36, 51);
+        path.LineTo(13, 64);
         path.Close();
+        canvas.DrawPath(path, shadow);
         canvas.DrawPath(path, paint);
 
         var stroke = new AndroidPaint(AndroidPaintFlags.AntiAlias)
         {
             Color = AndroidColor.White,
-            StrokeWidth = 3
+            StrokeWidth = 5
         };
         stroke.SetStyle(AndroidPaintStyle.Stroke);
         canvas.DrawPath(path, stroke);
@@ -2989,6 +3038,7 @@ public partial class PoiMapPage : ContentPage
         if (_isLiveLocationSubscribed)
         {
             _geofenceEngine.EnteredGeofence -= OnEnteredGeofence;
+            _geofenceEngine.ExitedGeofence -= OnExitedGeofence;
             _geofenceEngine.LocationUpdated -= OnLiveLocationUpdated;
             _isLiveLocationSubscribed = false;
         }
