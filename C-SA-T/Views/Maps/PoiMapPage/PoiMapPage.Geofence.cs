@@ -100,6 +100,55 @@ public partial class PoiMapPage
     {
         System.Diagnostics.Debug.WriteLine(
             $"[Geofence] Entered '{e.Target.Name}' at {e.DistanceMeters:F1}m (radius {e.Target.RadiusMeters:F0}m)");
+
+        if (_activeTourDetail is not null)
+            _ = HandleActiveTourGeofenceEnteredAsync(e.Target.Id);
+    }
+
+    private async Task HandleActiveTourGeofenceEnteredAsync(int idGianHang)
+    {
+        await _tourAdvanceSync.WaitAsync();
+        try
+        {
+            var detail = _activeTourDetail;
+            if (detail is null)
+                return;
+
+            var tourStop = TourService.GetUsableStops(detail)
+                .FirstOrDefault(s => s.IdGianHang == idGianHang);
+            if (tourStop is null)
+                return;
+
+            var result = await _tourService.AdvanceAsync(detail.Tour.IdTour, idGianHang);
+            if (result is null || !result.Success)
+                return;
+
+            _activeTourProgress = new TourProgress
+            {
+                IdTour = detail.Tour.IdTour,
+                StepHienTai = result.StepKeTiep ?? tourStop.ThuTu,
+                IsCompleted = result.IsCompleted
+            };
+
+            await ApplyActiveTourGeofencePriorityAsync();
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                if (_activeTourDetail?.Tour.IdTour != detail.Tour.IdTour)
+                    return;
+
+                await RefreshActiveTourTextAsync();
+                await RenderActiveTourRouteAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Tour] Advance from geofence error: {ex.Message}");
+        }
+        finally
+        {
+            _tourAdvanceSync.Release();
+        }
     }
 
     private void OnLiveLocationUpdated(object? sender, LocationUpdatedEventArgs e)

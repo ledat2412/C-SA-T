@@ -12,6 +12,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
     private readonly Dictionary<int, GeofenceTarget> _targets = new();
     private readonly HashSet<int> _insideTargetIds = new();
+    private readonly Dictionary<int, int> _priorityBoosts = new();
 
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
@@ -76,6 +77,32 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         {
             _sync.Release();
         }
+    }
+
+    public async Task SetPriorityBoostsAsync(IReadOnlyDictionary<int, int> priorityBoosts)
+    {
+        await _sync.WaitAsync();
+        try
+        {
+            _priorityBoosts.Clear();
+
+            foreach (var (storeId, priority) in priorityBoosts)
+            {
+                if (storeId <= 0 || priority <= 0)
+                    continue;
+
+                _priorityBoosts[storeId] = priority;
+            }
+        }
+        finally
+        {
+            _sync.Release();
+        }
+    }
+
+    public Task ClearPriorityBoostsAsync()
+    {
+        return SetPriorityBoostsAsync(new Dictionary<int, int>());
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -286,6 +313,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         List<GeofenceTriggeredEventArgs> newlyEntered = [];
         List<GeofenceTriggeredEventArgs> currentlyInside = [];
+        Dictionary<int, int> priorityBoosts;
 
         await _sync.WaitAsync(ct);
         try
@@ -314,13 +342,15 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                     _insideTargetIds.Remove(target.Id);
                 }
             }
+
+            priorityBoosts = new Dictionary<int, int>(_priorityBoosts);
         }
         finally
         {
             _sync.Release();
         }
 
-        foreach (var trigger in PrioritizeGeofenceTargets(newlyEntered))
+        foreach (var trigger in PrioritizeGeofenceTargets(newlyEntered, priorityBoosts))
             EnteredGeofence?.Invoke(this, trigger);
 
         if (!AutoPlayAudioWhenEntered || currentlyInside.Count == 0)
@@ -328,15 +358,17 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         // Re-evaluate priority on the full inside set every tick — entry order
         // must not decide the winner when a visitor stands in overlapping zones.
-        var preferredTarget = PrioritizeGeofenceTargets(currentlyInside).First();
+        var preferredTarget = PrioritizeGeofenceTargets(currentlyInside, priorityBoosts).First();
         await ScheduleAutoPlayAsync(preferredTarget.Target, ct);
     }
 
     private static IOrderedEnumerable<GeofenceTriggeredEventArgs> PrioritizeGeofenceTargets(
-        IEnumerable<GeofenceTriggeredEventArgs> targets)
+        IEnumerable<GeofenceTriggeredEventArgs> targets,
+        IReadOnlyDictionary<int, int> priorityBoosts)
     {
         return targets
-            .OrderBy(x => x.Target.RadiusMeters > 0
+            .OrderByDescending(x => priorityBoosts.TryGetValue(x.Target.Id, out var priority) ? priority : 0)
+            .ThenBy(x => x.Target.RadiusMeters > 0
                 ? x.DistanceMeters / x.Target.RadiusMeters
                 : double.MaxValue)
             .ThenByDescending(x => x.Target.MonthlyFee)

@@ -48,6 +48,7 @@ public partial class PoiMapPage : ContentPage
     private readonly GeofenceEngineService _geofenceEngine;
     private readonly SQLiteService _sqliteService;
     private readonly AudioCacheService _audioCacheService;
+    private readonly SemaphoreSlim _tourAdvanceSync = new(1, 1);
     private List<GianHang> _gianHangsForPrefetch = new();
     private DateTime _lastLazyPrefetchAtUtc = DateTime.MinValue;
     private double? _lastLazyPrefetchLat;
@@ -495,6 +496,10 @@ public partial class PoiMapPage : ContentPage
         if (_activeTourDetail is null)
             return;
 
+        _activeTourProgress = await _tourService.GetProgressAsync(_activeTourDetail.Tour.IdTour);
+        await ApplyActiveTourGeofencePriorityAsync();
+        await _geofenceEngine.EvaluateNowAsync();
+
 #if ANDROID
         if (_androidGoogleMap is null)
         {
@@ -506,8 +511,6 @@ public partial class PoiMapPage : ContentPage
 #if ANDROID
         _hasPendingTourRender = false;
 #endif
-        _activeTourProgress = await _tourService.GetProgressAsync(_activeTourDetail.Tour.IdTour);
-
         var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress);
         var nextStop = ResolveNextAvailableStop(_activeTourDetail, currentStop);
 
@@ -689,6 +692,7 @@ public partial class PoiMapPage : ContentPage
 
         _activeTourDetail = null;
         _activeTourProgress = null;
+        await _geofenceEngine.ClearPriorityBoostsAsync();
 #if ANDROID
         _hasPendingTourRender = false;
 #endif
@@ -722,6 +726,35 @@ public partial class PoiMapPage : ContentPage
 
         return TourService.GetUsableStops(detail)
             .FirstOrDefault(s => s.ThuTu > currentStop.ThuTu);
+    }
+
+    private async Task ApplyActiveTourGeofencePriorityAsync()
+    {
+        if (_activeTourDetail is null)
+        {
+            await _geofenceEngine.ClearPriorityBoostsAsync();
+            return;
+        }
+
+        var boosts = new Dictionary<int, int>();
+        var stops = TourService.GetUsableStops(_activeTourDetail);
+        foreach (var stop in stops)
+        {
+            if (stop.IdGianHang > 0)
+                boosts[stop.IdGianHang] = 1000;
+        }
+
+        var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress);
+        var nextStop = ResolveNextAvailableStop(_activeTourDetail, currentStop);
+        var step = _activeTourProgress?.StepHienTai ?? 0;
+
+        if (currentStop is not null)
+            boosts[currentStop.IdGianHang] = step <= 0 ? 4000 : 3000;
+
+        if (nextStop is not null)
+            boosts[nextStop.IdGianHang] = 4000;
+
+        await _geofenceEngine.SetPriorityBoostsAsync(boosts);
     }
 
     private void FitTourStops(IReadOnlyList<TourStop> stops)
