@@ -182,6 +182,7 @@ if ($action === 'edit' || $action === 'new') {
                         'ten' => (string) ($s['tenGianHang'] ?? ''),
                         'lat' => $lat,
                         'lng' => $lng,
+                        'hinhAnh' => (string) ($s['hinhAnh'] ?? ''),
                         'isAvailable' => !empty($s['isAvailable']),
                         'gianHangTinhTrang' => (string) ($s['gianHangTinhTrang'] ?? ''),
                     );
@@ -638,7 +639,8 @@ if ($action === 'edit' || $action === 'new') {
 window.TOUR_MAP_DATA = <?php echo json_encode($toursWithStops, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP); ?>;
 window.TOUR_MAP_CONFIG = {
   center: { lat: <?php echo $mapCenterLat; ?>, lng: <?php echo $mapCenterLng; ?> },
-  mapId: <?php echo json_encode($googleMapsMapId); ?>
+  mapId: <?php echo json_encode($googleMapsMapId); ?>,
+  imageProxyUrl: <?php echo json_encode(admin_url('api/image-proxy.php'), JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
 <script src="<?php echo htmlspecialchars(admin_url('asset/admin/js/tour-map.js'), ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo @filemtime(__DIR__ . '/../asset/admin/js/tour-map.js') ?: time(); ?>"></script>

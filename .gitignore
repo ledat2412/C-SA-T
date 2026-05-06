@@ -3,6 +3,10 @@
 # Build output
 **/bin/
 **/obj/
+_temp_build/
+**/bin_verify*/
+**/tempobj*/
+**/tempbuild*/
 
 # IDE / user-local files
 **/.vs/
@@ -12,6 +16,8 @@
 # Local secret props
 **/Secrets.props
 **/Secret.props
+**/Secret/props.txt
+**/*.keystore
 
 # App secret folders
 **/Secret/*.json
@@ -32,3 +38,6 @@ VinhKhanh/VinhKhanh/appsettings.Development.json
 CS_admin/logs/
 VinhKhanh/VinhKhanh/Logs/
 VinhKhanh/VinhKhanh/temp_*.log
+**/hs_err_pid*.log
+**/replay_pid*.log
+**/temp_*.log

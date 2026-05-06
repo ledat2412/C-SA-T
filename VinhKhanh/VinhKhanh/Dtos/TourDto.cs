@@ -26,6 +26,7 @@ namespace VinhKhanh.Dtos
         public double? Lat { get; set; }
         public double? Lon { get; set; }
         public string? AudioMacDinhUrl { get; set; }
+        public string? HinhAnh { get; set; }
         public bool IsAvailable { get; set; }            // gh.tinhTrang == 'dang_hoat_dong'
         public string? GianHangTinhTrang { get; set; }   // raw status de UI hien lable
     }

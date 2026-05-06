@@ -1,9 +1,0 @@
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.csproj.AssemblyReference.cache
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\rpswa.dswa.cache.json
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.GeneratedMSBuildEditorConfig.editorconfig
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.AssemblyInfoInputs.cache
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.AssemblyInfo.cs
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.csproj.CoreCompileInputs.cache
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.MvcApplicationPartsAssemblyInfo.cs
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.MvcApplicationPartsAssemblyInfo.cache
-C:\xampp\htdocs\C-SA-T\VinhKhanh\VinhKhanh\tempobj_reg2\Debug\net10.0\VinhKhanh.sourcelink.json

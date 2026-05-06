@@ -16,6 +16,17 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
+  function buildImageUrl(path) {
+    var value = String(path == null ? '' : path).trim();
+    if (!value) return '';
+
+    if (config.imageProxyUrl) {
+      return String(config.imageProxyUrl) + '?path=' + encodeURIComponent(value);
+    }
+
+    return value;
+  }
+
   function normalizeStops(stops) {
     if (!Array.isArray(stops)) return [];
     return stops
@@ -72,13 +83,18 @@
 
   function buildInfoContent(tour, stop, nextStop) {
     var color = tour.color || '#20cfd0';
+    var imageUrl = buildImageUrl(stop.hinhAnh);
+    var imageBlock = imageUrl
+      ? '<img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(stop.ten) + '" loading="lazy" onerror="this.style.display=&#039;none&#039;" style="width:100%;height:118px;object-fit:cover;border-radius:8px;margin-bottom:10px;display:block;background:#e2e8f0;" />'
+      : '';
     var nextLine = nextStop
       ? '<div style="font-size:12px;color:#0f172a;margin-top:8px;"><strong>Dang di toi:</strong> Stop ' + nextStop.thuTu + ' - ' + escapeHtml(nextStop.ten) + '</div>'
       : '<div style="font-size:12px;color:#64748b;margin-top:8px;">Day la diem cuoi cua tour.</div>';
     var pausedBadge = stop.isAvailable === false
       ? '<div style="display:inline-block;margin-top:6px;padding:2px 8px;background:#fff1e6;color:#d97706;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;">Tam ngung - se skip</div>'
       : '';
-    return '<div style="font-family:Inter,Arial,sans-serif;min-width:220px;">' +
+    return '<div style="font-family:Inter,Arial,sans-serif;min-width:240px;max-width:280px;">' +
+      imageBlock +
       '<div style="font-size:11px;color:' + color + ';font-weight:800;text-transform:uppercase;">' + escapeHtml(tour.ten) + '</div>' +
       '<div style="font-size:14px;font-weight:800;color:#0f172a;margin:4px 0;">Stop ' + stop.thuTu + ': ' + escapeHtml(stop.ten) + '</div>' +
       '<div style="font-size:11px;color:#7f8ea3;">' + Number(stop.lat).toFixed(5) + ', ' + Number(stop.lng).toFixed(5) + '</div>' +

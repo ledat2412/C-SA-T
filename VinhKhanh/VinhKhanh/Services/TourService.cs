@@ -25,6 +25,29 @@ namespace VinhKhanh.Services
         private static string? ToNullableString(object? value) =>
             value == null || value == DBNull.Value ? null : value.ToString();
 
+        private static string? NormalizeImagePathForWeb(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return path;
+            }
+
+            var cleanPath = path.Trim().TrimStart('/');
+
+            if (!cleanPath.StartsWith("images/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase) &&
+                !cleanPath.StartsWith("content/", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanPath = "images/" + cleanPath;
+            }
+
+            return "/" + cleanPath;
+        }
+
         public async Task<List<TourDto>> GetActiveToursAsync(int? idNgonNgu = null, CancellationToken ct = default)
         {
             using var conn = _db.GetConnection();
@@ -102,7 +125,14 @@ namespace VinhKhanh.Services
                        COALESCE(ghnn.ten, gh.ten) AS tenGianHang,
                        gh.lat, gh.lon, gh.tinhTrang AS ghTinhTrang,
                        (gh.tinhTrang = 'dang_hoat_dong') AS isAvailable,
-                       ghnn.audioURL AS audioMacDinhUrl
+                       ghnn.audioURL AS audioMacDinhUrl,
+                       (
+                           SELECT hgg.duongDan
+                           FROM hinhanhgianhang hgg
+                           WHERE hgg.idGianHang = gh.idGianHang
+                           ORDER BY hgg.idHinhAnh
+                           LIMIT 1
+                       ) AS hinhAnh
                 FROM tour_diem td
                 INNER JOIN gianhang gh ON gh.idGianHang = td.idGianHang
                 LEFT JOIN gianhangngonngu ghnn
@@ -130,6 +160,7 @@ namespace VinhKhanh.Services
                     Lat = ToNullableDouble(stopsReader["lat"]),
                     Lon = ToNullableDouble(stopsReader["lon"]),
                     AudioMacDinhUrl = ToNullableString(stopsReader["audioMacDinhUrl"]),
+                    HinhAnh = NormalizeImagePathForWeb(ToNullableString(stopsReader["hinhAnh"])),
                     IsAvailable = Convert.ToInt32(stopsReader["isAvailable"]) == 1,
                     GianHangTinhTrang = ToNullableString(stopsReader["ghTinhTrang"]),
                 });
