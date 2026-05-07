@@ -13,6 +13,8 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     private readonly Dictionary<int, GeofenceTarget> _targets = new();
     private readonly HashSet<int> _insideTargetIds = new();
     private readonly Dictionary<int, int> _priorityBoosts = new();
+    private readonly List<AudioPlaybackRequest> _autoPlayQueue = [];
+    private readonly HashSet<int> _autoPlaySeenStoreIds = [];
 
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
@@ -78,6 +80,8 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         {
             _sync.Release();
         }
+
+        await ClearAutoPlayQueueAsync(cancelPending: false);
     }
 
     public async Task SetPriorityBoostsAsync(IReadOnlyDictionary<int, int> priorityBoosts, bool resetInsideState = false)
@@ -102,6 +106,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         {
             _sync.Release();
         }
+
+        if (resetInsideState)
+            await ClearAutoPlayQueueAsync(cancelPending: true);
     }
 
     public Task ClearPriorityBoostsAsync(bool resetInsideState = false)
@@ -186,6 +193,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 return;
             }
 
+            _autoPlayQueue.Clear();
             await PlayNowInternalAsync(request, cancellationToken);
         }
         finally
@@ -218,6 +226,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         {
             CancelPendingAutoPlayInternal();
             StopCurrentAudioInternal();
+            _autoPlayQueue.Clear();
             ResetCurrentTrackInternal();
             PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
         }
@@ -362,13 +371,14 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         foreach (var trigger in newlyExited.OrderBy(x => x.Target.Id))
             ExitedGeofence?.Invoke(this, trigger);
 
+        await ResetAutoPlayForExitedTargetsAsync(newlyExited, ct);
+
         if (!AutoPlayAudioWhenEntered || currentlyInside.Count == 0)
             return;
 
-        // Re-evaluate priority on the full inside set every tick — entry order
-        // must not decide the winner when a visitor stands in overlapping zones.
-        var preferredTarget = PrioritizeGeofenceTargets(currentlyInside, priorityBoosts).First();
-        await ScheduleAutoPlayAsync(preferredTarget.Target, ct);
+        // Queue unseen targets in priority order so overlapping booths can play
+        // once each without replaying the same winner forever.
+        await EnqueueAutoPlayCandidatesAsync(PrioritizeGeofenceTargets(currentlyInside, priorityBoosts), ct);
     }
 
     private static IOrderedEnumerable<GeofenceTriggeredEventArgs> PrioritizeGeofenceTargets(
@@ -399,6 +409,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 _pendingAutoPlayCts = null;
                 _pendingRequest = null;
                 await PlayNowInternalAsync(request, pendingCts.Token);
+
+                if (_currentPlayer is null)
+                    TryScheduleNextAutoPlayLocked(CancellationToken.None);
             }
             finally
             {
@@ -538,7 +551,9 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                 
                 StopCurrentAudioInternal();
                 ResetCurrentTrackInternal();
-                PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+                var scheduledNext = TryScheduleNextAutoPlayLocked(CancellationToken.None);
+                if (!scheduledNext)
+                    PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
                 
                 if (storeIdToRecord.HasValue)
                 {
@@ -620,6 +635,187 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     {
         return _pendingRequest is not null &&
                string.Equals(_pendingRequest.AudioUrl, request.AudioUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task EnqueueAutoPlayCandidatesAsync(
+        IEnumerable<GeofenceTriggeredEventArgs> prioritizedTargets,
+        CancellationToken cancellationToken)
+    {
+        var prioritizedList = prioritizedTargets.ToList();
+        var priorityOrder = prioritizedList
+            .Select((trigger, index) => new { trigger.Target.Id, Index = index })
+            .ToDictionary(x => x.Id, x => x.Index);
+
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var trigger in prioritizedList)
+            {
+                var target = trigger.Target;
+                if (string.IsNullOrWhiteSpace(target.AudioUrl))
+                    continue;
+
+                var request = CreateAutoPlayRequest(target);
+                if (!_autoPlaySeenStoreIds.Add(target.Id))
+                    continue;
+
+                if (IsCurrentRequest(request) || IsPendingRequest(request))
+                    continue;
+
+                _autoPlayQueue.Add(request);
+            }
+
+            _autoPlayQueue.Sort((left, right) =>
+                GetQueuedPriorityOrder(left, priorityOrder)
+                    .CompareTo(GetQueuedPriorityOrder(right, priorityOrder)));
+
+            PromoteHigherPriorityPendingLocked(priorityOrder);
+            TryScheduleNextAutoPlayLocked(cancellationToken);
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    private static int GetQueuedPriorityOrder(
+        AudioPlaybackRequest request,
+        IReadOnlyDictionary<int, int> priorityOrder)
+    {
+        return request.StoreId is int storeId && priorityOrder.TryGetValue(storeId, out var order)
+            ? order
+            : int.MaxValue;
+    }
+
+    private void PromoteHigherPriorityPendingLocked(
+        IReadOnlyDictionary<int, int> priorityOrder)
+    {
+        if (_currentPlayer is not null ||
+            _pendingRequest is null ||
+            !_pendingRequest.IsAutoTriggered ||
+            _autoPlayQueue.Count == 0)
+        {
+            return;
+        }
+
+        var bestQueuedOrder = GetQueuedPriorityOrder(_autoPlayQueue[0], priorityOrder);
+        var pendingOrder = GetQueuedPriorityOrder(_pendingRequest, priorityOrder);
+        if (bestQueuedOrder >= pendingOrder)
+            return;
+
+        var pendingRequest = _pendingRequest;
+        CancelPendingAutoPlayInternal();
+
+        if (pendingRequest.StoreId is int storeId && priorityOrder.ContainsKey(storeId))
+            _autoPlayQueue.Add(pendingRequest);
+
+        _autoPlayQueue.Sort((left, right) =>
+            GetQueuedPriorityOrder(left, priorityOrder)
+                .CompareTo(GetQueuedPriorityOrder(right, priorityOrder)));
+    }
+
+    private async Task ResetAutoPlayForExitedTargetsAsync(
+        IEnumerable<GeofenceTriggeredEventArgs> exitedTargets,
+        CancellationToken cancellationToken)
+    {
+        var exitedIds = exitedTargets.Select(x => x.Target.Id).ToHashSet();
+        if (exitedIds.Count == 0)
+            return;
+
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var id in exitedIds)
+                _autoPlaySeenStoreIds.Remove(id);
+
+            _autoPlayQueue.RemoveAll(request =>
+                request.StoreId.HasValue && exitedIds.Contains(request.StoreId.Value));
+
+            if (_pendingRequest?.StoreId is int pendingStoreId && exitedIds.Contains(pendingStoreId))
+            {
+                CancelPendingAutoPlayInternal();
+                var scheduledNext = TryScheduleNextAutoPlayLocked(cancellationToken);
+                if (!scheduledNext && _currentPlayer is null)
+                    PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+            }
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    private async Task ClearAutoPlayQueueAsync(bool cancelPending, CancellationToken cancellationToken = default)
+    {
+        await _playbackSync.WaitAsync(cancellationToken);
+        try
+        {
+            _autoPlayQueue.Clear();
+            _autoPlaySeenStoreIds.Clear();
+
+            if (cancelPending)
+            {
+                CancelPendingAutoPlayInternal();
+                if (_currentPlayer is null)
+                    PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+            }
+        }
+        finally
+        {
+            _playbackSync.Release();
+        }
+    }
+
+    private static AudioPlaybackRequest CreateAutoPlayRequest(GeofenceTarget target)
+    {
+        return new AudioPlaybackRequest(
+            target.Id,
+            target.Name,
+            target.AudioUrl,
+            target.ImageUrl,
+            IsAutoTriggered: true);
+    }
+
+    private bool TryScheduleNextAutoPlayLocked(CancellationToken cancellationToken)
+    {
+        if (_currentPlayer is not null || _pendingRequest is not null)
+            return false;
+
+        while (_autoPlayQueue.Count > 0)
+        {
+            var request = _autoPlayQueue[0];
+            _autoPlayQueue.RemoveAt(0);
+
+            if (!request.HasPlayableAudio)
+                continue;
+
+            SchedulePendingAutoPlayLocked(request, cancellationToken);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SchedulePendingAutoPlayLocked(AudioPlaybackRequest request, CancellationToken cancellationToken)
+    {
+        CancelPendingAutoPlayInternal();
+
+        var pendingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _pendingAutoPlayCts = pendingCts;
+        _pendingRequest = request;
+
+        PublishPlaybackState(new AudioPlaybackStateSnapshot(
+            AudioPlaybackPhase.Pending,
+            request.StoreId,
+            request.Title,
+            "Sắp phát sau 3 giây",
+            request.AudioUrl,
+            request.ImageUrl,
+            0,
+            0,
+            request.IsAutoTriggered));
+
+        _ = Task.Run(() => CompletePendingAutoPlayAsync(request, pendingCts), pendingCts.Token);
     }
 
     private void CancelPendingAutoPlayInternal()

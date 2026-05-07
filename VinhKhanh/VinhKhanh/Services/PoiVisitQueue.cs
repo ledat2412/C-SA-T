@@ -35,12 +35,26 @@ namespace VinhKhanh.Services
 
             var key = idGianHang.ToString() + "|" + maThietBi;
             var nowTicks = DateTime.UtcNow.Ticks;
-            var lastTicks = _lastEnqueuedTicks.GetOrAdd(key, 0L);
+            var cooldownTicks = EnqueueCooldown.Ticks;
 
-            if (nowTicks - lastTicks < EnqueueCooldown.Ticks)
-                return false;
+            // Atomic check-and-set: chỉ duy nhất một thread "thắng" trong cửa sổ cooldown.
+            // Spin retry khi race với thread khác cùng key.
+            while (true)
+            {
+                if (_lastEnqueuedTicks.TryGetValue(key, out var lastTicks))
+                {
+                    if (nowTicks - lastTicks < cooldownTicks)
+                        return false;
 
-            _lastEnqueuedTicks[key] = nowTicks;
+                    if (_lastEnqueuedTicks.TryUpdate(key, nowTicks, lastTicks))
+                        break;
+                }
+                else if (_lastEnqueuedTicks.TryAdd(key, nowTicks))
+                {
+                    break;
+                }
+            }
+
             return _channel.Writer.TryWrite(new PoiVisitItem(idGianHang, maThietBi));
         }
 

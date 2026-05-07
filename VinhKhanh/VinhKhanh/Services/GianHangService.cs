@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using VinhKhanh.Data;
 using VinhKhanh.Dtos;
@@ -15,11 +16,13 @@ namespace VinhKhanh.Services
     {
         private readonly MySqlDbContext _db;
         private readonly GoogleTtsService _ttsService;
+        private readonly ILogger<GianHangService> _logger;
 
-        public GianHangService(MySqlDbContext db, GoogleTtsService ttsService)
+        public GianHangService(MySqlDbContext db, GoogleTtsService ttsService, ILogger<GianHangService> logger)
         {
             _db = db;
             _ttsService = ttsService;
+            _logger = logger;
         }
 
         public async Task<AppDataDto> GetAppDataAsync(string lang = "vi")
@@ -462,7 +465,7 @@ namespace VinhKhanh.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                _logger.LogError(ex, "IncrementVisitCountAsync failed for idGianHang={IdGianHang}, deviceId={DeviceId}", idGianHang, deviceId);
                 return new VisitRecordResult
                 {
                     Success = false,

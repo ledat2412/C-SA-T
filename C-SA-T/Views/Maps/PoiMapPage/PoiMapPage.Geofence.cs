@@ -134,6 +134,15 @@ public partial class PoiMapPage
             if (tourStop is null)
                 return;
 
+            var currentStop = TourService.ResolveCurrentStop(detail, _activeTourProgress);
+            var nextStop = ResolveNextAvailableStop(detail, currentStop);
+            var expectedStop = (_activeTourProgress?.StepHienTai ?? 0) <= 0
+                ? currentStop
+                : nextStop;
+
+            if (expectedStop is null || expectedStop.IdGianHang != idGianHang)
+                return;
+
             var result = await _tourService.AdvanceAsync(detail.Tour.IdTour, idGianHang);
             if (result is null || !result.Success)
                 return;

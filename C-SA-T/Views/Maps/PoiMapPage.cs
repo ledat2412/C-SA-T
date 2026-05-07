@@ -793,7 +793,7 @@ public partial class PoiMapPage : ContentPage
             boosts[currentStop.IdGianHang] = step <= 0 ? 4000 : 3000;
 
         if (nextStop is not null)
-            boosts[nextStop.IdGianHang] = 4000;
+            boosts[nextStop.IdGianHang] = step <= 0 ? 3500 : 4000;
 
         await _geofenceEngine.SetPriorityBoostsAsync(boosts, resetInsideState);
     }
