@@ -29,6 +29,7 @@ public class HomePage : ContentPage
     private Label _heroAccentLabel = null!;
     private Label _sectionNearbyLabel = null!;
     private Entry _homeSearchEntry = null!;
+    private Border _heroBorder = null!;
     private readonly List<(GianHang restaurant, double distance, string imagePath)> _nearbyRestaurants = new();
     private int _followCount;
     private bool _hasLoadedNearby;
@@ -42,6 +43,9 @@ public class HomePage : ContentPage
     private const double LocationChangeThresholdMeters = 10; // meters
     private DateTime _lastLocationTriggeredRefreshAtUtc = DateTime.MinValue;
     private static readonly TimeSpan LocationTriggeredRefreshCooldown = TimeSpan.FromSeconds(12);
+
+    private enum WeatherCondition { Sunny, Dark, Rainy }
+    private WeatherCondition _currentWeatherCondition = WeatherCondition.Sunny;
 
     public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine, LocalizationService localizationService)
     {
@@ -129,6 +133,8 @@ public class HomePage : ContentPage
             await LoadNearbyRestaurants();
             QueueExplorePreload();
             StartLocationPolling();
+            DetectAndApplyWeatherTheme();
+            UpdateHeroCardTheme();
         };
 
         Disappearing += (_, __) =>
@@ -164,12 +170,18 @@ public class HomePage : ContentPage
 
     private void UpdateLocalizedText()
     {
+        var theme = GetWeatherThemeColors();
+        
         _headerTitleLabel.Text = _loc.Get("home_header_title");
         _headerLocationLabel.Text = _loc.Get("home_header_location");
         _heroBadgeLabel.Text = "● " + _loc.Get("hero_badge");
+        _heroBadgeLabel.TextColor = theme.BadgeColor;
         _heroStreetLabel.Text = _loc.Get("hero_street");
+        _heroStreetLabel.TextColor = theme.PrimaryTextColor;
         _heroAccentLabel.Text = _loc.Get("home_hero_accent");
+        _heroAccentLabel.TextColor = theme.AccentColor;
         _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
+        _heroFollowLabel.TextColor = theme.BadgeColor;
         if (_sectionNearbyLabel is not null)
             _sectionNearbyLabel.Text = _loc.Get("section_nearby");
         if (_homeSearchEntry is not null)
@@ -627,12 +639,14 @@ public class HomePage : ContentPage
 
     private View BuildHeroCard()
     {
+        var theme = GetWeatherThemeColors();
+
         _heroBadgeLabel = new Label
         {
             Text = "● Bắt đầu khám phá",
             FontSize = 11,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FECACA"),
+            TextColor = theme.BadgeColor,
             VerticalTextAlignment = TextAlignment.Center
         };
 
@@ -641,7 +655,7 @@ public class HomePage : ContentPage
             Text = "Phở Ấm Thực",
             FontSize = 32,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
+            TextColor = theme.PrimaryTextColor,
             LineHeight = 1.1
         };
 
@@ -650,7 +664,7 @@ public class HomePage : ContentPage
             Text = "Vĩnh Khánh",
             FontSize = 32,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FECACA"),
+            TextColor = theme.AccentColor,
             LineHeight = 1.1
         };
 
@@ -684,7 +698,7 @@ public class HomePage : ContentPage
             WidthRequest = 120,
             HeightRequest = 120,
             StrokeShape = new RoundRectangle { CornerRadius = 60 },
-            BackgroundColor = Color.FromArgb("#1A2F5C"),
+            BackgroundColor = theme.DecorColor1,
             HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.Start,
             TranslationX = 40,
@@ -697,7 +711,7 @@ public class HomePage : ContentPage
             WidthRequest = 100,
             HeightRequest = 100,
             StrokeShape = new RoundRectangle { CornerRadius = 50 },
-            BackgroundColor = Color.FromArgb("#2D1F3A"),
+            BackgroundColor = theme.DecorColor2,
             HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.End,
             TranslationX = 50,
@@ -706,7 +720,7 @@ public class HomePage : ContentPage
 
         bgGrid.Children.Add(content);
 
-        return new Border
+        return _heroBorder = new Border
         {
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = 24 },
@@ -714,8 +728,8 @@ public class HomePage : ContentPage
             Background = new LinearGradientBrush(
                 new GradientStopCollection
                 {
-                    new GradientStop(Color.FromArgb("#1F2937"), 0f),
-                    new GradientStop(Color.FromArgb("#111827"), 1f)
+                    new GradientStop(theme.GradientStart, 0f),
+                    new GradientStop(theme.GradientEnd, 1f)
                 },
                 new Point(0, 0),
                 new Point(1, 1)),
@@ -1255,6 +1269,80 @@ public class HomePage : ContentPage
                     StrokeThickness = 1.8
                 }
             }
+        };
+    }
+
+    private void DetectAndApplyWeatherTheme()
+    {
+        var hour = DateTime.Now.Hour;
+        bool isRaining = Preferences.Get("weather_is_raining", false);
+
+        if (isRaining)
+        {
+            _currentWeatherCondition = WeatherCondition.Rainy;
+        }
+        else if (hour >= 6 && hour < 18)
+        {
+            _currentWeatherCondition = WeatherCondition.Sunny;
+        }
+        else
+        {
+            _currentWeatherCondition = WeatherCondition.Dark;
+        }
+    }
+
+    private void UpdateHeroCardTheme()
+    {
+        if (_heroBorder == null)
+            return;
+
+        var theme = GetWeatherThemeColors();
+        _heroBorder.Background = new LinearGradientBrush(
+            new GradientStopCollection
+            {
+                new GradientStop(theme.GradientStart, 0f),
+                new GradientStop(theme.GradientEnd, 1f)
+            },
+            new Point(0, 0),
+            new Point(1, 1));
+
+        _heroBadgeLabel.TextColor = theme.BadgeColor;
+        _heroStreetLabel.TextColor = theme.PrimaryTextColor;
+        _heroAccentLabel.TextColor = theme.AccentColor;
+        _heroFollowLabel.TextColor = theme.BadgeColor;
+    }
+
+    private (Color GradientStart, Color GradientEnd, Color PrimaryTextColor, Color AccentColor, Color BadgeColor, Color DecorColor1, Color DecorColor2) GetWeatherThemeColors()
+    {
+        return _currentWeatherCondition switch
+        {
+            WeatherCondition.Sunny => (
+                GradientStart: Color.FromArgb("#FFF9E6"),
+                GradientEnd: Color.FromArgb("#FFE4B3"),
+                PrimaryTextColor: Color.FromArgb("#1F2937"),
+                AccentColor: Color.FromArgb("#F97316"),
+                BadgeColor: Color.FromArgb("#EA580C"),
+                DecorColor1: Color.FromArgb("#FED7AA"),
+                DecorColor2: Color.FromArgb("#FDBA74")
+            ),
+            WeatherCondition.Rainy => (
+                GradientStart: Color.FromArgb("#1E293B"),
+                GradientEnd: Color.FromArgb("#0F172A"),
+                PrimaryTextColor: Color.FromArgb("#E2E8F0"),
+                AccentColor: Color.FromArgb("#60A5FA"),
+                BadgeColor: Color.FromArgb("#3B82F6"),
+                DecorColor1: Color.FromArgb("#475569"),
+                DecorColor2: Color.FromArgb("#334155")
+            ),
+            _ => (
+                GradientStart: Color.FromArgb("#1F2937"),
+                GradientEnd: Color.FromArgb("#111827"),
+                PrimaryTextColor: Colors.White,
+                AccentColor: Color.FromArgb("#FECACA"),
+                BadgeColor: Color.FromArgb("#FECACA"),
+                DecorColor1: Color.FromArgb("#1A2F5C"),
+                DecorColor2: Color.FromArgb("#2D1F3A")
+            )
         };
     }
 
