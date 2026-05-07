@@ -173,7 +173,7 @@ public class SettingsPage : ContentPage
             {
                 Spacing = 20,
                 Padding = new Thickness(16, 52, 16, 28),
-                Children = { _titleLabel, languageCard, qrCard, resetCard, deleteTokenCard }
+                Children = { _titleLabel, languageCard, resetCard, deleteTokenCard }
             }
         };
 
