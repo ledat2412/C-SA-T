@@ -979,6 +979,11 @@ public partial class PoiMapPage : ContentPage
         {
             await _appDataCacheService.ClearAsync();
             AudioCacheService.ClearMemoryCache();
+            // Các tầng cache static khác mà AppDataCacheService không quản lý:
+            ClearAllMediaCaches();             // _imageBytesCache, _audioBytesCache, marker-images dir
+            HomePage.ClearImageCache();        // cache ảnh ở HomePage
+            _pinsByPoiId.Clear();              // pin đã build từ marker file cũ
+
             await LoadRealPoisAsync(forceRefresh: true);
 
             await DisplayAlertAsync(

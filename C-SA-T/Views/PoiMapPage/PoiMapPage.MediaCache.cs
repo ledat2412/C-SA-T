@@ -260,6 +260,24 @@ public partial class PoiMapPage
         return $"{kind}_bin_{Convert.ToHexString(bytes)}";
     }
 
+    // Demo helper: clear toàn bộ in-memory image/audio cache + marker file đã ghi xuống disk.
+    public static void ClearAllMediaCaches()
+    {
+        _imageBytesCache.Clear();
+        _audioBytesCache.Clear();
+
+        try
+        {
+            var markerDir = Path.Combine(FileSystem.CacheDirectory, "marker-images");
+            if (Directory.Exists(markerDir))
+                Directory.Delete(markerDir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MediaCache] Marker dir cleanup failed: {ex.Message}");
+        }
+    }
+
     private static HttpClient CreateImageRenderHttpClient()
     {
         var handler = new HttpClientHandler();

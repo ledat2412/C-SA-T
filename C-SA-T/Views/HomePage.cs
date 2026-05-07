@@ -19,6 +19,9 @@ public class HomePage : ContentPage
     private readonly LocalizationService _loc;
     private static HttpClient? _imageRenderHttpClient;
     private static readonly ConcurrentDictionary<string, byte[]> _imageBytesCache = new();
+
+    // Demo helper: dùng cho nút Reset cache trên PoiMapPage.
+    public static void ClearImageCache() => _imageBytesCache.Clear();
     private Location? _userLocation;
     private readonly VerticalStackLayout _nearbySection;
     private readonly Label _heroFollowLabel;

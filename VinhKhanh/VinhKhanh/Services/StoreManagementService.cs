@@ -374,7 +374,8 @@ namespace VinhKhanh.Services
                 extension = ".jpg";
 
             extension = extension.ToLowerInvariant();
-            var fileName = $"food_{idMonAn}{extension}";
+            // Filename có timestamp -> URL mới mỗi lần upload, browser/app cache theo URL sẽ tự miss và tải lại.
+            var fileName = $"food_{idMonAn}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{extension}";
             var fullPath = Path.Combine(targetFolder, fileName);
             var dbPath = $"images/foods/{fileName}";
 
@@ -522,24 +523,21 @@ namespace VinhKhanh.Services
                     return null;
             }
 
-            int? existingImageId = null;
-            string? existingImagePath = null;
+            var existingImages = new List<(int Id, string? Path)>();
 
             const string currentImageSql = @"
                 SELECT idHinhAnh, duongDan
                 FROM hinhanhgianhang
                 WHERE idGianHang = @idGianHang
-                ORDER BY idHinhAnh
-                LIMIT 1;";
+                ORDER BY idHinhAnh;";
 
             using (var currentImageCmd = new MySqlCommand(currentImageSql, conn))
             {
                 currentImageCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
                 using var reader = await currentImageCmd.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
+                while (await reader.ReadAsync())
                 {
-                    existingImageId = reader.GetInt32("idHinhAnh");
-                    existingImagePath = reader["duongDan"]?.ToString();
+                    existingImages.Add((reader.GetInt32("idHinhAnh"), reader["duongDan"]?.ToString()));
                 }
             }
 
@@ -560,7 +558,7 @@ namespace VinhKhanh.Services
                 await image.CopyToAsync(stream);
             }
 
-            if (existingImageId.HasValue)
+            if (existingImages.Count > 0)
             {
                 const string updateImageSql = @"
                     UPDATE hinhanhgianhang
@@ -569,7 +567,7 @@ namespace VinhKhanh.Services
 
                 using var updateImageCmd = new MySqlCommand(updateImageSql, conn);
                 updateImageCmd.Parameters.AddWithValue("@duongDan", dbPath);
-                updateImageCmd.Parameters.AddWithValue("@idHinhAnh", existingImageId.Value);
+                updateImageCmd.Parameters.AddWithValue("@idHinhAnh", existingImages[0].Id);
                 await updateImageCmd.ExecuteNonQueryAsync();
             }
             else
@@ -584,7 +582,30 @@ namespace VinhKhanh.Services
                 await insertImageCmd.ExecuteNonQueryAsync();
             }
 
-            DeleteManagedImageIfNeeded(existingImagePath, webRoot, dbPath);
+            if (existingImages.Count > 0)
+            {
+                DeleteManagedImageIfNeeded(existingImages[0].Path, webRoot, dbPath);
+            }
+
+            // Dọn các row trùng còn sót lại từ flow cũ (ảnh cũ đẻ thêm row thay vì update) +
+            // xóa các file mp đại diện trên disk.
+            if (existingImages.Count > 1)
+            {
+                const string deleteDuplicateImagesSql = @"
+                    DELETE FROM hinhanhgianhang
+                    WHERE idGianHang = @idGianHang
+                      AND idHinhAnh <> @idHinhAnh;";
+
+                using var deleteDuplicateImagesCmd = new MySqlCommand(deleteDuplicateImagesSql, conn);
+                deleteDuplicateImagesCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+                deleteDuplicateImagesCmd.Parameters.AddWithValue("@idHinhAnh", existingImages[0].Id);
+                await deleteDuplicateImagesCmd.ExecuteNonQueryAsync();
+
+                foreach (var duplicateImage in existingImages.Skip(1))
+                {
+                    DeleteManagedImageIfNeeded(duplicateImage.Path, webRoot, dbPath);
+                }
+            }
 
             return NormalizeImagePathForWeb(dbPath);
         }
