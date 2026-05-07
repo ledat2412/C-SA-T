@@ -30,6 +30,26 @@ namespace VinhKhanh.Services
             return fullPath is null || File.Exists(fullPath);
         }
 
+        public void DeleteAudioIfExists(string? audioPath)
+        {
+            var fullPath = ResolveLocalAudioPath(audioPath);
+            if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                return;
+
+            try
+            {
+                File.Delete(fullPath);
+            }
+            catch (IOException)
+            {
+                // File đang bị giữ — bỏ qua, lần regen sau sẽ ghi đè bằng tên mới.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Không có quyền — log nơi gọi xử lý nếu cần.
+            }
+        }
+
         public async Task<string> GenerateSpeechAsync(string text, string fileName, string languageCode = "vi")
         {
             if (string.IsNullOrWhiteSpace(text))

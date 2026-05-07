@@ -303,20 +303,9 @@ namespace VinhKhanh.Services
             if (string.IsNullOrWhiteSpace(moTa))
                 return null;
 
-            if (!string.IsNullOrWhiteSpace(oldAudioUrl) && _ttsService.AudioPathExists(oldAudioUrl))
-            {
-                return new
-                {
-                    idGianHang,
-                    languageCode = normalizedLanguageCode,
-                    ten,
-                    moTa,
-                    audioURL = oldAudioUrl,
-                    isCached = true
-                };
-            }
-
-            var fileName = $"gianhang_{idGianHang}_{normalizedLanguageCode}.mp3";
+            // Filename có timestamp -> URL mới mỗi lần regen, app cache theo URL sẽ tự miss và tải lại.
+            var versionToken = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var fileName = $"gianhang_{idGianHang}_{normalizedLanguageCode}_{versionToken}.mp3";
             var generatedUrl = await _ttsService.GenerateSpeechAsync(moTa, fileName, normalizedLanguageCode);
             var dbAudioUrl = generatedUrl.TrimStart('/');
 
@@ -332,6 +321,13 @@ namespace VinhKhanh.Services
             updateCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
             updateCmd.Parameters.AddWithValue("@languageCode", normalizedLanguageCode);
             await updateCmd.ExecuteNonQueryAsync();
+
+            // Xóa file mp3 cũ (chỉ sau khi DB đã chuyển sang URL mới) để tránh đầy đĩa.
+            if (!string.IsNullOrWhiteSpace(oldAudioUrl) &&
+                !string.Equals(oldAudioUrl, dbAudioUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                _ttsService.DeleteAudioIfExists(oldAudioUrl);
+            }
 
             return new
             {

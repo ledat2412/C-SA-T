@@ -76,7 +76,8 @@ public partial class PoiMapPage
         if (_currentDetailGianHang is null)
             return;
 
-        var translated = await _gianHangService.GetByIdAsync(_currentDetailGianHang.IdGianHang, NormalizeLanguageCode(_selectedLanguageCode));
+        // forceRefresh khi đổi ngôn ngữ: tránh hiển thị moTa/audio cache cũ sau khi web admin update DB.
+        var translated = await _gianHangService.GetByIdAsync(_currentDetailGianHang.IdGianHang, NormalizeLanguageCode(_selectedLanguageCode), forceRefresh: true);
         if (translated is null)
         {
             SetDetailInfo(_currentDetailGianHang);

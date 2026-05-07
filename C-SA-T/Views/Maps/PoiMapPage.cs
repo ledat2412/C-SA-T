@@ -48,6 +48,8 @@ public partial class PoiMapPage : ContentPage
     private readonly GeofenceEngineService _geofenceEngine;
     private readonly SQLiteService _sqliteService;
     private readonly AudioCacheService _audioCacheService;
+    // DEMO_RESET_CACHE_BUTTON — xóa field này khi gỡ nút.
+    private readonly AppDataCacheService _appDataCacheService;
     private readonly SemaphoreSlim _tourAdvanceSync = new(1, 1);
     private List<GianHang> _gianHangsForPrefetch = new();
     private DateTime _lastLazyPrefetchAtUtc = DateTime.MinValue;
@@ -59,6 +61,8 @@ public partial class PoiMapPage : ContentPage
     private readonly MapActionButton _currentLocationButton;
     private readonly MapActionButton _refreshButton;
     private readonly MapActionButton _mapModeButton;
+    // DEMO_RESET_CACHE_BUTTON — xóa field này khi gỡ nút.
+    private readonly MapActionButton _resetCacheButton;
     private readonly Label _mapModeLabel;
     private readonly Border _tourProgressBanner;
     private readonly Label _tourProgressStatusLabel;
@@ -186,7 +190,9 @@ public partial class PoiMapPage : ContentPage
         GeofenceEngineService geofenceEngine,
         SQLiteService sqliteService,
         LocalizationService localizationService,
-        AudioCacheService audioCacheService)
+        AudioCacheService audioCacheService,
+        // DEMO_RESET_CACHE_BUTTON — xóa parameter này khi gỡ nút.
+        AppDataCacheService appDataCacheService)
     {
         _poiService = poiService;
         _gianHangService = gianHangService;
@@ -196,6 +202,8 @@ public partial class PoiMapPage : ContentPage
         _sqliteService = sqliteService;
         _loc = localizationService;
         _audioCacheService = audioCacheService;
+        // DEMO_RESET_CACHE_BUTTON — xóa dòng này khi gỡ nút.
+        _appDataCacheService = appDataCacheService;
         _selectedLanguageCode = localizationService.CurrentLanguage;
 
         Title = "";
@@ -238,6 +246,8 @@ public partial class PoiMapPage : ContentPage
         _detailSheet = CreateDetailSheet();
         _currentLocationButton = CreateCurrentLocationButton();
         _refreshButton = CreateRefreshButton();
+        // DEMO_RESET_CACHE_BUTTON — xóa dòng này khi gỡ nút.
+        _resetCacheButton = CreateResetCacheButton();
         _mapModeLabel = CreateMapModeLabel();
         _mapModeButton = CreateMapModeButton();
         _tourProgressStatusLabel = new Label
@@ -387,6 +397,8 @@ public partial class PoiMapPage : ContentPage
         root.Children.Add(_map);
         root.Children.Add(_topBar);
         root.Children.Add(_refreshButton);
+        // DEMO_RESET_CACHE_BUTTON — xóa dòng này khi gỡ nút.
+        root.Children.Add(_resetCacheButton);
         root.Children.Add(_bottomSheet);
         root.Children.Add(_detailSheet);
         root.Children.Add(_tourProgressBanner);
@@ -939,6 +951,51 @@ public partial class PoiMapPage : ContentPage
             _refreshButton.SetBusy(false);
         }
     }
+
+    #region DEMO_RESET_CACHE_BUTTON
+    // Nút làm mới dữ liệu phục vụ demo: clear toàn bộ memory + SQLite cache rồi reload.
+    // Khi không cần demo, xóa region này + 5 chỗ đánh dấu "DEMO_RESET_CACHE_BUTTON" ở phần khai báo/wire-up phía trên.
+
+    private MapActionButton CreateResetCacheButton()
+    {
+        var button = new MapActionButton(BuildRefreshIcon())
+        {
+            HorizontalOptions = LayoutOptions.Start,
+            VerticalOptions = LayoutOptions.Start,
+            Margin = new Thickness(16, 72, 0, 0),
+            ZIndex = 21
+        };
+
+        SemanticProperties.SetDescription(button, "Làm mới toàn bộ dữ liệu (demo)");
+        button.Clicked += async (_, __) => await ResetAllCacheAsync();
+        return button;
+    }
+
+    private async Task ResetAllCacheAsync()
+    {
+        _resetCacheButton.SetBusy(true);
+
+        try
+        {
+            await _appDataCacheService.ClearAsync();
+            AudioCacheService.ClearMemoryCache();
+            await LoadRealPoisAsync(forceRefresh: true);
+
+            await DisplayAlertAsync(
+                _loc.Get("alert_notice"),
+                "Đã xoá cache và tải lại dữ liệu mới nhất.",
+                _loc.Get("alert_ok"));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync(_loc.Get("alert_error"), ex.Message, _loc.Get("alert_ok"));
+        }
+        finally
+        {
+            _resetCacheButton.SetBusy(false);
+        }
+    }
+    #endregion
 
     private Grid CreateTopBar()
     {
@@ -3023,8 +3080,10 @@ public partial class PoiMapPage : ContentPage
     {
         try
         {
+            // forceRefresh -> bỏ qua appdata cache (12h) để mô tả/audio web vừa cập nhật xuất hiện ngay.
+            // Offline thì AppDataCacheService tự fallback về memory/SQLite cache.
             var gianHang = await _gianHangService.GetByIdAsync(
-                poi.IDChiNhanh);
+                poi.IDChiNhanh, forceRefresh: true);
 
             if (gianHang == null)
             {

@@ -25,6 +25,13 @@ public sealed class AudioCacheService
         _sqliteService = sqliteService;
     }
 
+    // Demo helper: xóa memory cache audio. SQLite cache xóa thông qua AppDataCacheService.ClearAsync().
+    public static void ClearMemoryCache()
+    {
+        MemoryCache.Clear();
+        PrefetchInFlight.Clear();
+    }
+
     public async Task<byte[]?> GetAudioBytesAsync(string? audioUrl, CancellationToken cancellationToken = default)
     {
         var normalizedUrl = NormalizeAudioUrl(audioUrl);
