@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
 using MauiApp1.Controls;
@@ -36,6 +37,11 @@ public class HomePage : ContentPage
     private DateTime _lastNearbyLoadAtUtc;
     private readonly AppRefreshView _refreshView;
     private static readonly TimeSpan HomeRefreshInterval = TimeSpan.FromMinutes(2);
+    private CancellationTokenSource? _locationPollingCts;
+    private static readonly TimeSpan LocationPollInterval = TimeSpan.FromSeconds(5);
+    private const double LocationChangeThresholdMeters = 10; // meters
+    private DateTime _lastLocationTriggeredRefreshAtUtc = DateTime.MinValue;
+    private static readonly TimeSpan LocationTriggeredRefreshCooldown = TimeSpan.FromSeconds(12);
 
     public HomePage(GianHangService gianHangService, GeofenceEngineService geofenceEngine, LocalizationService localizationService)
     {
@@ -122,9 +128,14 @@ public class HomePage : ContentPage
             _refreshView.StartAutoRefresh(Dispatcher, HomeRefreshInterval);
             await LoadNearbyRestaurants();
             QueueExplorePreload();
+            StartLocationPolling();
         };
 
-        Disappearing += (_, __) => _refreshView.StopAutoRefresh();
+        Disappearing += (_, __) =>
+        {
+            _refreshView.StopAutoRefresh();
+            StopLocationPolling();
+        };
     }
 
     private void QueueExplorePreload()
@@ -406,6 +417,145 @@ public class HomePage : ContentPage
         {
             System.Diagnostics.Debug.WriteLine($"[HomePage] Geolocation error: {ex.Message}");
             _userLocation = new Location(10.762622, 106.660172);
+        }
+    }
+
+    private void UpdateNearbyDistancesAndRender(Location newLocation)
+    {
+        try
+        {
+            if (_nearbyRestaurants == null || _nearbyRestaurants.Count == 0)
+                return;
+
+            var updated = _nearbyRestaurants
+                .Select(item => (
+                    restaurant: item.restaurant,
+                    distance: CalculateDistance(newLocation.Latitude, newLocation.Longitude, item.restaurant.Lat ?? newLocation.Latitude, item.restaurant.Lon ?? newLocation.Longitude),
+                    imagePath: item.imagePath))
+                .OrderBy(x => x.distance)
+                .ToList();
+
+            _nearbyRestaurants.Clear();
+            _nearbyRestaurants.AddRange(updated);
+
+            RenderNearbyRestaurants();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HomePage] UpdateNearbyDistances error: {ex.Message}");
+        }
+    }
+
+    private void StartLocationPolling()
+    {
+        if (_locationPollingCts != null)
+            return;
+        _locationPollingCts = new CancellationTokenSource();
+        var ct = _locationPollingCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var permission = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+                if (permission != PermissionStatus.Granted)
+                {
+                    permission = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+                    if (permission != PermissionStatus.Granted)
+                    {
+                        MainThread.BeginInvokeOnMainThread(async () =>
+                        {
+                            try
+                            {
+                                await DisplayAlertAsync(_loc.Get("alert_notice"), _loc.Get("alert_location_permission_required"), _loc.Get("alert_ok"));
+                            }
+                            catch { }
+                        });
+                        return;
+                    }
+                }
+
+                while (!ct.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var loc = await Geolocation.Default.GetLocationAsync(new GeolocationRequest
+                        {
+                            DesiredAccuracy = GeolocationAccuracy.Medium,
+                            Timeout = TimeSpan.FromSeconds(5)
+                        });
+
+                        if (loc is not null)
+                        {
+                            var prev = _userLocation;
+                            var movedMeters = prev is null
+                                ? double.MaxValue
+                                : CalculateDistance(prev.Latitude, prev.Longitude, loc.Latitude, loc.Longitude) * 1000.0;
+
+                            if (prev is null || movedMeters >= LocationChangeThresholdMeters)
+                            {
+                                _userLocation = loc;
+                                MainThread.BeginInvokeOnMainThread(async () =>
+                                {
+                                    await RefreshNearbyOnLocationChangeAsync(loc);
+                                });
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[HomePage] location poll error: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        await Task.Delay(LocationPollInterval, ct).ConfigureAwait(false);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HomePage] StartLocationPolling error: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    private void StopLocationPolling()
+    {
+        try
+        {
+            _locationPollingCts?.Cancel();
+            _locationPollingCts?.Dispose();
+        }
+        catch { }
+        finally
+        {
+            _locationPollingCts = null;
+        }
+    }
+
+    private async Task RefreshNearbyOnLocationChangeAsync(Location location)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastLocationTriggeredRefreshAtUtc < LocationTriggeredRefreshCooldown)
+            {
+                UpdateNearbyDistancesAndRender(location);
+                return;
+            }
+
+            _lastLocationTriggeredRefreshAtUtc = now;
+            await LoadNearbyRestaurants(forceRefresh: true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HomePage] RefreshNearbyOnLocationChange error: {ex.Message}");
+            UpdateNearbyDistancesAndRender(location);
         }
     }
 

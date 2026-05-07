@@ -352,7 +352,6 @@ public partial class PoiMapPage : ContentPage
                 await SetMap3DModeAsync(false, animate: true);
 
             UpdateMapModeButtonVisual();
-            _poiRefreshView.StartAutoRefresh(Dispatcher, PoiReloadInterval);
 
             await EnsureExploreSheetVisibleAsync();
         };

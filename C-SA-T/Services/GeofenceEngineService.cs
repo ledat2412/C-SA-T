@@ -373,6 +373,27 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
         await ResetAutoPlayForExitedTargetsAsync(newlyExited, ct);
 
+        var prioritizedEntered = PrioritizeGeofenceTargets(newlyEntered, priorityBoosts).ToList();
+        if (prioritizedEntered.Count > 0)
+        {
+            var topEnteredRequest = CreateAutoPlayRequest(prioritizedEntered[0].Target);
+
+            await _playbackSync.WaitAsync(ct);
+            try
+            {
+                if (_currentPlayer is not null && !IsCurrentRequest(topEnteredRequest))
+                {
+                    StopCurrentAudioInternal();
+                    ResetCurrentTrackInternal();
+                    PublishPlaybackState(AudioPlaybackStateSnapshot.Hidden);
+                }
+            }
+            finally
+            {
+                _playbackSync.Release();
+            }
+        }
+
         if (!AutoPlayAudioWhenEntered || currentlyInside.Count == 0)
             return;
 
@@ -494,6 +515,12 @@ public sealed class GeofenceEngineService : IAsyncDisposable
                                 _lastPublishedLocation,
                                 location,
                                 DistanceUnits.Kilometers) * 1000d >= 3d;
+        // Keep the UI marker responsive while still avoiding redraws for tiny GPS jitter.
+        shouldPublish = shouldPublish ||
+                        Location.CalculateDistance(
+                            _lastPublishedLocation,
+                            location,
+                            DistanceUnits.Kilometers) * 1000d >= 1d;
 
         if (!shouldPublish)
             return;
