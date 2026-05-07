@@ -274,6 +274,22 @@ namespace VinhKhanh.Services
 
                 if (!string.Equals(maThietBi, normalizedClientDeviceId, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (IsClientManagedDeviceCode(maThietBi) && IsClientManagedDeviceCode(normalizedClientDeviceId))
+                    {
+                        var reboundDeviceId = await RebindSessionDeviceAsync(conn, sessionId, normalizedClientDeviceId);
+                        await TouchDeviceAsync(conn, reboundDeviceId);
+
+                        return new ValidateAccessResponseDto
+                        {
+                            IsValid = true,
+                            Message = "Token da duoc gan lai voi thiet bi hien tai.",
+                            MaThietBi = normalizedClientDeviceId,
+                            BatDauLuc = batDauLuc,
+                            HetHanLuc = hetHanLuc,
+                            TrangThai = "hieu_luc"
+                        };
+                    }
+
                     return new ValidateAccessResponseDto
                     {
                         IsValid = false,
@@ -364,7 +380,7 @@ namespace VinhKhanh.Services
             var qrTokenPayload = $"vkaccess://login?token={accessToken}";
             var deviceId = await EnsureClientDeviceAsync(conn, clientDeviceId);
 
-            await ExpireActiveClientSessionsForDeviceAsync(conn, clientDeviceId);
+            await ExpireActiveClientSessionsForDeviceAsync(conn, clientDeviceId, accessToken);
 
             const string insertSessionSql = @"
                 INSERT INTO phien_vao_app (idThietBi, maThietBi, idGoi, qrRaw, accessToken, batDauLuc, hetHanLuc, trangThai)
@@ -796,6 +812,27 @@ namespace VinhKhanh.Services
 
             if (!string.Equals(currentDeviceCode, clientDeviceId, StringComparison.OrdinalIgnoreCase))
             {
+                if (IsClientManagedDeviceCode(currentDeviceCode) && IsClientManagedDeviceCode(clientDeviceId))
+                {
+                    var reboundDeviceId = await RebindSessionDeviceAsync(conn, sessionId, clientDeviceId);
+                    await ExpireActiveClientSessionsForDeviceAsync(conn, clientDeviceId, request.AccessToken.Trim());
+                    await TouchDeviceAsync(conn, reboundDeviceId);
+
+                    return new AccessSessionResponseDto
+                    {
+                        Success = true,
+                        Message = "Token da duoc gan lai voi thiet bi hien tai.",
+                        MaThietBi = clientDeviceId,
+                        AccessToken = request.AccessToken.Trim(),
+                        BatDauLuc = batDauLuc,
+                        HetHanLuc = hetHanLuc,
+                        TrangThai = "hieu_luc",
+                        IdGoi = idGoi,
+                        TenGoi = tenGoi,
+                        SoNgayHieuLuc = soNgayHieuLuc
+                    };
+                }
+
                 return new AccessSessionResponseDto
                 {
                     Success = false,
@@ -1549,6 +1586,26 @@ namespace VinhKhanh.Services
             cmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
             cmd.Parameters.AddWithValue("@excludeAccessToken", string.IsNullOrWhiteSpace(excludeAccessToken) ? DBNull.Value : excludeAccessToken);
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task<int> RebindSessionDeviceAsync(MySqlConnection conn, long sessionId, string clientDeviceId, MySqlTransaction? transaction = null)
+        {
+            var deviceId = await EnsureClientDeviceAsync(conn, clientDeviceId, transaction);
+
+            const string sql = @"
+                UPDATE phien_vao_app
+                SET idThietBi = @idThietBi,
+                    maThietBi = @maThietBi
+                WHERE id = @id
+                  AND trangThai = 'hieu_luc';";
+
+            using var cmd = CreateCommand(sql, conn, transaction);
+            cmd.Parameters.AddWithValue("@idThietBi", deviceId);
+            cmd.Parameters.AddWithValue("@maThietBi", clientDeviceId);
+            cmd.Parameters.AddWithValue("@id", sessionId);
+            await cmd.ExecuteNonQueryAsync();
+
+            return deviceId;
         }
 
         private static async Task TouchDeviceAsync(MySqlConnection conn, int idThietBi, MySqlTransaction? transaction = null)

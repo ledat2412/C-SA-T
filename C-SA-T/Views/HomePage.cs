@@ -155,7 +155,7 @@ public class HomePage : ContentPage
     {
         _headerTitleLabel.Text = _loc.Get("home_header_title");
         _headerLocationLabel.Text = _loc.Get("home_header_location");
-        _heroBadgeLabel.Text = _loc.Get("hero_badge");
+        _heroBadgeLabel.Text = "● " + _loc.Get("hero_badge");
         _heroStreetLabel.Text = _loc.Get("hero_street");
         _heroAccentLabel.Text = _loc.Get("home_hero_accent");
         _heroFollowLabel.Text = string.Format(_loc.Get("hero_follow"), _followCount);
@@ -425,46 +425,46 @@ public class HomePage : ContentPage
     {
         _headerTitleLabel = new Label
         {
-            FontSize = 30,
+            Text = "Khu phố Vĩnh Khánh",
+            FontSize = 28,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#0F172A"),
-            LineHeight = 1.05,
-            MaxLines = 2,
-            LineBreakMode = LineBreakMode.WordWrap
+            TextColor = Color.FromArgb("#1F2937"),
+            LineHeight = 1.1
         };
 
         _headerLocationLabel = new Label
         {
+            Text = "Quận 4, TP HCM",
             FontSize = 13,
-            FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#9A3412"),
+            TextColor = Color.FromArgb("#F97316"),
             VerticalTextAlignment = TextAlignment.Center
         };
 
         return new VerticalStackLayout
         {
-            Spacing = 6,
+            Spacing = 8,
             Children =
             {
                 _headerTitleLabel,
                 new Border
                 {
                     StrokeThickness = 0,
-                    BackgroundColor = Color.FromArgb("#FFF0E6"),
+                    BackgroundColor = Color.FromArgb("#FEE2E2"),
                     StrokeShape = new RoundRectangle { CornerRadius = 999 },
                     HorizontalOptions = LayoutOptions.Start,
-                    Padding = new Thickness(10, 6),
+                    Padding = new Thickness(12, 8),
                     Content = new HorizontalStackLayout
                     {
                         Spacing = 6,
+                        VerticalOptions = LayoutOptions.Center,
                         Children =
                         {
                             new BoxView
                             {
-                                WidthRequest = 6,
-                                HeightRequest = 6,
-                                CornerRadius = 3,
-                                Color = Color.FromArgb("#F97316"),
+                                WidthRequest = 8,
+                                HeightRequest = 8,
+                                CornerRadius = 4,
+                                Color = Color.FromArgb("#EF4444"),
                                 VerticalOptions = LayoutOptions.Center
                             },
                             _headerLocationLabel
@@ -477,114 +477,105 @@ public class HomePage : ContentPage
 
     private View BuildHeroCard()
     {
-        var content = new Grid();
-
-        content.Children.Add(new Border
-        {
-            StrokeThickness = 0,
-            WidthRequest = 126,
-            HeightRequest = 126,
-            StrokeShape = new RoundRectangle { CornerRadius = 63 },
-            BackgroundColor = Color.FromArgb("#14FFFFFF"),
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.Start,
-            TranslationX = 34,
-            TranslationY = -26
-        });
-
-        content.Children.Add(new Border
-        {
-            StrokeThickness = 0,
-            WidthRequest = 94,
-            HeightRequest = 94,
-            StrokeShape = new RoundRectangle { CornerRadius = 47 },
-            BackgroundColor = Color.FromArgb("#24FB7185"),
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.End,
-            TranslationX = 18,
-            TranslationY = 20
-        });
-
         _heroBadgeLabel = new Label
         {
-            FontSize = 13,
+            Text = "● Bắt đầu khám phá",
+            FontSize = 11,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FDE68A"),
+            TextColor = Color.FromArgb("#FECACA"),
             VerticalTextAlignment = TextAlignment.Center
         };
 
         _heroStreetLabel = new Label
         {
-            FontSize = 34,
+            Text = "Phở Ấm Thực",
+            FontSize = 32,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White
+            TextColor = Colors.White,
+            LineHeight = 1.1
         };
 
         _heroAccentLabel = new Label
         {
-            FontSize = 34,
+            Text = "Vĩnh Khánh",
+            FontSize = 32,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#FCA5A5")
+            TextColor = Color.FromArgb("#FECACA"),
+            LineHeight = 1.1
         };
 
-        content.Children.Add(new VerticalStackLayout
+        var content = new VerticalStackLayout
         {
-            Spacing = 8,
+            Spacing = 10,
             VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Fill,
+            Padding = new Thickness(20),
             Children =
             {
-                new Border
+                _heroBadgeLabel,
+                new VerticalStackLayout
                 {
-                    StrokeThickness = 0,
-                    StrokeShape = new RoundRectangle { CornerRadius = 999 },
-                    BackgroundColor = Color.FromArgb("#1FFFFFFF"),
-                    HorizontalOptions = LayoutOptions.Start,
-                    Padding = new Thickness(10, 6),
-                    Content = new HorizontalStackLayout
+                    Spacing = 2,
+                    Children =
                     {
-                        Spacing = 6,
-                        Children =
-                        {
-                            new BoxView
-                            {
-                                WidthRequest = 6,
-                                HeightRequest = 6,
-                                CornerRadius = 3,
-                                Color = Color.FromArgb("#FCA5A5"),
-                                VerticalOptions = LayoutOptions.Center
-                            },
-                            _heroBadgeLabel
-                        }
+                        _heroStreetLabel,
+                        _heroAccentLabel
                     }
                 },
-                _heroStreetLabel,
-                _heroAccentLabel,
                 _heroFollowLabel
             }
+        };
+
+        // Decorative circles
+        var bgGrid = new Grid { ColumnSpacing = 0, RowSpacing = 0 };
+        bgGrid.Children.Add(new Border
+        {
+            StrokeThickness = 0,
+            WidthRequest = 120,
+            HeightRequest = 120,
+            StrokeShape = new RoundRectangle { CornerRadius = 60 },
+            BackgroundColor = Color.FromArgb("#1A2F5C"),
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            TranslationX = 40,
+            TranslationY = -30
         });
+
+        bgGrid.Children.Add(new Border
+        {
+            StrokeThickness = 0,
+            WidthRequest = 100,
+            HeightRequest = 100,
+            StrokeShape = new RoundRectangle { CornerRadius = 50 },
+            BackgroundColor = Color.FromArgb("#2D1F3A"),
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.End,
+            TranslationX = 50,
+            TranslationY = 25
+        });
+
+        bgGrid.Children.Add(content);
 
         return new Border
         {
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = 24 },
-            Padding = new Thickness(18),
-            HeightRequest = 194,
+            HeightRequest = 220,
             Background = new LinearGradientBrush(
                 new GradientStopCollection
                 {
-                    new GradientStop(Color.FromArgb("#21356B"), 0f),
-                    new GradientStop(Color.FromArgb("#16213E"), 0.55f),
-                    new GradientStop(Color.FromArgb("#101827"), 1f)
+                    new GradientStop(Color.FromArgb("#1F2937"), 0f),
+                    new GradientStop(Color.FromArgb("#111827"), 1f)
                 },
                 new Point(0, 0),
                 new Point(1, 1)),
-            Content = content,
+            Content = bgGrid,
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.12f,
-                Radius = 18,
-                Offset = new Point(0, 10)
+                Opacity = 0.15f,
+                Radius = 20,
+                Offset = new Point(0, 8)
             }
         };
     }
@@ -599,16 +590,18 @@ public class HomePage : ContentPage
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto)
             },
-            ColumnSpacing = 12,
-            VerticalOptions = LayoutOptions.Center
+            ColumnSpacing = 14,
+            VerticalOptions = LayoutOptions.Center,
+            Padding = new Thickness(12)
         };
 
+        // Left: Image thumbnail
         rowGrid.Children.Add(new Border
         {
             StrokeThickness = 0,
-            HeightRequest = 58,
-            WidthRequest = 58,
-            StrokeShape = new RoundRectangle { CornerRadius = 16 },
+            HeightRequest = 64,
+            WidthRequest = 64,
+            StrokeShape = new RoundRectangle { CornerRadius = 14 },
             Content = new Image
             {
                 Source = BuildImageSource(imagePath),
@@ -617,24 +610,25 @@ public class HomePage : ContentPage
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.06f,
-                Radius = 8,
+                Opacity = 0.08f,
+                Radius = 10,
                 Offset = new Point(0, 3)
             }
         });
 
+        // Middle: Text info
         var textWrap = new VerticalStackLayout
         {
-            Spacing = 4,
+            Spacing = 3,
             VerticalOptions = LayoutOptions.Center,
             Children =
             {
                 new Label
                 {
                     Text = string.IsNullOrWhiteSpace(restaurant.Ten) ? _loc.Get("home_restaurant_fallback") : restaurant.Ten,
-                    FontSize = 16,
+                    FontSize = 15,
                     FontAttributes = FontAttributes.Bold,
-                    TextColor = Color.FromArgb("#0F172A"),
+                    TextColor = Color.FromArgb("#1F2937"),
                     MaxLines = 1,
                     LineBreakMode = LineBreakMode.TailTruncation
                 },
@@ -642,8 +636,8 @@ public class HomePage : ContentPage
                 {
                     Text = subtitle,
                     FontSize = 12,
-                    TextColor = Color.FromArgb("#64748B"),
-                    MaxLines = 2,
+                    TextColor = Color.FromArgb("#78716C"),
+                    MaxLines = 1,
                     LineBreakMode = LineBreakMode.TailTruncation
                 }
             }
@@ -651,27 +645,22 @@ public class HomePage : ContentPage
         rowGrid.Children.Add(textWrap);
         Grid.SetColumn(textWrap, 1);
 
+        // Right: Play button
         var playButton = new Border
         {
             StrokeThickness = 0,
-            HeightRequest = 40,
-            WidthRequest = 40,
-            StrokeShape = new RoundRectangle { CornerRadius = 20 },
-            Background = new LinearGradientBrush(
-                new GradientStopCollection
-                {
-                    new GradientStop(Color.FromArgb("#EF4444"), 0f),
-                    new GradientStop(Color.FromArgb("#DC2626"), 1f)
-                },
-                new Point(0, 0),
-                new Point(1, 1)),
+            HeightRequest = 44,
+            WidthRequest = 44,
+            StrokeShape = new RoundRectangle { CornerRadius = 22 },
+            BackgroundColor = Color.FromArgb("#EF4444"),
             VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center,
             Content = BuildPlayIcon(),
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.08f,
-                Radius = 10,
+                Opacity = 0.1f,
+                Radius = 12,
                 Offset = new Point(0, 4)
             }
         };
@@ -684,17 +673,16 @@ public class HomePage : ContentPage
         return new Border
         {
             StrokeThickness = 1,
-            Stroke = new SolidColorBrush(Color.FromArgb("#F3E8E2")),
+            Stroke = new SolidColorBrush(Color.FromArgb("#E8DCC4")),
             BackgroundColor = Colors.White,
-            StrokeShape = new RoundRectangle { CornerRadius = 18 },
-            Padding = new Thickness(10),
+            StrokeShape = new RoundRectangle { CornerRadius = 16 },
             Content = rowGrid,
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
                 Opacity = 0.04f,
-                Radius = 10,
-                Offset = new Point(0, 3)
+                Radius = 8,
+                Offset = new Point(0, 2)
             }
         };
     }
@@ -892,9 +880,10 @@ public class HomePage : ContentPage
         _sectionNearbyLabel = new Label
         {
             Text = title,
-            FontSize = 22,
+            FontSize = 20,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Color.FromArgb("#0F172A")
+            TextColor = Color.FromArgb("#1F2937"),
+            Margin = new Thickness(0, 8, 0, 4)
         };
 
         return _sectionNearbyLabel;
@@ -906,12 +895,15 @@ public class HomePage : ContentPage
         {
             Placeholder = _loc.Get("search_placeholder"),
             BackgroundColor = Colors.Transparent,
-            TextColor = Color.FromArgb("#111827"),
-            PlaceholderColor = Color.FromArgb("#A16207"),
-            FontSize = 15,
+            TextColor = Color.FromArgb("#1F2937"),
+            PlaceholderColor = Color.FromArgb("#9CA3AF"),
+            FontSize = 14,
             ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
+            HorizontalTextAlignment = TextAlignment.Start,
             HorizontalOptions = LayoutOptions.Fill,
-            VerticalOptions = LayoutOptions.Center
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0),
+            HeightRequest = 28
         };
         _homeSearchEntry.TextChanged += (_, __) => RenderNearbyRestaurants();
 
@@ -935,18 +927,18 @@ public class HomePage : ContentPage
         return new Border
         {
             StrokeThickness = 1,
-            Stroke = new SolidColorBrush(Color.FromArgb("#FED7AA")),
-            BackgroundColor = Color.FromArgb("#FFFFFB"),
-            StrokeShape = new RoundRectangle { CornerRadius = 18 },
-            Padding = new Thickness(15, 5),
-            HeightRequest = 54,
+            Stroke = new SolidColorBrush(Color.FromArgb("#E5D5C4")),
+            BackgroundColor = Color.FromArgb("#FFFCF9"),
+            StrokeShape = new RoundRectangle { CornerRadius = 28 },
+            Padding = new Thickness(18, 10),
+            HeightRequest = 56,
             Content = searchGrid,
             Shadow = new Shadow
             {
                 Brush = Brush.Black,
-                Opacity = 0.08f,
-                Radius = 16,
-                Offset = new Point(0, 6)
+                Opacity = 0.05f,
+                Radius = 10,
+                Offset = new Point(0, 3)
             }
         };
     }
@@ -957,16 +949,16 @@ public class HomePage : ContentPage
 
         return new Grid
         {
-            WidthRequest = 22,
-            HeightRequest = 22,
+            WidthRequest = 20,
+            HeightRequest = 20,
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
             Children =
             {
                 new Ellipse
                 {
-                    WidthRequest = 11,
-                    HeightRequest = 11,
+                    WidthRequest = 10,
+                    HeightRequest = 10,
                     Stroke = stroke,
                     StrokeThickness = 1.8,
                     HorizontalOptions = LayoutOptions.Start,
@@ -976,10 +968,10 @@ public class HomePage : ContentPage
                 },
                 new Line
                 {
-                    X1 = 13.5,
-                    Y1 = 13.5,
-                    X2 = 18,
-                    Y2 = 18,
+                    X1 = 13,
+                    Y1 = 13,
+                    X2 = 17.5,
+                    Y2 = 17.5,
                     Stroke = stroke,
                     StrokeThickness = 1.8
                 }
