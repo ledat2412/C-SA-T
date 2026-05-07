@@ -69,6 +69,9 @@ public partial class PoiMapPage : ContentPage
     private const string DefaultLanguageCode = "vi";
     private const double TourProgressBannerBottomMargin = 100;
     private const double TourProgressBannerEstimatedHeight = 76;
+#if ANDROID
+    private const float AndroidMap3DDefaultMinZoom = 17.5f;
+#endif
 
     private Entry _searchEntry = null!;
 
@@ -169,6 +172,7 @@ public partial class PoiMapPage : ContentPage
 #if ANDROID
     private GoogleMap? _androidGoogleMap;
     private bool _hasPendingTourRender;
+    private int _mapModeRevision;
     private readonly List<Android.Gms.Maps.Model.Polyline> _androidTourLines = new();
     private readonly List<Marker> _androidTourArrows = new();
     private static BitmapDescriptor? _tourArrowIcon;
@@ -490,8 +494,24 @@ public partial class PoiMapPage : ContentPage
 
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            await BeginActiveTourAsync();
+            await BeginActiveTourSafelyAsync();
         });
+    }
+
+    private async Task BeginActiveTourSafelyAsync()
+    {
+        try
+        {
+            await BeginActiveTourAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Tour] Start tour error: {ex}");
+#if ANDROID
+            _hasPendingTourRender = false;
+#endif
+            await DisplayAlertAsync(_loc.Get("tour_page_title"), _loc.Get("tour_detail_load_error"), _loc.Get("alert_ok"));
+        }
     }
 
     private async Task BeginActiveTourAsync()
@@ -1156,10 +1176,19 @@ public partial class PoiMapPage : ContentPage
         }
 
         _isMap3DEnabled = enabled;
+#if ANDROID
+        _mapModeRevision++;
+#endif
         UpdateMapModeButtonVisual();
 
 #if ANDROID
-        ApplyAndroidMapMode(animate);
+        ApplyAndroidMapMode(enabled, animate);
+        if (enabled && _activeTourDetail is not null)
+        {
+            var activeStops = TourService.GetUsableStops(_activeTourDetail).ToList();
+            if (activeStops.Count > 0)
+                FitTourStops(activeStops);
+        }
 #endif
 
         await Task.CompletedTask;
@@ -1201,10 +1230,12 @@ public partial class PoiMapPage : ContentPage
         if (!_isMap3DEnabled)
             return;
 
+        var revision = _mapModeRevision;
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             await Task.Delay(260);
-            ApplyAndroidMapMode(animate: true);
+            if (_isMap3DEnabled && revision == _mapModeRevision)
+                ApplyAndroidMapMode(enabled: true, animate: true);
         });
 #endif
     }
@@ -2607,31 +2638,32 @@ public partial class PoiMapPage : ContentPage
         {
             _androidGoogleMap = map;
             _androidGoogleMap.UiSettings.ZoomControlsEnabled = true;
-            ApplyAndroidMapMode(animate: false);
+            ApplyAndroidMapMode(_isMap3DEnabled, animate: false);
             UpdateAndroidMapPadding();
             if (_hasPendingTourRender)
-                _ = BeginActiveTourAsync();
+                _ = BeginActiveTourSafelyAsync();
         }));
     }
 
-    private void ApplyAndroidMapMode(bool animate)
+    private void ApplyAndroidMapMode(bool enabled, bool animate)
     {
         if (_androidGoogleMap is null)
             return;
 
         var currentCamera = _androidGoogleMap.CameraPosition;
         var target = currentCamera.Target;
-        var targetZoom = _isMap3DEnabled
-            ? Math.Max(currentCamera.Zoom, 17.5f)
+        var targetZoom = enabled
+            ? GetAndroid3DTargetZoom(currentCamera.Zoom)
             : currentCamera.Zoom;
-        var targetTilt = _isMap3DEnabled ? 58f : 0f;
-        var targetBearing = _isMap3DEnabled
+        var targetTilt = enabled ? 58f : 0f;
+        var targetBearing = enabled
             ? Math.Abs(currentCamera.Bearing) < 1f ? 32f : currentCamera.Bearing
             : 0f;
 
-        _androidGoogleMap.BuildingsEnabled = _isMap3DEnabled;
-        _androidGoogleMap.UiSettings.TiltGesturesEnabled = _isMap3DEnabled;
-        _androidGoogleMap.UiSettings.RotateGesturesEnabled = _isMap3DEnabled;
+        _androidGoogleMap.StopAnimation();
+        _androidGoogleMap.BuildingsEnabled = enabled;
+        _androidGoogleMap.UiSettings.TiltGesturesEnabled = enabled;
+        _androidGoogleMap.UiSettings.RotateGesturesEnabled = enabled;
 
         var camera = new CameraPosition.Builder()
             .Target(target)
@@ -2641,10 +2673,17 @@ public partial class PoiMapPage : ContentPage
             .Build();
 
         var update = CameraUpdateFactory.NewCameraPosition(camera);
-        if (animate)
+        if (animate && enabled)
             _androidGoogleMap.AnimateCamera(update);
         else
             _androidGoogleMap.MoveCamera(update);
+    }
+
+    private float GetAndroid3DTargetZoom(float currentZoom)
+    {
+        return _activeTourDetail is not null
+            ? currentZoom
+            : Math.Max(currentZoom, AndroidMap3DDefaultMinZoom);
     }
 
     private void UpdateAndroidMapPadding()

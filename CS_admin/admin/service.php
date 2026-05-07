@@ -54,6 +54,20 @@ function service_page_url($statusFilter, $selectedPackageId = 0, $message = '', 
     return admin_url('index1st.php?' . http_build_query($params));
 }
 
+function service_redirect($url)
+{
+    if (!headers_sent()) {
+        header('Location: ' . $url);
+        exit;
+    }
+
+    $encodedUrl = json_encode($url, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $escapedUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    echo '<script>window.location.replace(' . $encodedUrl . ');</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . $escapedUrl . '"><a href="' . $escapedUrl . '">Tiếp tục</a></noscript>';
+    exit;
+}
+
 function service_status_meta($status)
 {
     $status = strtolower(trim((string) $status));
@@ -110,8 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
         if ($payload['ten'] === '' || $payload['gia'] < 0 || $payload['thoiHanNgay'] <= 0 || !array_key_exists($payload['trangThai'], service_status_options())) {
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', 'Thông tin gói dịch vụ chưa hợp lệ.'));
-            exit;
+            service_redirect(service_page_url($postStatusFilter, $idGoi, '', 'Thông tin gói dịch vụ chưa hợp lệ.'));
         }
 
         $apiError = '';
@@ -133,13 +146,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result === null) {
             $msg = $apiError !== '' ? $apiError : 'Không thể lưu gói dịch vụ: backend API chưa sẵn sàng.';
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $msg));
-            exit;
+            service_redirect(service_page_url($postStatusFilter, $idGoi, '', $msg));
         }
 
         $savedId = isset($result['idGoi']) ? (int) $result['idGoi'] : $idGoi;
-        header('Location: ' . service_page_url($postStatusFilter, $savedId, $idGoi > 0 ? 'Cập nhật gói dịch vụ thành công.' : 'Tạo gói dịch vụ thành công.'));
-        exit;
+        service_redirect(service_page_url($postStatusFilter, $savedId, $idGoi > 0 ? 'Cập nhật gói dịch vụ thành công.' : 'Tạo gói dịch vụ thành công.'));
     }
 
     if ($action === 'change_status') {
@@ -147,8 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newStatus = trim((string) ($_POST['new_status'] ?? ''));
 
         if ($idGoi <= 0 || !array_key_exists($newStatus, service_status_options())) {
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', 'Không thể đổi trạng thái gói dịch vụ.'));
-            exit;
+            service_redirect(service_page_url($postStatusFilter, $idGoi, '', 'Không thể đổi trạng thái gói dịch vụ.'));
         }
 
         $apiError = '';
@@ -164,12 +174,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result === null) {
             $msg = $apiError !== '' ? $apiError : 'Không thể đổi trạng thái: backend API chưa sẵn sàng.';
-            header('Location: ' . service_page_url($postStatusFilter, $idGoi, '', $msg));
-            exit;
+            service_redirect(service_page_url($postStatusFilter, $idGoi, '', $msg));
         }
 
-        header('Location: ' . service_page_url($postStatusFilter, $idGoi, 'Đổi trạng thái gói dịch vụ thành công.'));
-        exit;
+        service_redirect(service_page_url($postStatusFilter, $idGoi, 'Đổi trạng thái gói dịch vụ thành công.'));
     }
 }
 

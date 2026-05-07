@@ -164,7 +164,18 @@ public sealed class GeofenceEngineService : IAsyncDisposable
 
     public async Task EvaluateNowAsync(CancellationToken cancellationToken = default)
     {
-        await EvaluateCurrentLocationAsync(cancellationToken);
+        try
+        {
+            await EvaluateCurrentLocationAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GeofenceEngine] Evaluate now error: {ex.Message}");
+        }
     }
 
     public async Task TogglePlaybackAsync(AudioPlaybackRequest request, CancellationToken cancellationToken = default)
