@@ -697,6 +697,10 @@ tbody td{
   z-index:1;
 }
 
+.cover-preview.has-image .cover-empty{
+  display:none;
+}
+
 .cover-empty{
   position:relative;
   z-index:1;

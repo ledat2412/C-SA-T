@@ -48,10 +48,48 @@ function store_form_food_management_url($idGianHang)
     return admin_url('index1st.php?usecase=menu&idGianHang=' . (int) $idGianHang);
 }
 
+function store_form_redirect($url)
+{
+    $url = (string) $url;
+
+    if (!headers_sent()) {
+        header('Location: ' . $url);
+        exit;
+    }
+
+    $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    $jsonUrl = json_encode($url, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    if ($jsonUrl === false) {
+        $jsonUrl = '""';
+    }
+
+    echo '<script>window.location.href=' . $jsonUrl . ';</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . $safeUrl . '"></noscript>';
+    exit;
+}
+
 function store_form_fetch_daily_visits($idGianHang)
 {
-    // Daily visits: backend chưa có endpoint, trả về mảng rỗng cho heatmap đến khi có /Admin/stores/{id}/daily-visits.
-    return array();
+    global $idTaiKhoan;
+
+    $idGianHang = (int) $idGianHang;
+    $idTaiKhoan = (int) $idTaiKhoan;
+    if ($idGianHang <= 0 || $idTaiKhoan <= 0) {
+        return array();
+    }
+
+    $apiError = '';
+    $apiHttpCode = 0;
+    $result = admin_api_call(
+        'GET',
+        'Admin/stores/' . rawurlencode((string) $idGianHang) . '/daily-visits',
+        null,
+        $apiError,
+        $apiHttpCode,
+        array('idTaiKhoan' => $idTaiKhoan)
+    );
+
+    return is_array($result) ? $result : array();
 }
 
 function store_form_heatmap_level($count, $maxCount)
@@ -162,7 +200,17 @@ function store_form_call_json($method, $url, $payload, &$error, &$httpCode = 0)
     $error = '';
     $httpCode = 0;
 
+    if (!function_exists('curl_init')) {
+        $error = 'May chu PHP chua bat cURL de ket noi backend.';
+        return null;
+    }
+
     $ch = curl_init($url);
+    if ($ch === false) {
+        $error = 'Khong khoi tao duoc ket noi backend.';
+        return null;
+    }
+
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
     curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json'));
@@ -215,6 +263,11 @@ function store_form_call_file_upload($url, $fieldName, $fileInfo, &$error, &$htt
     $error = '';
     $httpCode = 0;
 
+    if (!function_exists('curl_init') || !class_exists('CURLFile')) {
+        $error = 'May chu PHP chua bat cURL/CURLFile de tai anh gian hang.';
+        return null;
+    }
+
     if (!is_array($fileInfo) || empty($fileInfo['tmp_name']) || !is_file($fileInfo['tmp_name'])) {
         $error = 'Không tìm thấy file tạm để tải lên.';
         return null;
@@ -228,12 +281,19 @@ function store_form_call_file_upload($url, $fieldName, $fileInfo, &$error, &$htt
     );
 
     $ch = curl_init($url);
+    if ($ch === false) {
+        $error = 'Khong khoi tao duoc ket noi tai anh gian hang.';
+        return null;
+    }
+
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json'));
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
     $body = curl_exec($ch);
     if ($body === false) {
@@ -573,8 +633,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                 $requestResult = store_form_call_json('POST', store_form_request_collection_url($idTaiKhoan), $requestPayload, $requestError, $requestHttpCode);
 
                 if ($requestResult !== null) {
-                    header('Location: ' . admin_url('index1st.php?usecase=store&flash=request_sent'));
-                    exit;
+                    store_form_redirect(admin_url('index1st.php?usecase=store&flash=request_sent'));
                 }
 
                 $pageMessage = array('type' => 'error', 'text' => 'Gửi yêu cầu thất bại: ' . ($requestError !== '' ? $requestError : 'backend API chưa sẵn sàng.'));
@@ -613,8 +672,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['store_form_submit']))
                         }
 
                         $flashTarget = ($descriptionResult === null || ($hasUploadedImage && $imageResult === null)) ? 'created_partial' : 'created';
-                        header('Location: ' . admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . $newId . '&lang=' . rawurlencode($selectedLanguage) . '&flash=' . rawurlencode($flashTarget)));
-                        exit;
+                        store_form_redirect(admin_url('index1st.php?usecase=branchdetail2&idGianHang=' . $newId . '&lang=' . rawurlencode($selectedLanguage) . '&flash=' . rawurlencode($flashTarget)));
                     }
                 }
             }
@@ -864,7 +922,7 @@ $storeDailyVisits = !$isCreateMode ? store_form_fetch_daily_visits($idGianHang) 
             <h3><i class="fa-solid fa-image"></i> Tổng quan gian hàng</h3>
           </div>
 
-          <div class="cover-preview <?php echo $imageUrl !== '' ? 'has-image' : ''; ?>"<?php echo $imageUrl !== '' ? ' style="background-image:url(\'' . htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') . '\')"' : ''; ?>>
+          <div id="storeImagePreview" class="cover-preview <?php echo $imageUrl !== '' ? 'has-image' : ''; ?>"<?php echo $imageUrl !== '' ? ' style="background-image:url(\'' . htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') . '\')"' : ''; ?>>
             <div class="cover-badge"><?php echo $isCreateMode ? 'Gian hàng mới' : 'Ảnh gian hàng'; ?></div>
             <?php if ($imageUrl === '') { ?>
             <span class="cover-empty"><?php echo $isCreateMode ? 'Ảnh sẽ hiển thị sau khi bạn cập nhật media riêng' : 'Chưa có ảnh hiển thị'; ?></span>
@@ -873,7 +931,7 @@ $storeDailyVisits = !$isCreateMode ? store_form_fetch_daily_visits($idGianHang) 
 
           <div class="readonly-item">
             <span>Image Upload</span>
-            <input type="file" name="storeImage" accept="image/*" />
+            <input id="storeImageInput" type="file" name="storeImage" accept="image/*" />
           </div>
 
           <div class="logo-row">
@@ -949,3 +1007,34 @@ $storeDailyVisits = !$isCreateMode ? store_form_fetch_daily_visits($idGianHang) 
     <?php } ?>
   </section>
 </main>
+<script>
+(function () {
+  var input = document.getElementById('storeImageInput');
+  var preview = document.getElementById('storeImagePreview');
+  if (!input || !preview || !window.URL || !window.URL.createObjectURL) {
+    return;
+  }
+
+  var initialBackground = preview.style.backgroundImage;
+  var initialHadImage = preview.classList.contains('has-image');
+  var objectUrl = '';
+
+  input.addEventListener('change', function () {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = '';
+    }
+
+    var file = input.files && input.files.length > 0 ? input.files[0] : null;
+    if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+      preview.style.backgroundImage = initialBackground;
+      preview.classList.toggle('has-image', initialHadImage);
+      return;
+    }
+
+    objectUrl = URL.createObjectURL(file);
+    preview.style.backgroundImage = 'url("' + objectUrl.replace(/"/g, '%22') + '")';
+    preview.classList.add('has-image');
+  });
+})();
+</script>

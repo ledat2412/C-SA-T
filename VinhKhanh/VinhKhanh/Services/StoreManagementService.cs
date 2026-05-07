@@ -35,24 +35,38 @@ namespace VinhKhanh.Services
 
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
-            await EnsureStoreNameAvailableAsync(conn, request.Ten);
+            using var transaction = await conn.BeginTransactionAsync();
+            int newId;
 
-            const string sql = @"
-                INSERT INTO gianhang (idChuQuanLy, ten, diaChi, lat, lon, vongBo, tinhTrang, phiHangThang, ngayDangKy, thoiGianCapNhat)
-                VALUES (@idChuQuanLy, @ten, @diaChi, @lat, @lon, @vongBo, @tinhTrang, @phiHangThang, NOW(), NOW());
-                SELECT LAST_INSERT_ID();";
+            try
+            {
+                await EnsureStoreNameAvailableAsync(conn, request.Ten, transaction: transaction);
 
-            using var cmd = new MySqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue("@idChuQuanLy", ownerId);
-            cmd.Parameters.AddWithValue("@ten", request.Ten);
-            cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@vongBo", request.VongBo ?? 10m);
-            cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrang));
-            cmd.Parameters.AddWithValue("@phiHangThang", request.PhiHangThang);
+                const string sql = @"
+                    INSERT INTO gianhang (idChuQuanLy, ten, diaChi, lat, lon, vongBo, tinhTrang, phiHangThang, ngayDangKy, thoiGianCapNhat)
+                    VALUES (@idChuQuanLy, @ten, @diaChi, @lat, @lon, @vongBo, @tinhTrang, @phiHangThang, NOW(), NOW());
+                    SELECT LAST_INSERT_ID();";
 
-            var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                using var cmd = new MySqlCommand(sql, conn, transaction);
+                cmd.Parameters.AddWithValue("@idChuQuanLy", ownerId);
+                cmd.Parameters.AddWithValue("@ten", request.Ten);
+                cmd.Parameters.AddWithValue("@diaChi", (object?)request.DiaChi ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@lat", request.Lat.HasValue ? request.Lat.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@lon", request.Lon.HasValue ? request.Lon.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@vongBo", request.VongBo ?? 10m);
+                cmd.Parameters.AddWithValue("@tinhTrang", NormalizeStoreStatus(request.TinhTrang));
+                cmd.Parameters.AddWithValue("@phiHangThang", request.PhiHangThang);
+
+                newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                await CreateInitialStoreInvoiceAsync(conn, transaction, newId, request.PhiHangThang);
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
             return await GetOwnerStoreByIdAsync(newId, conn);
         }
 
@@ -333,24 +347,21 @@ namespace VinhKhanh.Services
                     return null;
             }
 
-            int? existingImageId = null;
-            string? existingImagePath = null;
+            var existingImages = new List<(int Id, string? Path)>();
 
             const string currentImageSql = @"
                 SELECT idHinhAnh, duongDan
                 FROM hinhanhmonan
                 WHERE idMonAn = @idMonAn
-                ORDER BY idHinhAnh
-                LIMIT 1;";
+                ORDER BY idHinhAnh;";
 
             using (var currentImageCmd = new MySqlCommand(currentImageSql, conn))
             {
                 currentImageCmd.Parameters.AddWithValue("@idMonAn", idMonAn);
                 using var reader = await currentImageCmd.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
+                while (await reader.ReadAsync())
                 {
-                    existingImageId = reader.GetInt32("idHinhAnh");
-                    existingImagePath = reader["duongDan"]?.ToString();
+                    existingImages.Add((reader.GetInt32("idHinhAnh"), reader["duongDan"]?.ToString()));
                 }
             }
 
@@ -362,7 +373,8 @@ namespace VinhKhanh.Services
             if (string.IsNullOrWhiteSpace(extension) || extension.Length > 10)
                 extension = ".jpg";
 
-            var fileName = $"food_{idMonAn}_{DateTime.UtcNow:yyyyMMddHHmmssfff}{extension.ToLowerInvariant()}";
+            extension = extension.ToLowerInvariant();
+            var fileName = $"food_{idMonAn}{extension}";
             var fullPath = Path.Combine(targetFolder, fileName);
             var dbPath = $"images/foods/{fileName}";
 
@@ -371,7 +383,7 @@ namespace VinhKhanh.Services
                 await image.CopyToAsync(stream);
             }
 
-            if (existingImageId.HasValue)
+            if (existingImages.Count > 0)
             {
                 const string updateImageSql = @"
                     UPDATE hinhanhmonan
@@ -380,7 +392,7 @@ namespace VinhKhanh.Services
 
                 using var updateImageCmd = new MySqlCommand(updateImageSql, conn);
                 updateImageCmd.Parameters.AddWithValue("@duongDan", dbPath);
-                updateImageCmd.Parameters.AddWithValue("@idHinhAnh", existingImageId.Value);
+                updateImageCmd.Parameters.AddWithValue("@idHinhAnh", existingImages[0].Id);
                 await updateImageCmd.ExecuteNonQueryAsync();
             }
             else
@@ -395,7 +407,28 @@ namespace VinhKhanh.Services
                 await insertImageCmd.ExecuteNonQueryAsync();
             }
 
-            DeleteManagedFoodImageIfNeeded(existingImagePath, webRoot, dbPath);
+            if (existingImages.Count > 0)
+            {
+                DeleteManagedFoodImageIfNeeded(existingImages[0].Path, webRoot, dbPath);
+            }
+
+            if (existingImages.Count > 1)
+            {
+                const string deleteDuplicateImagesSql = @"
+                    DELETE FROM hinhanhmonan
+                    WHERE idMonAn = @idMonAn
+                      AND idHinhAnh <> @idHinhAnh;";
+
+                using var deleteDuplicateImagesCmd = new MySqlCommand(deleteDuplicateImagesSql, conn);
+                deleteDuplicateImagesCmd.Parameters.AddWithValue("@idMonAn", idMonAn);
+                deleteDuplicateImagesCmd.Parameters.AddWithValue("@idHinhAnh", existingImages[0].Id);
+                await deleteDuplicateImagesCmd.ExecuteNonQueryAsync();
+
+                foreach (var duplicateImage in existingImages.Skip(1))
+                {
+                    DeleteManagedFoodImageIfNeeded(duplicateImage.Path, webRoot, dbPath);
+                }
+            }
 
             return NormalizeImagePathForWeb(dbPath);
         }
@@ -687,6 +720,18 @@ namespace VinhKhanh.Services
             if (request.DonGia < 0)
                 throw new ArgumentException("Don gia khong hop le.");
             NormalizeFoodStatus(request.TinhTrang);
+        }
+
+        private static async Task CreateInitialStoreInvoiceAsync(MySqlConnection conn, MySqlTransaction transaction, int idGianHang, decimal tongTien)
+        {
+            const string invoiceSql = @"
+                INSERT INTO hoadongianhang (idGianHang, tongTien, ngayHetHan, trangThai, ghiChu, ngayTao)
+                VALUES (@idGianHang, @tongTien, DATE_ADD(NOW(), INTERVAL 1 MONTH), 'chua_thanh_toan', 'Phi duy tri thang dau tien', NOW());";
+
+            using var invoiceCmd = new MySqlCommand(invoiceSql, conn, transaction);
+            invoiceCmd.Parameters.AddWithValue("@idGianHang", idGianHang);
+            invoiceCmd.Parameters.AddWithValue("@tongTien", tongTien);
+            await invoiceCmd.ExecuteNonQueryAsync();
         }
 
         private static string NormalizeStoreStatus(string status)

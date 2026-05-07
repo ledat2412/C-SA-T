@@ -194,10 +194,10 @@
       return;
     }
 
-    if ('map' in entry.marker) {
-      entry.marker.map = targetMap;
-    } else if (typeof entry.marker.setMap === 'function') {
+    if (typeof entry.marker.setMap === 'function') {
       entry.marker.setMap(targetMap);
+    } else if ('map' in entry.marker) {
+      entry.marker.map = targetMap;
     }
   }
 
@@ -350,7 +350,7 @@
   }
 
   function getLocalBounds() {
-    var valid = pois.filter(function (poi) {
+    var valid = visiblePois().filter(function (poi) {
       return isFinite(poi._lat) && isFinite(poi._lng);
     });
 
@@ -611,6 +611,7 @@
 
     var world = localState.world;
     var bounds = getLocalBounds();
+    var localPois = visiblePois();
     localEntries = [];
     world.innerHTML =
       '<div class="poi-local-grid"></div>' +
@@ -619,7 +620,7 @@
       '<div class="poi-local-road road-side-a"></div>' +
       '<div class="poi-local-road road-side-b"></div>';
 
-    pois.forEach(function (poi, index) {
+    localPois.forEach(function (poi, index) {
       var point = localPoint(poi, bounds);
       var color = statusColor(poi.statusClass);
       var radius = localRadiusPixels(poi, bounds);
@@ -836,7 +837,8 @@
 
   function applyMarkerVisibility() {
     if (localState) {
-      applyLocalMarkerVisibility();
+      renderLocalMarkers();
+      clearLocalPopup();
       return;
     }
 

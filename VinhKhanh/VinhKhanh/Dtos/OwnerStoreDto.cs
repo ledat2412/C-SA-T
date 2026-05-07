@@ -10,6 +10,7 @@ namespace VinhKhanh.Dtos
         public decimal VongBo { get; set; }
         public string? TinhTrang { get; set; }
         public string? HinhAnh { get; set; }
+        public int LuotTruyCap { get; set; }
         public decimal PhiHangThang { get; set; }
         public DateTime NgayDangKy { get; set; }
         public DateTime? ThoiGianCapNhat { get; set; }

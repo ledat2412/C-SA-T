@@ -26,6 +26,26 @@ function invoice_payment_text($value, $emptyText = 'Chưa có')
     return $value !== '' ? $value : $emptyText;
 }
 
+function invoice_payment_redirect($url)
+{
+    $url = (string) $url;
+
+    if (!headers_sent()) {
+        header('Location: ' . $url);
+        exit;
+    }
+
+    $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    $jsonUrl = json_encode($url, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    if ($jsonUrl === false) {
+        $jsonUrl = '""';
+    }
+
+    echo '<script>window.location.href=' . $jsonUrl . ';</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . $safeUrl . '"></noscript>';
+    exit;
+}
+
 function invoice_payment_settings()
 {
     $settings = array(
@@ -276,6 +296,33 @@ function invoice_payment_content($invoiceId)
     return substr($content, 0, 25);
 }
 
+function invoice_payment_bypass($invoiceId, $idTaiKhoan, &$error)
+{
+    $error = '';
+    $apiHttpCode = 0;
+    $result = admin_api_call(
+        'POST',
+        'Owner/invoices/' . rawurlencode((string) $invoiceId) . '/bypass-payment',
+        null,
+        $error,
+        $apiHttpCode,
+        array('idTaiKhoan' => $idTaiKhoan)
+    );
+
+    if (is_array($result) && !empty($result['success'])) {
+        return true;
+    }
+
+    if ($error === '' && is_array($result) && !empty($result['message'])) {
+        $error = (string) $result['message'];
+    }
+    if ($error === '') {
+        $error = 'Khong bypass duoc hoa don nay.';
+    }
+
+    return false;
+}
+
 $invoice = null;
 if (!$isOwnerInvoiceViewer) {
     $paymentError = 'Chỉ chủ gian hàng mới có thể thanh toán hóa đơn gian hàng.';
@@ -294,6 +341,22 @@ $canPayInvoice = $invoice && in_array(($invoice['trangThai'] ?? ''), array('chua
 
 if ($invoice && !$canPayInvoice && $paymentError === '') {
     $paymentError = 'Hóa đơn này không ở trạng thái chờ thanh toán.';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['invoice_bypass_submit'])) {
+    if (!$isOwnerInvoiceViewer) {
+        $paymentError = 'Chi chu gian hang moi co the bypass thanh toan hoa don.';
+    } elseif (!$invoice) {
+        $paymentError = 'Khong tim thay hoa don can bypass.';
+    } elseif (!$canPayInvoice) {
+        $paymentError = 'Hoa don nay khong o trang thai cho thanh toan.';
+    } else {
+        $bypassError = '';
+        if (invoice_payment_bypass((int) $invoice['idHoaDonGianHang'], $idTaiKhoan, $bypassError)) {
+            invoice_payment_redirect(admin_url('index1st.php?usecase=invoice&status=da_thanh_toan&selected=' . (int) $invoice['idHoaDonGianHang']));
+        }
+        $paymentError = $bypassError;
+    }
 }
 
 if ($canPayInvoice && $paymentError === '') {
@@ -395,6 +458,16 @@ if ($canPayInvoice && $paymentError === '') {
           <p><a class="back-link" href="<?php echo htmlspecialchars($checkoutUrl, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener noreferrer">Mo trang checkout PayOS</a></p>
           <?php } ?>
           <p>Quet QR PayOS hoac mo checkout link de hoan tat thanh toan.</p>
+          <?php if ($canPayInvoice && $isOwnerInvoiceViewer) { ?>
+          <form method="post" class="bypass-payment-form" onsubmit="return confirm('Bypass thanh toan va danh dau hoa don nay da thanh toan?');">
+            <input type="hidden" name="invoice_bypass_submit" value="1" />
+            <button class="bypass-payment-btn" type="submit">
+              <i class="fa-solid fa-bolt"></i>
+              <span>Bypass thanh toan</span>
+            </button>
+            <small>Chuc nang test giong app: bo qua PayOS va kich hoat hoa don ngay.</small>
+          </form>
+          <?php } ?>
         </div>
       </div>
       <?php } ?>

@@ -26,6 +26,7 @@ namespace VinhKhanh.Services
                     gh.lat,
                     gh.lon,
                     gh.tinhTrang,
+                    gh.luotTruyCap,
                     (
                         SELECT hgg.duongDan
                         FROM hinhanhgianhang hgg
@@ -58,6 +59,7 @@ namespace VinhKhanh.Services
                     Lon = reader["lon"] == DBNull.Value ? null : Convert.ToDouble(reader["lon"]),
                     TinhTrang = reader["tinhTrang"]?.ToString(),
                     HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString()),
+                    LuotTruyCap = reader["luotTruyCap"] == DBNull.Value ? 0 : Convert.ToInt32(reader["luotTruyCap"]),
                     PhiHangThang = reader.GetDecimal("phiHangThang"),
                     NgayDangKy = Convert.ToDateTime(reader["ngayDangKy"]),
                     ThoiGianCapNhat = reader["thoiGianCapNhat"] == DBNull.Value

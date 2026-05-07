@@ -47,6 +47,7 @@ if ($body === false || $httpCode >= 400) {
     exit;
 }
 
-header('Cache-Control: public, max-age=300');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 header('Content-Type: ' . ($contentType !== '' ? $contentType : 'image/jpeg'));
 echo $body;

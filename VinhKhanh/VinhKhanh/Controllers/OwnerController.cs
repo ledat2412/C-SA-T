@@ -158,6 +158,29 @@ namespace VinhKhanh.Controllers
             });
         }
 
+        [HttpPost("invoices/{idHoaDon}/bypass-payment")]
+        public async Task<IActionResult> BypassInvoicePayment(int idHoaDon, [FromQuery] int idTaiKhoan, [FromServices] InvoiceService invoiceService)
+        {
+            if (!await _accountAccessService.IsOwnerAsync(idTaiKhoan))
+                return ForbiddenResult();
+
+            var invoice = await invoiceService.GetByIdAsync(idHoaDon, idTaiKhoan);
+            if (invoice == null)
+                return NotFound(new OperationResultDto { Success = false, Message = "Khong tim thay hoa don hoac ban khong co quyen thanh toan hoa don nay." });
+
+            if (!string.Equals(invoice.TrangThai, "chua_thanh_toan", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(invoice.TrangThai, "qua_han", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new OperationResultDto { Success = false, Message = "Hoa don nay khong o trang thai cho thanh toan." });
+            }
+
+            var ok = await invoiceService.MarkPaidAsync(idHoaDon);
+            if (!ok)
+                return BadRequest(new OperationResultDto { Success = false, Message = "Khong the bypass hoa don nay." });
+
+            return Ok(new OperationResultDto { Success = true, Message = "Da bypass thanh toan va kich hoat hoa don gian hang." });
+        }
+
         [HttpPost("foods")]
         public async Task<IActionResult> CreateFood([FromQuery] int idTaiKhoan, [FromBody] UpsertFoodRequestDto request, [FromServices] StoreManagementService storeManagementService)
         {

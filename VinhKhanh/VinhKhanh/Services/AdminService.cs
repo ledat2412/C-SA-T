@@ -69,6 +69,7 @@ namespace VinhKhanh.Services
                     gh.ten,
                     gh.diaChi,
                     gh.tinhTrang,
+                    gh.luotTruyCap,
                     (
                         SELECT hgg.duongDan
                         FROM hinhanhgianhang hgg
@@ -98,6 +99,7 @@ namespace VinhKhanh.Services
                     DiaChi = reader["diaChi"]?.ToString(),
                     TinhTrang = reader["tinhTrang"]?.ToString(),
                     HinhAnh = NormalizeImagePathForWeb(reader["hinhAnh"]?.ToString()),
+                    LuotTruyCap = reader["luotTruyCap"] == DBNull.Value ? 0 : Convert.ToInt32(reader["luotTruyCap"]),
                     IdChuQuanLy = reader["idChuQuanLy"] == DBNull.Value ? null : Convert.ToInt32(reader["idChuQuanLy"]),
                     TenChuQuanLy = reader["tenChuQuanLy"]?.ToString(),
                     EmailChuQuanLy = reader["emailChuQuanLy"]?.ToString(),

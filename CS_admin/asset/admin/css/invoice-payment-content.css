@@ -162,6 +162,37 @@
   max-width:300px;
 }
 
+.bypass-payment-form{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:8px;
+  margin-top:4px;
+}
+
+.bypass-payment-btn{
+  min-height:46px;
+  border:0;
+  border-radius:14px;
+  padding:0 16px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  background:#f97316;
+  color:#fff;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:0 10px 20px rgba(249,115,22,.18);
+}
+
+.bypass-payment-form small{
+  color:#70839a;
+  font-size:12px;
+  line-height:1.45;
+}
+
 @media (max-width: 980px){
   .payment-card{
     grid-template-columns:1fr;

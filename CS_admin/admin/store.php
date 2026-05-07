@@ -145,6 +145,11 @@ function store_owner_name($store, $role, $auth)
     return 'Chưa gán chủ gian hàng';
 }
 
+function store_format_visit_count($value)
+{
+    return number_format(max(0, (int) $value), 0, ',', '.');
+}
+
 function fetch_real_stores($role, $idTaiKhoan, $auth, &$error)
 {
     if ($idTaiKhoan <= 0) {
@@ -193,6 +198,8 @@ function fetch_real_stores($role, $idTaiKhoan, $auth, &$error)
         }
         $address = !empty($store['diaChi']) ? (string) $store['diaChi'] : 'Chưa cập nhật địa chỉ';
 
+        $visitCount = isset($store['luotTruyCap']) ? (int) $store['luotTruyCap'] : 0;
+
         $cards[] = array(
             'idGianHang' => isset($store['idGianHang']) ? (int) $store['idGianHang'] : 0,
             'ten' => isset($store['ten']) ? (string) $store['ten'] : 'Gian hàng',
@@ -203,8 +210,8 @@ function fetch_real_stores($role, $idTaiKhoan, $auth, &$error)
             'logo' => store_initials(isset($store['ten']) ? $store['ten'] : ''),
             'leftLabel' => 'ĐỊA CHỈ',
             'leftValue' => $address,
-            'rightLabel' => $role === 'chu_quan_ly' ? 'PHÍ THÁNG' : 'CHỦ QUẢN LÝ',
-            'rightValue' => $role === 'chu_quan_ly' ? number_format(isset($store['phiHangThang']) ? (float) $store['phiHangThang'] : 0, 0, ',', '.') . 'đ' : $ownerName,
+            'rightLabel' => 'Lượt visit',
+            'rightValue' => store_format_visit_count($visitCount),
             'actionStyle' => 'contact',
             'actionLabel' => 'ID #' . (isset($store['idGianHang']) ? (int) $store['idGianHang'] : 0),
             'statusLabel' => $status['label'],

@@ -7,6 +7,10 @@ if (!isset($_SESSION['admin_auth']) || empty($_SESSION['admin_auth']['isLoggedIn
     exit;
 }
 
+if (!headers_sent() && ob_get_level() === 0) {
+    ob_start();
+}
+
 $storeInvoiceMaintenanceError = '';
 admin_run_store_invoice_maintenance($storeInvoiceMaintenanceError);
 

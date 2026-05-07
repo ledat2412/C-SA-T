@@ -54,6 +54,11 @@ function menu_page_call_file_upload($url, $fieldName, $fileInfo, &$error, &$http
     $error = '';
     $httpCode = 0;
 
+    if (!function_exists('curl_init') || !class_exists('CURLFile')) {
+        $error = 'May chu PHP chua bat cURL/CURLFile de tai anh mon an.';
+        return null;
+    }
+
     if (!is_array($fileInfo) || empty($fileInfo['tmp_name']) || !is_file($fileInfo['tmp_name'])) {
         $error = 'Không tìm thấy file tạm để tải lên.';
         return null;
@@ -67,12 +72,19 @@ function menu_page_call_file_upload($url, $fieldName, $fileInfo, &$error, &$http
     );
 
     $ch = curl_init($url);
+    if ($ch === false) {
+        $error = 'Khong khoi tao duoc ket noi tai anh mon an.';
+        return null;
+    }
+
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json'));
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
     $body = curl_exec($ch);
     if ($body === false) {
@@ -120,6 +132,26 @@ function menu_page_redirect_url($idGianHang, $selectedFoodId = 0, $flash = '', $
     }
 
     return admin_url('index1st.php?' . http_build_query($params));
+}
+
+function menu_page_redirect($url)
+{
+    $url = (string) $url;
+
+    if (!headers_sent()) {
+        header('Location: ' . $url);
+        exit;
+    }
+
+    $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    $jsonUrl = json_encode($url, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    if ($jsonUrl === false) {
+        $jsonUrl = '""';
+    }
+
+    echo '<script>window.location.href=' . $jsonUrl . ';</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . $safeUrl . '"></noscript>';
+    exit;
 }
 
 function menu_page_status_options()
@@ -221,8 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
                         $imageFailed = true;
                     }
                 }
-                header('Location: ' . menu_page_redirect_url($idGianHang, $redirectFoodId, 'updated') . ($imageFailed ? '&image=failed' : ''));
-                exit;
+                menu_page_redirect(menu_page_redirect_url($idGianHang, $redirectFoodId, 'updated') . ($imageFailed ? '&image=failed' : ''));
             }
         } else {
             $apiError = '';
@@ -249,8 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['food_form_submit'])) 
                         $imageFailed = true;
                     }
                 }
-                header('Location: ' . menu_page_redirect_url($idGianHang, $newFoodId, 'created') . ($imageFailed ? '&image=failed' : ''));
-                exit;
+                menu_page_redirect(menu_page_redirect_url($idGianHang, $newFoodId, 'created') . ($imageFailed ? '&image=failed' : ''));
             }
         }
     }
@@ -454,7 +484,7 @@ $currentFoodImageUrl = isset($formData['hinhAnh']) && $formData['hinhAnh'] !== '
           <input type="hidden" name="currentHinhAnh" value="<?php echo htmlspecialchars((string) $formData['hinhAnh'], ENT_QUOTES, 'UTF-8'); ?>" />
 
           <div class="food-image-panel">
-            <div class="food-image-preview<?php echo $currentFoodImageUrl !== '' ? ' has-image' : ''; ?>"<?php echo $currentFoodImageUrl !== '' ? ' style="background-image:url(\'' . htmlspecialchars($currentFoodImageUrl, ENT_QUOTES, 'UTF-8') . '\')"' : ''; ?>>
+            <div id="foodImagePreview" class="food-image-preview<?php echo $currentFoodImageUrl !== '' ? ' has-image' : ''; ?>"<?php echo $currentFoodImageUrl !== '' ? ' style="background-image:url(\'' . htmlspecialchars($currentFoodImageUrl, ENT_QUOTES, 'UTF-8') . '\')"' : ''; ?>>
               <?php if ($currentFoodImageUrl === '') { ?>
               <span>Chưa có ảnh món ăn</span>
               <?php } ?>
@@ -462,7 +492,7 @@ $currentFoodImageUrl = isset($formData['hinhAnh']) && $formData['hinhAnh'] !== '
 
             <label class="form-field">
               <span>Hình ảnh món ăn</span>
-              <input type="file" name="foodImage" accept="image/*" />
+              <input id="foodImageInput" type="file" name="foodImage" accept="image/*" />
               <small class="form-help">Bạn có thể thêm hoặc thay ảnh món ăn ngay khi lưu form này.</small>
             </label>
           </div>
@@ -504,3 +534,34 @@ $currentFoodImageUrl = isset($formData['hinhAnh']) && $formData['hinhAnh'] !== '
     <?php } ?>
   </section>
 </main>
+<script>
+(function () {
+  var input = document.getElementById('foodImageInput');
+  var preview = document.getElementById('foodImagePreview');
+  if (!input || !preview || !window.URL || !window.URL.createObjectURL) {
+    return;
+  }
+
+  var initialBackground = preview.style.backgroundImage;
+  var initialHadImage = preview.classList.contains('has-image');
+  var objectUrl = '';
+
+  input.addEventListener('change', function () {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = '';
+    }
+
+    var file = input.files && input.files.length > 0 ? input.files[0] : null;
+    if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+      preview.style.backgroundImage = initialBackground;
+      preview.classList.toggle('has-image', initialHadImage);
+      return;
+    }
+
+    objectUrl = URL.createObjectURL(file);
+    preview.style.backgroundImage = 'url("' + objectUrl.replace(/"/g, '%22') + '")';
+    preview.classList.add('has-image');
+  });
+})();
+</script>
