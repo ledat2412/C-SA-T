@@ -41,7 +41,180 @@ sequenceDiagram
     end
 ```
 
-## 17. Sequence thanh toán online và giá trị trả về
+## 17. Xem tour trên app và khởi chạy tour
+
+```mermaid
+flowchart TD
+    Start((Bat dau)) --> OpenTab["Mo tab Tour"]
+    OpenTab --> LoadTours["Tai danh sach tour"]
+    LoadTours --> Select{"Chon tour?"}
+    
+    Select -- Khong --> End1((Ket thuc))
+    Select -- Co --> LoadDetail["Tai chi tiet tour"]
+    LoadDetail --> Validate{"Co diem hop le?"}
+    
+    Validate -- Khong --> Error["Hien thi loi"]
+    Error --> End2((Ket thuc))
+    
+    Validate -- Co --> Start["Khoi dong tour"]
+    Start --> Explore["Chuyen sang Explore"]
+    Explore --> Banner["Hien thi banner + tuyen duong"]
+    Banner --> Running{"Dung tour?"}
+    
+    Running -- Co --> Stop["Dung va xoa trang thai"]
+    Stop --> End3((Ket thuc))
+    
+    Running -- Khong --> End4((Tour dang chay))
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as MAUI App
+    participant TourPage as TourPage
+    participant TourSvc as TourService
+    participant Api as ApiService
+    participant TourCtl as TourController
+    participant DB as MySQL
+    participant Explore as PoiMapPage
+    participant Geofence as GeofenceEngineService
+
+    User->>App: Chọn tab Tour
+    App->>TourPage: ShowTourPageAsync()
+    TourPage->>TourSvc: GetActiveToursAsync()
+    TourSvc->>Api: GET /api/tour/active
+    Api->>TourCtl: GET /api/tour/active
+    TourCtl->>DB: Query tour dang hoat dong
+    DB-->>TourCtl: Danh sach TourSummary
+    TourCtl-->>Api: 200 OK + tours
+    Api-->>TourSvc: TourSummary list
+    TourSvc-->>TourPage: Danh sach tour
+    TourPage-->>User: Hien thi card tour
+
+    User->>TourPage: Bam Bat dau tren 1 tour
+    TourPage->>TourSvc: GetTourDetailAsync(idTour)
+    TourSvc->>Api: GET /api/tour/{idTour}
+    Api->>TourCtl: GET /api/tour/{idTour}
+    TourCtl->>DB: Query tour + stops + route
+    DB-->>TourCtl: TourDetail
+    TourCtl-->>Api: 200 OK + TourDetail
+    Api-->>TourSvc: TourDetail
+    TourSvc-->>TourPage: TourDetail
+
+    alt Tour co it nhat 1 diem hop le
+        TourPage->>App: StartTourAsync(tourDetail)
+        App->>Explore: RequestStartTour(tourDetail)
+        Explore->>TourSvc: GetProgressAsync(idTour)
+        TourSvc->>Api: GET /api/tour/{idTour}/progress
+        Api->>TourCtl: GET /api/tour/{idTour}/progress
+        TourCtl->>DB: Doc tien do tour cua thiet bi / nguoi dung
+        DB-->>TourCtl: Progress
+        TourCtl-->>Api: 200 OK + Progress
+        Api-->>TourSvc: Progress
+        TourSvc-->>Explore: Progress
+        Explore->>Geofence: ApplyActiveTourGeofencePriorityAsync()
+        Explore->>Geofence: EvaluateNowAsync()
+        Explore->>Explore: RenderActiveTourRouteAsync()
+        Explore-->>User: Hien thi banner tien do + tuyen duong tour
+    else Khong co diem hop le
+        TourPage-->>User: Hien thi tour_no_available_stops
+    end
+
+    opt Nguoi dung dung tour trong luc dang xem
+        User->>Explore: Bam nut Stop
+        Explore-->>User: Xac nhan dung tour
+        Explore->>Geofence: ClearPriorityBoostsAsync()
+        Explore-->>User: Dong banner va xoa route tour
+    end
+```
+```mermaid
+flowchart TD
+    Start((Bắt đầu)) --> OpenTab["Mở tab Tour"]
+    OpenTab --> LoadTours["Tải danh sách tour"]
+    LoadTours --> Select{"Chọn tour?"}
+    
+    Select -- Không --> End1((Kết thúc))
+    Select -- Có --> LoadDetail["Tải chi tiết tour"]
+    LoadDetail --> Validate{"Có điểm hợp lệ?"}
+    
+    Validate -- Không --> Error["Hiển thị lỗi"]
+    Error --> End2((Kết thúc))
+    
+    Validate -- Có --> Start["Khởi động tour"]
+    Start --> Explore["Chuyển sang Explore"]
+    Explore --> Banner["Hiển thị banner + tuyến đường"]
+    Banner --> Running{"Dừng tour?"}
+    
+    Running -- Có --> Stop["Dừng và xóa trạng thái"]
+    Stop --> End3((Kết thúc))
+    
+    Running -- Không --> End4((Tour đang chạy))
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as MAUI App
+    participant TourPage as TourPage
+    participant TourSvc as TourService
+    participant Api as ApiService
+    participant TourCtl as TourController
+    participant DB as MySQL
+    participant Explore as PoiMapPage
+    participant Geofence as GeofenceEngineService
+
+    User->>App: Chọn tab Tour
+    App->>TourPage: ShowTourPageAsync()
+    TourPage->>TourSvc: GetActiveToursAsync()
+    TourSvc->>Api: GET /api/tour/active
+    Api->>TourCtl: GET /api/tour/active
+    TourCtl->>DB: Query tour đang hoạt động
+    DB-->>TourCtl: Danh sách TourSummary
+    TourCtl-->>Api: 200 OK + tours
+    Api-->>TourSvc: TourSummary list
+    TourSvc-->>TourPage: Danh sách tour
+    TourPage-->>User: Hiển thị card tour
+
+    User->>TourPage: Bấm Bắt đầu trên 1 tour
+    TourPage->>TourSvc: GetTourDetailAsync(idTour)
+    TourSvc->>Api: GET /api/tour/{idTour}
+    Api->>TourCtl: GET /api/tour/{idTour}
+    TourCtl->>DB: Query tour + stops + route
+    DB-->>TourCtl: TourDetail
+    TourCtl-->>Api: 200 OK + TourDetail
+    Api-->>TourSvc: TourDetail
+    TourSvc-->>TourPage: TourDetail
+
+    alt Tour có ít nhất 1 điểm hợp lệ
+        TourPage->>App: StartTourAsync(tourDetail)
+        App->>Explore: RequestStartTour(tourDetail)
+        Explore->>TourSvc: GetProgressAsync(idTour)
+        TourSvc->>Api: GET /api/tour/{idTour}/progress
+        Api->>TourCtl: GET /api/tour/{idTour}/progress
+        TourCtl->>DB: Đọc tiến độ tour của thiết bị / người dùng
+        DB-->>TourCtl: Progress
+        TourCtl-->>Api: 200 OK + Progress
+        Api-->>TourSvc: Progress
+        TourSvc-->>Explore: Progress
+        Explore->>Geofence: ApplyActiveTourGeofencePriorityAsync()
+        Explore->>Geofence: EvaluateNowAsync()
+        Explore->>Explore: RenderActiveTourRouteAsync()
+        Explore-->>User: Hiển thị banner tiến độ + tuyến đường tour
+    else Không có điểm hợp lệ
+        TourPage-->>User: Hiển thị tour_no_available_stops
+    end
+
+    opt Người dùng dừng tour trong lúc đang xem
+        User->>Explore: Bấm nút Stop
+        Explore-->>User: Xác nhận dừng tour
+        Explore->>Geofence: ClearPriorityBoostsAsync()
+        Explore-->>User: Đóng banner và xóa route tour
+    end
+```
+
+## 18. Sequence thanh toán online và giá trị trả về
 
 ```mermaid
 sequenceDiagram
@@ -606,7 +779,7 @@ sequenceDiagram
     end
 ```
 
-## 16. Activity thanh toán online và giá trị trả về
+## 19. Activity thanh toán online và giá trị trả về
 
 ```mermaid
 flowchart TD

@@ -7,6 +7,8 @@ namespace MauiApp1.Views.Maps;
 
 public partial class PoiMapPage
 {
+    private static readonly TimeSpan LiveLocationPollInterval = TimeSpan.FromSeconds(2);
+
     private async Task ShowCurrentLocationMarkerAsync(bool centerOnUser)
     {
         try
@@ -22,19 +24,52 @@ public partial class PoiMapPage
                 }
             }
 
-            var location = await Geolocation.Default.GetLocationAsync(
-                new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(8)));
-
-            location ??= await Geolocation.Default.GetLastKnownLocationAsync();
-            if (location is null)
+            // Show quickly using cached location first when available.
+            var lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
+            if (lastKnown is not null)
             {
-                System.Diagnostics.Debug.WriteLine("[PoiMapPage] Could not resolve current location.");
-                return;
+                UpdateUserLocationPin(new Location(lastKnown.Latitude, lastKnown.Longitude), centerOnUser);
+                _geofenceEngine.ClearDebugLocation();
             }
 
-            var pinLocation = new Location(location.Latitude, location.Longitude);
-            UpdateUserLocationPin(pinLocation, centerOnUser);
-            _geofenceEngine.ClearDebugLocation();
+            // Then resolve a fresher fix in the background.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var precise = await Geolocation.Default.GetLocationAsync(
+                        new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(8)));
+
+                    if (precise is null)
+                        return;
+
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        UpdateUserLocationPin(new Location(precise.Latitude, precise.Longitude), centerOnUser);
+                        _geofenceEngine.ClearDebugLocation();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PoiMapPage] Precise location refresh error: {ex.Message}");
+                }
+            });
+
+            if (lastKnown is null)
+            {
+                var location = await Geolocation.Default.GetLocationAsync(
+                    new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(8)));
+
+                if (location is null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[PoiMapPage] Could not resolve current location.");
+                    return;
+                }
+
+                var pinLocation = new Location(location.Latitude, location.Longitude);
+                UpdateUserLocationPin(pinLocation, centerOnUser);
+                _geofenceEngine.ClearDebugLocation();
+            }
         }
         catch (Exception ex)
         {
@@ -42,14 +77,83 @@ public partial class PoiMapPage
         }
     }
 
+    private void StartLiveLocationPolling()
+    {
+        if (_liveLocationPollingCts is not null)
+            return;
+
+        _liveLocationPollingCts = new CancellationTokenSource();
+        var ct = _liveLocationPollingCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var permission = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+                    if (permission != PermissionStatus.Granted)
+                    {
+                        await Task.Delay(LiveLocationPollInterval, ct);
+                        continue;
+                    }
+
+                    var location = await Geolocation.Default.GetLocationAsync(
+                        new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(5)),
+                        ct);
+
+                    location ??= await Geolocation.Default.GetLastKnownLocationAsync();
+                    if (location is not null)
+                    {
+                        var liveLocation = new Location(location.Latitude, location.Longitude);
+                        await MainThread.InvokeOnMainThreadAsync(() =>
+                        {
+                            UpdateUserLocationPin(liveLocation, centerOnUser: _shouldFollowLiveLocation);
+                            RefreshVisiblePins();
+                        });
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PoiMapPage] Live location poll error: {ex.Message}");
+                }
+
+                try
+                {
+                    await Task.Delay(LiveLocationPollInterval, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }, ct);
+    }
+
+    private void StopLiveLocationPolling()
+    {
+        try
+        {
+            _liveLocationPollingCts?.Cancel();
+            _liveLocationPollingCts?.Dispose();
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _liveLocationPollingCts = null;
+        }
+    }
+
     private void UpdateUserLocationPin(Location pinLocation, bool centerOnUser)
     {
         var shouldRecreatePin = _userLocationPin is null;
-
-        if (_userLocationPin is not null)
-        {
-            _map.Pins.Remove(_userLocationPin);
-        }
+        var previousLocation = _userLocationPin?.Location;
 
         _userLocationPin ??= new UserLocationPin
         {
@@ -57,17 +161,55 @@ public partial class PoiMapPage
             Type = PinType.SavedPin
         };
 
+        var movedMeters = previousLocation is null
+            ? double.MaxValue
+            : Location.CalculateDistance(previousLocation, pinLocation, DistanceUnits.Kilometers) * 1000d;
+
         _userLocationPin.Address = $"{pinLocation.Latitude:F6}, {pinLocation.Longitude:F6}";
         _userLocationPin.Location = pinLocation;
-        _map.Pins.Add(_userLocationPin);
+
+        // Android map renderer can ignore in-place Pin.Location changes.
+        // Re-add pin when it moved enough so marker definitely redraws.
+        var needsReAdd = !double.IsInfinity(movedMeters) && movedMeters >= 0.8;
+        if (needsReAdd && _map.Pins.Contains(_userLocationPin))
+            _map.Pins.Remove(_userLocationPin);
+
+        if (!_map.Pins.Contains(_userLocationPin))
+            _map.Pins.Add(_userLocationPin);
 
         System.Diagnostics.Debug.WriteLine(
             $"[PoiMapPage] User location pin {(shouldRecreatePin ? "created" : "refreshed")} at {pinLocation.Latitude:F6}, {pinLocation.Longitude:F6}");
 
         if (centerOnUser)
         {
-            _map.MoveToRegion(MapSpan.FromCenterAndRadius(pinLocation, Distance.FromMeters(350)));
-            RestoreMapModeAfterRegionMove();
+            var now = DateTime.UtcNow;
+            var movedSinceAutoCenterMeters = _lastAutoCenteredLocation is null
+                ? double.MaxValue
+                : Location.CalculateDistance(_lastAutoCenteredLocation, pinLocation, DistanceUnits.Kilometers) * 1000d;
+
+            var canRecenter = movedSinceAutoCenterMeters >= LiveLocationAutoCenterMinDistanceMeters ||
+                              now - _lastAutoCenterAtUtc >= LiveLocationAutoCenterCooldown;
+
+            if (canRecenter)
+            {
+                var currentRegion = _map.VisibleRegion;
+                if (currentRegion is not null)
+                {
+                    // Keep user's current zoom level; only move the map center.
+                    var keepZoomSpan = new MapSpan(
+                        pinLocation,
+                        currentRegion.LatitudeDegrees,
+                        currentRegion.LongitudeDegrees);
+                    _map.MoveToRegion(keepZoomSpan);
+                }
+                else
+                {
+                    _map.MoveToRegion(MapSpan.FromCenterAndRadius(pinLocation, Distance.FromMeters(350)));
+                }
+                RestoreMapModeAfterRegionMove();
+                _lastAutoCenteredLocation = pinLocation;
+                _lastAutoCenterAtUtc = now;
+            }
         }
     }
 
@@ -188,15 +330,8 @@ public partial class PoiMapPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            UpdateUserLocationPin(e.Location, centerOnUser: false);
-
-            if (_allPois.Count == 0)
-                return;
-
-            ApplySmartSearch(
-                _searchEntry.Text,
-                revealResults: false,
-                preserveSelectedPoi: true);
+            UpdateUserLocationPin(e.Location, centerOnUser: _shouldFollowLiveLocation);
+            RefreshVisiblePins();
         });
 
         TriggerLazyAudioPrefetchIfDue(e.Location);

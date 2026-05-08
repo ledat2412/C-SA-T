@@ -172,6 +172,12 @@ public partial class PoiMapPage : ContentPage
     private string _selectedLanguageCode = DefaultLanguageCode; // overridden in constructor
     private bool _isLiveLocationSubscribed;
     private bool _isMap3DEnabled;
+    private CancellationTokenSource? _liveLocationPollingCts;
+    private bool _shouldFollowLiveLocation = false;
+    private Location? _lastAutoCenteredLocation;
+    private DateTime _lastAutoCenterAtUtc = DateTime.MinValue;
+    private static readonly TimeSpan LiveLocationAutoCenterCooldown = TimeSpan.FromSeconds(2);
+    private const double LiveLocationAutoCenterMinDistanceMeters = 8;
 
 #if ANDROID
     private GoogleMap? _androidGoogleMap;
@@ -350,6 +356,9 @@ public partial class PoiMapPage : ContentPage
         {
             if (!_isDetailVisible)
                 ClearSelectedPoiFocus();
+
+            _ = ShowCurrentLocationMarkerAsync(centerOnUser: false);
+            StartLiveLocationPolling();
 
             if (!_isPlaybackStateSubscribed)
             {
@@ -930,6 +939,7 @@ public partial class PoiMapPage : ContentPage
 
         try
         {
+            // Center one-shot theo thao tác người dùng, không bật follow liên tục.
             await ShowCurrentLocationMarkerAsync(centerOnUser: true);
         }
         finally
@@ -3129,6 +3139,9 @@ public partial class PoiMapPage : ContentPage
 
     private async Task FocusPoiAsync(PoiItem poi)
     {
+        // User chọn focus vào POI thì tạm ngừng follow vị trí hiện tại.
+        _shouldFollowLiveLocation = false;
+
         _selectedPoiId = poi.IDChiNhanh;
         RefreshVisiblePins();
 
@@ -3154,6 +3167,7 @@ public partial class PoiMapPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        StopLiveLocationPolling();
         _pinRefreshCts?.Cancel();
         _pinRefreshCts?.Dispose();
         _pinRefreshCts = null;

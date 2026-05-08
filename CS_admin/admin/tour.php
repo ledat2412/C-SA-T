@@ -563,7 +563,7 @@ if ($action === 'edit' || $action === 'new') {
           <div class="tour-info-head">
             <div>
               <h3>Danh sách tour</h3>
-              <p><?php echo $statTotal; ?> tour · <?php echo $statTotalStops; ?> điểm dừng</p>
+              <p><?php echo $statTotal; ?> tour · <?php echo $statTotalStops * 2; ?> điểm dừng</p>
             </div>
           </div>
 
