@@ -80,10 +80,10 @@ if (!function_exists('sidebar_active_class')) {
 
 <div>
   <div class="sidebar-divider"></div>
-  <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=account'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item settings-link<?php echo sidebar_active_class('settings', $sidebarActive); ?>" data-sidebar-item="settings">
+  <!-- <a href="<?php echo htmlspecialchars(admin_url('index1st.php?usecase=account'), ENT_QUOTES, 'UTF-8'); ?>" class="nav-item settings-link<?php echo sidebar_active_class('settings', $sidebarActive); ?>" data-sidebar-item="settings">
     <i class="fa-solid fa-gear"></i>
     <span>Cài đặt</span>
-  </a>
+  </a> -->
   <div class="profile-card">
     <div class="profile-left">
       <div class="profile-avatar"><?php echo htmlspecialchars($sidebarInitial !== '' ? $sidebarInitial : 'A', ENT_QUOTES, 'UTF-8'); ?></div>

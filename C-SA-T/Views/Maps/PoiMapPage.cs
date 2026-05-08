@@ -2620,61 +2620,83 @@ public partial class PoiMapPage : ContentPage
         if (_androidGoogleMap is null || points.Count < 2)
             return;
 
-        var index = Math.Clamp(points.Count / 2, 1, points.Count - 1);
-        var from = points[index - 1];
-        var to = points[index];
-        var markerOptions = new MarkerOptions()
-            .SetPosition(new LatLng(to.Lat, to.Lon))
-            .Anchor(0.5f, 0.5f)
-            .Flat(true)
-            .SetRotation(CalculateBearing(from, to))
-            .SetIcon(GetTourArrowIcon());
+        try
+        {
+            var index = Math.Clamp(points.Count / 2, 1, points.Count - 1);
+            var from = points[index - 1];
+            var to = points[index];
+            var icon = GetTourArrowIcon();
+            if (icon is null)
+                return;
 
-        var marker = _androidGoogleMap.AddMarker(markerOptions);
-        if (marker is not null)
-            _androidTourArrows.Add(marker);
+            var markerOptions = new MarkerOptions()
+                .SetPosition(new LatLng(to.Lat, to.Lon))
+                .Anchor(0.5f, 0.5f)
+                .Flat(true)
+                .SetRotation(CalculateBearing(from, to))
+                .SetZIndex(60f)
+                .SetIcon(icon);
+
+            var marker = _androidGoogleMap.AddMarker(markerOptions);
+            if (marker is not null)
+                _androidTourArrows.Add(marker);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Tour] AddAndroidTourArrow error: {ex}");
+        }
     }
 
-    private static BitmapDescriptor GetTourArrowIcon()
+    private static AndroidBitmap? _tourArrowBitmap;
+
+    private static BitmapDescriptor? GetTourArrowIcon()
     {
         if (_tourArrowIcon is not null)
             return _tourArrowIcon;
 
-        var bitmap = AndroidBitmap.CreateBitmap(72, 72, AndroidBitmapConfig.Argb8888!);
-        var canvas = new AndroidCanvas(bitmap);
-        var shadow = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+        try
         {
-            Color = AndroidColor.Argb(90, 15, 23, 42)
-        };
-        shadow.SetStyle(AndroidPaintStyle.Fill);
-        shadow.SetShadowLayer(6f, 0f, 3f, AndroidColor.Argb(120, 15, 23, 42));
+            var bitmap = AndroidBitmap.CreateBitmap(72, 72, AndroidBitmapConfig.Argb8888!);
+            using var canvas = new AndroidCanvas(bitmap);
+            using var shadow = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+            {
+                Color = AndroidColor.Argb(90, 15, 23, 42)
+            };
+            shadow.SetStyle(AndroidPaintStyle.Fill);
+            shadow.SetShadowLayer(6f, 0f, 3f, AndroidColor.Argb(120, 15, 23, 42));
 
-        var paint = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+            using var paint = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+            {
+                Color = AndroidColor.ParseColor("#DC2626")
+            };
+            paint.SetStyle(AndroidPaintStyle.Fill);
+
+            using var path = new AndroidPath();
+            path.MoveTo(36, 5);
+            path.LineTo(59, 64);
+            path.LineTo(36, 51);
+            path.LineTo(13, 64);
+            path.Close();
+            canvas.DrawPath(path, shadow);
+            canvas.DrawPath(path, paint);
+
+            using var stroke = new AndroidPaint(AndroidPaintFlags.AntiAlias)
+            {
+                Color = AndroidColor.White,
+                StrokeWidth = 5
+            };
+            stroke.SetStyle(AndroidPaintStyle.Stroke);
+            canvas.DrawPath(path, stroke);
+
+            _tourArrowBitmap = bitmap;
+            _tourArrowIcon = BitmapDescriptorFactory.FromBitmap(bitmap);
+            return _tourArrowIcon;
+        }
+        catch (Exception ex)
         {
-            Color = AndroidColor.ParseColor("#DC2626")
-        };
-        paint.SetStyle(AndroidPaintStyle.Fill);
-
-        var path = new AndroidPath();
-        path.MoveTo(36, 5);
-        path.LineTo(59, 64);
-        path.LineTo(36, 51);
-        path.LineTo(13, 64);
-        path.Close();
-        canvas.DrawPath(path, shadow);
-        canvas.DrawPath(path, paint);
-
-        var stroke = new AndroidPaint(AndroidPaintFlags.AntiAlias)
-        {
-            Color = AndroidColor.White,
-            StrokeWidth = 5
-        };
-        stroke.SetStyle(AndroidPaintStyle.Stroke);
-        canvas.DrawPath(path, stroke);
-
-        _tourArrowIcon = BitmapDescriptorFactory.FromBitmap(bitmap);
-        bitmap.Dispose();
-        return _tourArrowIcon;
+            System.Diagnostics.Debug.WriteLine($"[Tour] GetTourArrowIcon error: {ex}");
+            return null;
+        }
     }
 
     private static float CalculateBearing(RoutePoint from, RoutePoint to)

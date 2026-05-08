@@ -710,15 +710,6 @@ if (!$conn instanceof mysqli) {
 // Muốn sửa con số hiển thị trên card ở dashboard, bỏ dấu // trước dòng tương ứng và set giá trị mong muốn.
 // Giá trị ở đây sẽ ĐÈ lên kết quả lấy từ DB. Muốn quay lại số thật thì comment dòng đó lại.
 $summaryOverrides = array(
-    // 'stores'     => 10,  // Gian hàng đã thanh toán
-    // 'activeOwners'    => 5,   // Chủ quản lý đã thanh toán
-    // 'activeDevices'   => 8,   // Thiết bị đang hoạt động
-    // 'pendingRequests' => 2,   // Badge "chờ duyệt"
-    // 'foods'           => 50,  // Món ăn của gian hàng đã thanh toán
-    // 'paidOrders'      => 20,  // Số đơn đã thanh toán trong kỳ
-    // 'revenue'         => 1500000, // Tổng doanh thu
-    // 'visitorRevenue'  => 500000,
-    // 'storeRevenue'    => 1000000,
 );
 foreach ($summaryOverrides as $overrideKey => $overrideValue) {
     $summary[$overrideKey] = $overrideValue;
