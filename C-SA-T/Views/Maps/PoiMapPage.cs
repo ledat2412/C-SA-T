@@ -2644,8 +2644,8 @@ public partial class PoiMapPage : ContentPage
                 .Anchor(0.5f, 0.5f)
                 .Flat(true)
                 .SetRotation(CalculateBearing(from, to))
-                .SetZIndex(60f)
                 .SetIcon(icon);
+            markerOptions.InvokeZIndex(60f);
 
             var marker = _androidGoogleMap.AddMarker(markerOptions);
             if (marker is not null)
