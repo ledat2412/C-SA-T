@@ -18,26 +18,208 @@ namespace Quan4TestScript
 
         static async Task Main(string[] args)
         {
-            Console.WriteLine("=== BẮT ĐẦU CHẠY SCRIPT TEST HỆ THỐNG QUẬN 4 ===\n");
+            Console.WriteLine("=== QUAN4 TEST AUTOMATION SYSTEM ===\n");
             Console.WriteLine($"Base URL: {BaseUrl}\n");
+
+            // Menu chọn mode
+            Console.WriteLine("Chọn chế độ chạy:");
+            Console.WriteLine("  1 - TEST MODE (Queue stress test + Geofence priority)");
+            Console.WriteLine("  2 - EMULATION MODE (Interactive GPS simulation)");
+            Console.Write("Nhập lựa chọn (1 hoặc 2): ");
             
-            // Lấy số lượng request từ command line, mặc định 10
-            int requestCount = 10;
-            if (args.Length > 0 && int.TryParse(args[0], out int count))
+            string choice = Console.ReadLine()?.Trim() ?? "1";
+
+            if (choice == "2")
             {
-                requestCount = Math.Max(1, count);
+                // EMULATION MODE
+                await EmulationMode();
             }
-            Console.WriteLine($"Số lượng requests test: {requestCount}\n");
+            else
+            {
+                // TEST MODE (original)
+                int requestCount = 10;
+                if (args.Length > 0 && int.TryParse(args[0], out int count))
+                {
+                    requestCount = Math.Max(1, count);
+                }
+                Console.WriteLine($"Số lượng requests test: {requestCount}\n");
 
-            // 1. Test hàng đợi POI visit + dedup
-            await TestPoiVisitQueue(requestCount);
+                await TestPoiVisitQueue(requestCount);
+                Console.WriteLine("\n-------------------------------------------------\n");
+                await TestPoiSelectionFromDifferentLocations();
+                Console.WriteLine("\n=== HOÀN THÀNH TOÀN BỘ TEST ===");
+            }
+        }
 
-            Console.WriteLine("\n-------------------------------------------------\n");
+        // =====================================================================
+        // EMULATION MODE: Interactive GPS Simulation
+        // =====================================================================
+        static async Task EmulationMode()
+        {
+            Console.Clear();
+            Console.WriteLine("=== EMULATION MODE: GPS LOCATION SIMULATOR ===\n");
+            
+            if (!await IsServiceReachableAsync(BaseUrl))
+            {
+                Console.WriteLine($"❌ Không kết nối được tới backend tại {BaseUrl}");
+                return;
+            }
 
-            // 2. Test POI selection từ các vị trí khác nhau
-            await TestPoiSelectionFromDifferentLocations();
+            using var client = new HttpClient();
 
-            Console.WriteLine("\n=== HOÀN THÀNH TOÀN BỘ TEST ===");
+            // Test Stores
+            const int storeAId = 10;
+            const string storeAName = "Test Overlap A";
+            const double storeALat = 10.7630000;
+            const double storeALon = 106.6605000;
+
+            const int storeBId = 11;
+            const string storeBName = "Test Overlap B";
+            const double storeBLat = 10.7630004;
+            const double storeBLon = 106.6605002;
+
+            const int price = 500000;
+            const int geofenceRadiusMeters = 5;
+
+            double currentLat = 10.7630002; // Midpoint
+            double currentLon = 106.6605001;
+
+            var heardHistory = LoadHeardHistory();
+
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("=== EMULATION MODE - INTERACTIVE GPS SIMULATION ===\n");
+
+                // Calculate distances
+                var distToA = CalculateDistance(currentLat, currentLon, storeALat, storeALon);
+                var distToB = CalculateDistance(currentLat, currentLon, storeBLat, storeBLon);
+                bool inGeofenceA = distToA * 1000 <= geofenceRadiusMeters;
+                bool inGeofenceB = distToB * 1000 <= geofenceRadiusMeters;
+
+                // Current location
+                Console.WriteLine($"📍 Current Location: ({currentLat:F7}, {currentLon:F7})");
+                Console.WriteLine($"   → Distance to Store A: {distToA * 1000:F2}m {(inGeofenceA ? "✅ IN GEOFENCE" : "❌")}");
+                Console.WriteLine($"   → Distance to Store B: {distToB * 1000:F2}m {(inGeofenceB ? "✅ IN GEOFENCE" : "❌")}");
+
+                // Store Info
+                Console.WriteLine($"\n┌─ Store Information:");
+                Console.WriteLine($"│  🏪 Store A: \"{storeAName}\" (ID={storeAId})");
+                Console.WriteLine($"│     Position: ({storeALat:F7}, {storeALon:F7})");
+                Console.WriteLine($"│     Price: {price:N0}đ/month | Heard: {(heardHistory.Contains(storeAId) ? "Đã nghe ✅" : "Chưa ❌")}");
+                Console.WriteLine($"│");
+                Console.WriteLine($"│  🏪 Store B: \"{storeBName}\" (ID={storeBId})");
+                Console.WriteLine($"│     Position: ({storeBLat:F7}, {storeBLon:F7})");
+                Console.WriteLine($"│     Price: {price:N0}đ/month | Heard: {(heardHistory.Contains(storeBId) ? "Đã nghe ✅" : "Chưa ❌")}");
+                Console.WriteLine($"└─");
+
+                // Priority calculation if in geofence
+                if (inGeofenceA || inGeofenceB)
+                {
+                    var candidates = new List<(int id, string name, double dist)>();
+                    if (inGeofenceA) candidates.Add((storeAId, storeAName, distToA));
+                    if (inGeofenceB) candidates.Add((storeBId, storeBName, distToB));
+
+                    var prioritized = candidates
+                        .OrderBy(x => price)
+                        .ThenBy(x => heardHistory.Contains(x.id) ? 1 : 0)
+                        .ThenBy(x => x.id)
+                        .ToList();
+
+                    if (prioritized.Count > 0)
+                    {
+                        var winner = prioritized[0];
+                        Console.WriteLine($"\n🎯 PRIORITY RESULT:");
+                        Console.WriteLine($"   🥇 Will trigger: \"{winner.name}\" (ID={winner.id})");
+                        Console.WriteLine($"   ➜ Rule: price → heard history → ID");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"\n⚠️  Not in any geofence. Move to a store location to test priority!");
+                }
+
+                // Menu
+                Console.WriteLine($"\n╔════════════════════════════════════════╗");
+                Console.WriteLine($"║ LOCATION SIMULATOR MENU                ║");
+                Console.WriteLine($"╠════════════════════════════════════════╣");
+                Console.WriteLine($"║  1 - Move to Store A                   ║");
+                Console.WriteLine($"║  2 - Move to Store B                   ║");
+                Console.WriteLine($"║  3 - Move to Midpoint                  ║");
+                Console.WriteLine($"║  4 - Enter custom coordinates          ║");
+                Console.WriteLine($"║  5 - Mark Store A as heard             ║");
+                Console.WriteLine($"║  6 - Mark Store B as heard             ║");
+                Console.WriteLine($"║  7 - Reset heard history               ║");
+                Console.WriteLine($"║  0 - Exit emulation mode               ║");
+                Console.WriteLine($"╚════════════════════════════════════════╝");
+                Console.Write("Enter choice: ");
+
+                string input = Console.ReadLine()?.Trim() ?? "0";
+
+                switch (input)
+                {
+                    case "1":
+                        currentLat = storeALat;
+                        currentLon = storeALon;
+                        Console.WriteLine("✓ Moved to Store A");
+                        break;
+
+                    case "2":
+                        currentLat = storeBLat;
+                        currentLon = storeBLon;
+                        Console.WriteLine("✓ Moved to Store B");
+                        break;
+
+                    case "3":
+                        currentLat = 10.7630002;
+                        currentLon = 106.6605001;
+                        Console.WriteLine("✓ Moved to Midpoint");
+                        break;
+
+                    case "4":
+                        Console.Write("Enter latitude: ");
+                        if (double.TryParse(Console.ReadLine(), out double lat))
+                        {
+                            Console.Write("Enter longitude: ");
+                            if (double.TryParse(Console.ReadLine(), out double lon))
+                            {
+                                currentLat = lat;
+                                currentLon = lon;
+                                Console.WriteLine("✓ Position updated");
+                            }
+                        }
+                        break;
+
+                    case "5":
+                        heardHistory.Add(storeAId);
+                        SaveHeardHistory(heardHistory);
+                        Console.WriteLine("✓ Store A marked as heard");
+                        break;
+
+                    case "6":
+                        heardHistory.Add(storeBId);
+                        SaveHeardHistory(heardHistory);
+                        Console.WriteLine("✓ Store B marked as heard");
+                        break;
+
+                    case "7":
+                        heardHistory.Clear();
+                        SaveHeardHistory(heardHistory);
+                        Console.WriteLine("✓ Heard history reset");
+                        break;
+
+                    case "0":
+                        Console.WriteLine("Exiting emulation mode...");
+                        return;
+
+                    default:
+                        Console.WriteLine("❌ Invalid choice");
+                        break;
+                }
+
+                Console.Write("\nPress Enter to continue...");
+                Console.ReadLine();
+            }
         }
 
         // =====================================================================
