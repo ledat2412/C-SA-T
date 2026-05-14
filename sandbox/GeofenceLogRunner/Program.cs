@@ -1,142 +1,399 @@
-// Console log runner that mirrors the geofence decision flow from
-// C-SA-T/Services/GeofenceEngineService.cs without requiring MAUI runtime.
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 
-var stores = new[]
+var builder = WebApplication.CreateBuilder(args);
+
+var backendUrl = builder.Configuration["GEORUNNER_BACKEND_URL"]
+    ?? Environment.GetEnvironmentVariable("GEORUNNER_BACKEND_URL")
+    ?? "http://localhost:5114";
+
+builder.Services.AddSingleton(new RunnerLogStore());
+builder.Services.AddHttpClient("backend", client =>
 {
-    new Store(1, "Banh Mi Booth", 10.7630000, 106.6605000, RadiusMeters: 8, MonthlyFee: 100_000m, AudioUrl: "audio/banh-mi.mp3"),
-    new Store(2, "VIP Coffee", 10.7630450, 106.6605000, RadiusMeters: 8, MonthlyFee: 300_000m, AudioUrl: "audio/vip-coffee.mp3"),
-    new Store(3, "Food Court", 10.7631500, 106.6605000, RadiusMeters: 15, MonthlyFee: 500_000m, AudioUrl: "audio/food-court.mp3"),
-};
+    client.BaseAddress = new Uri(backendUrl.TrimEnd('/'));
+    client.Timeout = TimeSpan.FromSeconds(8);
+});
 
-var priorityBoosts = new Dictionary<int, int>
+var app = builder.Build();
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.MapGet("/api/config", () => new
 {
-    [2] = 5
-};
+    backendUrl,
+    radiusMeters = 28,
+    pollMs = 1000
+});
 
-var route = new[]
+app.MapGet("/api/pois", async (
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
 {
-    new RoutePoint("Start outside all booths", 10.7628500, 106.6605000),
-    new RoutePoint("Walk into Banh Mi radius", 10.7629650, 106.6605000),
-    new RoutePoint("Overlap Banh Mi + VIP Coffee", 10.7630250, 106.6605000),
-    new RoutePoint("Closer to VIP Coffee", 10.7630500, 106.6605000),
-    new RoutePoint("Between VIP Coffee and Food Court", 10.7630950, 106.6605000),
-    new RoutePoint("Inside Food Court only", 10.7631500, 106.6605000),
-    new RoutePoint("Exit all booths", 10.7633400, 106.6605000),
-};
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var adminResponse = await client.GetAsync("/api/admin/poi-map?idTaiKhoan=1", cancellationToken);
+        var adminBody = await adminResponse.Content.ReadAsStringAsync(cancellationToken);
 
-var insideIds = new HashSet<int>();
-
-Console.WriteLine("=== Geofence LogRunner demo ===");
-Console.WriteLine("Rule: boost desc > distance/radius asc > monthly fee desc > id asc");
-Console.WriteLine("Boosts: store #2 VIP Coffee = 5");
-Console.WriteLine();
-
-for (var tick = 0; tick < route.Length; tick++)
-{
-    var point = route[tick];
-    var triggers = stores
-        .Select(store =>
+        if (adminResponse.IsSuccessStatusCode)
         {
-            var distance = HaversineMeters(point.Latitude, point.Longitude, store.Latitude, store.Longitude);
-            return new Trigger(store, distance, distance <= store.RadiusMeters);
-        })
-        .ToArray();
+            var adminPois = ParseAdminPois(adminBody);
+            if (adminPois.Count > 0)
+            {
+                logs.AddServer($"GET /api/admin/poi-map?idTaiKhoan=1 -> 200, loaded {adminPois.Count} backend map POI");
+                return Results.Json(new PoiListResponse(adminPois, IsFallback: false, Error: null));
+            }
 
-    var currentlyInside = triggers.Where(x => x.IsInside).ToList();
-    var currentInsideIds = currentlyInside.Select(x => x.Store.Id).ToHashSet();
-    var entered = currentInsideIds.Except(insideIds).Order().ToList();
-    var exited = insideIds.Except(currentInsideIds).Order().ToList();
-    insideIds.Clear();
-    foreach (var id in currentInsideIds)
-        insideIds.Add(id);
+            logs.AddServer("GET /api/admin/poi-map?idTaiKhoan=1 -> 200, but no usable POI");
+        }
+        else
+        {
+            logs.AddServer($"GET /api/admin/poi-map?idTaiKhoan=1 -> {(int)adminResponse.StatusCode} {adminResponse.ReasonPhrase}");
+        }
 
-    Console.WriteLine($"Tick {tick + 1}: {point.Label}");
-    Console.WriteLine($"  GPS: {point.Latitude:F7}, {point.Longitude:F7}");
+        using var response = await client.GetAsync("/api/poi?lang=vi", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-    foreach (var trigger in triggers.OrderBy(x => x.Store.Id))
-    {
-        var boost = priorityBoosts.TryGetValue(trigger.Store.Id, out var value) ? value : 0;
-        var ratio = trigger.Store.RadiusMeters > 0
-            ? trigger.DistanceMeters / trigger.Store.RadiusMeters
-            : double.MaxValue;
+        var pois = ParsePois(body);
+        if (response.IsSuccessStatusCode && pois.Count > 0)
+        {
+            logs.AddServer($"GET /api/poi?lang=vi -> 200, loaded {pois.Count} public POI fallback");
+            return Results.Json(new PoiListResponse(pois, IsFallback: false, Error: null));
+        }
 
-        Console.WriteLine(
-            $"  - #{trigger.Store.Id} {trigger.Store.Name,-15} " +
-            $"d={trigger.DistanceMeters,5:F1}m r={trigger.Store.RadiusMeters,4:F0}m " +
-            $"ratio={ratio,5:F2} boost={boost,2} status={(trigger.IsInside ? "INSIDE" : "outside")}");
+        logs.AddServer($"GET /api/poi?lang=vi -> {(int)response.StatusCode} {response.ReasonPhrase}; using local fallback");
+        return Results.Json(new PoiListResponse(FallbackPois(), IsFallback: true, Error: body));
     }
-
-    foreach (var id in entered)
+    catch (Exception ex)
     {
-        var store = stores.First(x => x.Id == id);
-        Console.WriteLine($"  EVENT: ENTER #{store.Id} {store.Name}");
+        logs.AddServer($"GET /api/poi?lang=vi failed: {ex.Message}");
+        return Results.Json(new PoiListResponse(FallbackPois(), IsFallback: true, Error: ex.Message));
     }
+});
 
-    foreach (var id in exited)
-    {
-        var store = stores.First(x => x.Id == id);
-        Console.WriteLine($"  EVENT: EXIT  #{store.Id} {store.Name}");
-    }
-
-    if (currentlyInside.Count == 0)
-    {
-        Console.WriteLine("  RESULT: no geofence active, audio hidden");
-    }
-    else
-    {
-        var ordered = Prioritize(currentlyInside, priorityBoosts).ToList();
-        var winner = ordered[0];
-        var queue = string.Join(" -> ", ordered.Select(x => $"#{x.Store.Id} {x.Store.Name}"));
-
-        Console.WriteLine($"  PRIORITY QUEUE: {queue}");
-        Console.WriteLine($"  RESULT: pending autoplay for #{winner.Store.Id} {winner.Store.Name} ({winner.Store.AudioUrl})");
-    }
-
-    Console.WriteLine();
-}
-
-Console.WriteLine("=== End of demo ===");
-
-static IOrderedEnumerable<Trigger> Prioritize(
-    IEnumerable<Trigger> triggers,
-    IReadOnlyDictionary<int, int> priorityBoosts)
+app.MapPost("/api/visit/{poiId:int}", async (
+    int poiId,
+    VisitRequest visit,
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
 {
-    return triggers
-        .OrderByDescending(x => priorityBoosts.TryGetValue(x.Store.Id, out var priority) ? priority : 0)
-        .ThenBy(x => x.Store.RadiusMeters > 0
-            ? x.DistanceMeters / x.Store.RadiusMeters
-            : double.MaxValue)
-        .ThenByDescending(x => x.Store.MonthlyFee)
-        .ThenBy(x => x.Store.Id);
-}
+    var deviceId = string.IsNullOrWhiteSpace(visit.DeviceId)
+        ? "SIM-DEVICE"
+        : visit.DeviceId.Trim();
 
-static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/poi/{poiId}/visit");
+        request.Headers.Add("X-Device-Id", deviceId);
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var queued = ReadBool(body, "queued");
+        var success = ReadBool(body, "success");
+        var line = $"POST /api/poi/{poiId}/visit device={deviceId} -> {(int)response.StatusCode}; success={success}; queued={queued}";
+
+        logs.AddServer(line);
+        return Results.Json(new VisitResponse((int)response.StatusCode, success, queued, body));
+    }
+    catch (Exception ex)
+    {
+        logs.AddServer($"POST /api/poi/{poiId}/visit device={deviceId} failed: {ex.Message}");
+        return Results.Json(new VisitResponse(0, false, false, ex.Message), statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapGet("/api/tours", async (
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
 {
-    const double earthRadiusMeters = 6_371_000d;
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var response = await client.GetAsync("/api/tour?lang=1", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        logs.AddServer($"GET /api/tour?lang=1 -> {(int)response.StatusCode}");
+        return Results.Content(body, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        logs.AddServer($"GET /api/tour?lang=1 failed: {ex.Message}");
+        return Results.Json(Array.Empty<object>(), statusCode: StatusCodes.Status502BadGateway);
+    }
+});
 
-    var dLat = ToRadians(lat2 - lat1);
-    var dLon = ToRadians(lon2 - lon1);
-    var rLat1 = ToRadians(lat1);
-    var rLat2 = ToRadians(lat2);
+app.MapGet("/api/tour/{tourId:int}", async (
+    int tourId,
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var response = await client.GetAsync($"/api/tour/{tourId}", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        logs.AddServer($"GET /api/tour/{tourId} -> {(int)response.StatusCode}");
+        return Results.Content(body, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        logs.AddServer($"GET /api/tour/{tourId} failed: {ex.Message}");
+        return Results.Json(new { success = false, message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
 
-    var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-            Math.Cos(rLat1) * Math.Cos(rLat2) *
-            Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+app.MapGet("/api/tour/{tourId:int}/progress", async (
+    int tourId,
+    string deviceId,
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(deviceId))
+        return Results.BadRequest(new { success = false, message = "Thieu deviceId." });
 
-    return earthRadiusMeters * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/tour/{tourId}/progress");
+        request.Headers.Add("X-Device-Id", deviceId.Trim());
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        logs.AddServer($"GET /api/tour/{tourId}/progress device={deviceId.Trim()} -> {(int)response.StatusCode}");
+        return Results.Content(body, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        logs.AddServer($"GET /api/tour/{tourId}/progress device={deviceId.Trim()} failed: {ex.Message}");
+        return Results.Json(new { success = false, message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapPost("/api/tour/{tourId:int}/advance", async (
+    int tourId,
+    TourAdvanceRequest advance,
+    IHttpClientFactory httpClientFactory,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
+{
+    var deviceId = string.IsNullOrWhiteSpace(advance.DeviceId)
+        ? "SIM-DEVICE"
+        : advance.DeviceId.Trim();
+
+    if (advance.IdGianHangVuaDen <= 0)
+        return Results.BadRequest(new { success = false, message = "Thieu idGianHangVuaDen." });
+
+    try
+    {
+        var client = httpClientFactory.CreateClient("backend");
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/tour/{tourId}/advance");
+        request.Headers.Add("X-Device-Id", deviceId);
+        request.Content = JsonContent.Create(new { idTour = tourId, idGianHangVuaDen = advance.IdGianHangVuaDen });
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var success = ReadBool(body, "success");
+        logs.AddServer($"POST /api/tour/{tourId}/advance device={deviceId} poi={advance.IdGianHangVuaDen} -> {(int)response.StatusCode}; success={success}");
+        return Results.Content(body, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        logs.AddServer($"POST /api/tour/{tourId}/advance device={deviceId} poi={advance.IdGianHangVuaDen} failed: {ex.Message}");
+        return Results.Json(new { success = false, message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapGet("/api/server-log", (RunnerLogStore logs) => logs.Get());
+
+app.MapPost("/api/server-log/clear", (RunnerLogStore logs) =>
+{
+    logs.Clear();
+    logs.AddServer("server log cleared");
+    return Results.Ok(new { ok = true });
+});
+
+app.MapPost("/api/save-log", async (
+    SaveLogRequest request,
+    RunnerLogStore logs,
+    CancellationToken cancellationToken) =>
+{
+    var logDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".codex-runlogs"));
+    Directory.CreateDirectory(logDir);
+
+    var fileName = $"geofence-ui-{DateTime.Now:yyyyMMdd-HHmmss}.log";
+    var path = Path.Combine(logDir, fileName);
+    var text = new StringBuilder();
+    text.AppendLine("=== Geofence Simulator Client Log ===");
+    text.AppendLine(request.ClientLog ?? string.Empty);
+    text.AppendLine();
+    text.AppendLine("=== Backend Server Log ===");
+    foreach (var line in logs.Get())
+        text.AppendLine(line.Message);
+
+    await File.WriteAllTextAsync(path, text.ToString(), Encoding.UTF8, cancellationToken);
+    logs.AddServer($"saved combined log -> {path}");
+
+    return Results.Ok(new { path });
+});
+
+static IReadOnlyList<PoiDto> ParsePois(string json)
+{
+    using var document = JsonDocument.Parse(json);
+    if (document.RootElement.ValueKind != JsonValueKind.Array)
+        return [];
+
+    var pois = new List<PoiDto>();
+    foreach (var element in document.RootElement.EnumerateArray())
+    {
+        var id = ReadInt(element, "id");
+        var name = ReadString(element, "ten") ?? $"POI {id}";
+        var lat = ReadNullableDouble(element, "lat");
+        var lon = ReadNullableDouble(element, "lon");
+
+        if (id > 0 && lat.HasValue && lon.HasValue)
+            pois.Add(new PoiDto(id, name, lat.Value, lon.Value, RadiusMeters: 28, Visits: 0, Status: null, MonthlyFee: 0, IsSynthetic: false));
+    }
+
+    return pois;
 }
 
-static double ToRadians(double degrees) => degrees * Math.PI / 180d;
+static IReadOnlyList<PoiDto> ParseAdminPois(string json)
+{
+    using var document = JsonDocument.Parse(json);
+    if (document.RootElement.ValueKind != JsonValueKind.Array)
+        return [];
 
-record Store(
+    var pois = new List<PoiDto>();
+    foreach (var element in document.RootElement.EnumerateArray())
+    {
+        var id = ReadInt(element, "idGianHang");
+        var name = ReadString(element, "ten") ?? $"Gian hang {id}";
+        var lat = ReadNullableDouble(element, "lat");
+        var lon = ReadNullableDouble(element, "lon");
+        var radius = ReadNullableDouble(element, "vongBo") ?? 10d;
+        var visits = ReadInt(element, "luotTruyCap");
+        var status = ReadString(element, "tinhTrang");
+        var monthlyFee = ReadDecimal(element, "phiHangThang");
+
+        if (id > 0 && lat.HasValue && lon.HasValue)
+        {
+            pois.Add(new PoiDto(
+                id,
+                name,
+                lat.Value,
+                lon.Value,
+                RadiusMeters: Math.Clamp(radius, 6d, 80d),
+                visits,
+                status,
+                monthlyFee,
+                IsSynthetic: false));
+        }
+    }
+
+    return pois;
+}
+
+static IReadOnlyList<PoiDto> FallbackPois() =>
+[
+    new(1, "Bo nuong Cambodia", 10.762622, 106.660172, 28, 0, null, 0, IsSynthetic: false),
+    new(2, "DAU HU THUI & TRA SUA CO UT", 10.762850, 106.660620, 28, 0, null, 0, IsSynthetic: false),
+    new(3, "Tra sua mr tea", 10.763150, 106.661020, 28, 0, null, 0, IsSynthetic: false)
+];
+
+static bool ReadBool(string json, string propertyName)
+{
+    try
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.TryGetProperty(propertyName, out var value)
+            && value.ValueKind == JsonValueKind.True;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static int ReadInt(JsonElement element, string propertyName)
+{
+    return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number
+        ? value.GetInt32()
+        : 0;
+}
+
+static double? ReadNullableDouble(JsonElement element, string propertyName)
+{
+    return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number
+        ? value.GetDouble()
+        : null;
+}
+
+static decimal ReadDecimal(JsonElement element, string propertyName)
+{
+    return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number
+        ? value.GetDecimal()
+        : 0m;
+}
+
+static string? ReadString(JsonElement element, string propertyName)
+{
+    return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+        ? value.GetString()
+        : null;
+}
+
+app.Run();
+
+public sealed class RunnerLogStore
+{
+    private readonly ConcurrentQueue<RunnerLogLine> _lines = new();
+
+    public void AddServer(string message)
+    {
+        _lines.Enqueue(new RunnerLogLine(DateTimeOffset.Now, message));
+        while (_lines.Count > 400 && _lines.TryDequeue(out _))
+        {
+        }
+    }
+
+    public IReadOnlyList<RunnerLogLine> Get() => _lines.ToArray();
+
+    public void Clear()
+    {
+        while (_lines.TryDequeue(out _))
+        {
+        }
+    }
+}
+
+public sealed record RunnerLogLine(DateTimeOffset Time, string Message);
+
+public sealed record PoiDto(
     int Id,
     string Name,
-    double Latitude,
-    double Longitude,
+    double Lat,
+    double Lon,
     double RadiusMeters,
+    int Visits,
+    string? Status,
     decimal MonthlyFee,
-    string AudioUrl);
+    bool IsSynthetic);
 
-record RoutePoint(string Label, double Latitude, double Longitude);
+public sealed record PoiListResponse(IReadOnlyList<PoiDto> Pois, bool IsFallback, string? Error);
 
-record Trigger(Store Store, double DistanceMeters, bool IsInside);
+public sealed record VisitRequest(string DeviceId);
+
+public sealed record VisitResponse(int StatusCode, bool Success, bool Queued, string Body);
+
+public sealed record TourAdvanceRequest(string DeviceId, int IdGianHangVuaDen);
+
+public sealed record SaveLogRequest(string? ClientLog);
