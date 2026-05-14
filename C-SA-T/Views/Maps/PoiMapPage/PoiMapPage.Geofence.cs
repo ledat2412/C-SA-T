@@ -276,11 +276,7 @@ public partial class PoiMapPage
             if (tourStop is null)
                 return;
 
-            var currentStop = TourService.ResolveCurrentStop(detail, _activeTourProgress);
-            var nextStop = ResolveNextAvailableStop(detail, currentStop);
-            var expectedStop = (_activeTourProgress?.StepHienTai ?? 0) <= 0
-                ? currentStop
-                : nextStop;
+            var expectedStop = TourRules.ResolveExpectedGeofenceStop(detail, _activeTourProgress);
 
             if (expectedStop is null || expectedStop.IdGianHang != idGianHang)
                 return;

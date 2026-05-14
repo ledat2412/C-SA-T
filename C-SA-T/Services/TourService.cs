@@ -55,27 +55,12 @@ public class TourService
 
     public static IReadOnlyList<TourStop> GetUsableStops(TourDetail detail)
     {
-        return detail.DanhSachStop
-            .Where(s => s.IsAvailable && HasValidCoordinate(s))
-            .OrderBy(s => s.ThuTu)
-            .ToList();
+        return TourRules.GetUsableStops(detail);
     }
 
     public static TourStop? ResolveCurrentStop(TourDetail detail, TourProgress? progress)
     {
-        var stops = GetUsableStops(detail);
-        if (stops.Count == 0)
-            return null;
-
-        var step = progress?.StepHienTai ?? 0;
-        if (step <= 0)
-            return stops[0];
-
-        var nextAvailable = stops.FirstOrDefault(s => s.ThuTu >= step);
-        if (nextAvailable is null)
-            return stops[^1];
-
-        return stops.LastOrDefault(s => s.ThuTu < nextAvailable.ThuTu) ?? nextAvailable;
+        return TourRules.ResolveCurrentStop(detail, progress);
     }
 
     private static int? MapLanguageToId(string? code)
@@ -92,13 +77,6 @@ public class TourService
 
     private static bool HasValidCoordinate(TourStop stop)
     {
-        return stop.Lat.HasValue &&
-               stop.Lon.HasValue &&
-               !double.IsNaN(stop.Lat.Value) &&
-               !double.IsNaN(stop.Lon.Value) &&
-               !double.IsInfinity(stop.Lat.Value) &&
-               !double.IsInfinity(stop.Lon.Value) &&
-               stop.Lat.Value is >= -90 and <= 90 &&
-               stop.Lon.Value is >= -180 and <= 180;
+        return TourRules.HasValidCoordinate(stop);
     }
 }

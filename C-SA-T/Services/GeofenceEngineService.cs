@@ -39,6 +39,7 @@ public sealed class GeofenceEngineService : IAsyncDisposable
     public bool AutoPlayAudioWhenEntered { get; set; } = true;
     public double RadiusMeters { get; set; } = 10d;
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
+    public TimeSpan PendingAutoPlayDelay { get; set; } = TimeSpan.FromSeconds(3);
     public AudioPlaybackStateSnapshot PlaybackState => _playbackState;
 
     private readonly LocalizationService _loc;
@@ -417,20 +418,20 @@ public sealed class GeofenceEngineService : IAsyncDisposable
         IEnumerable<GeofenceTriggeredEventArgs> targets,
         IReadOnlyDictionary<int, int> priorityBoosts)
     {
-        return targets
-            .OrderByDescending(x => priorityBoosts.TryGetValue(x.Target.Id, out var priority) ? priority : 0)
-            .ThenBy(x => x.Target.RadiusMeters > 0
-                ? x.DistanceMeters / x.Target.RadiusMeters
-                : double.MaxValue)
-            .ThenByDescending(x => x.Target.MonthlyFee)
-            .ThenBy(x => x.Target.Id);
+        return GeofencePriorityRules.Prioritize(
+            targets,
+            priorityBoosts,
+            x => x.Target.Id,
+            x => x.DistanceMeters,
+            x => x.Target.RadiusMeters,
+            x => x.Target.MonthlyFee);
     }
 
     private async Task CompletePendingAutoPlayAsync(AudioPlaybackRequest request, CancellationTokenSource pendingCts)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(3), pendingCts.Token);
+            await Task.Delay(PendingAutoPlayDelay, pendingCts.Token);
 
             await _playbackSync.WaitAsync(pendingCts.Token);
             try

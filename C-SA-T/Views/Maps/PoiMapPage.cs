@@ -61,6 +61,8 @@ public partial class PoiMapPage : ContentPage
     private readonly MapActionButton _currentLocationButton;
     private readonly MapActionButton _refreshButton;
     private readonly MapActionButton _mapModeButton;
+    private readonly MapActionButton _visualTestButton;
+    private readonly Border _visualTestStatusBanner;
     // DEMO_RESET_CACHE_BUTTON — xóa field này khi gỡ nút.
     private readonly MapActionButton _resetCacheButton;
     private readonly Label _mapModeLabel;
@@ -256,6 +258,8 @@ public partial class PoiMapPage : ContentPage
         _resetCacheButton = CreateResetCacheButton();
         _mapModeLabel = CreateMapModeLabel();
         _mapModeButton = CreateMapModeButton();
+        _visualTestButton = CreateVisualTestButton();
+        _visualTestStatusBanner = CreateVisualTestStatusBanner();
         _tourProgressStatusLabel = new Label
         {
             Text = _loc.Get("tour_progress_running"),
@@ -406,6 +410,8 @@ public partial class PoiMapPage : ContentPage
         root.Children.Add(_map);
         root.Children.Add(_topBar);
         root.Children.Add(_refreshButton);
+        root.Children.Add(_visualTestButton);
+        root.Children.Add(_visualTestStatusBanner);
         // DEMO_RESET_CACHE_BUTTON — xóa dòng này khi gỡ nút.
         root.Children.Add(_resetCacheButton);
         root.Children.Add(_bottomSheet);
@@ -802,11 +808,7 @@ public partial class PoiMapPage : ContentPage
 
     private static TourStop? ResolveNextAvailableStop(TourDetail detail, TourStop? currentStop)
     {
-        if (currentStop is null)
-            return null;
-
-        return TourService.GetUsableStops(detail)
-            .FirstOrDefault(s => s.ThuTu > currentStop.ThuTu);
+        return TourRules.ResolveNextAvailableStop(detail, currentStop);
     }
 
     private async Task ApplyActiveTourGeofencePriorityAsync(bool resetInsideState = false)
@@ -817,24 +819,7 @@ public partial class PoiMapPage : ContentPage
             return;
         }
 
-        var boosts = new Dictionary<int, int>();
-        var stops = TourService.GetUsableStops(_activeTourDetail);
-        foreach (var stop in stops)
-        {
-            if (stop.IdGianHang > 0)
-                boosts[stop.IdGianHang] = 1000;
-        }
-
-        var currentStop = TourService.ResolveCurrentStop(_activeTourDetail, _activeTourProgress);
-        var nextStop = ResolveNextAvailableStop(_activeTourDetail, currentStop);
-        var step = _activeTourProgress?.StepHienTai ?? 0;
-
-        if (currentStop is not null)
-            boosts[currentStop.IdGianHang] = step <= 0 ? 4000 : 3000;
-
-        if (nextStop is not null)
-            boosts[nextStop.IdGianHang] = step <= 0 ? 3500 : 4000;
-
+        var boosts = TourRules.BuildGeofencePriorityBoosts(_activeTourDetail, _activeTourProgress);
         await _geofenceEngine.SetPriorityBoostsAsync(boosts, resetInsideState);
     }
 
